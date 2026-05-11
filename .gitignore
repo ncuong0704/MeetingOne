@@ -76,6 +76,8 @@ experiments/
 .cursor/
 .claude/
 target/
+**/target/
+**/target-*/
 
 frontend/src-tauri/binaries/
 Cargo.lock
