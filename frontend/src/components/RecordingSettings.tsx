@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Switch } from '@/components/ui/switch';
-import { FolderOpen } from 'lucide-react';
+import { FolderOpen, HardDrive, Bell, Info, AlertTriangle } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { DeviceSelection, SelectedDevices } from '@/components/DeviceSelection';
 import Analytics from '@/lib/analytics';
@@ -111,13 +111,13 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
       const store = await Store.load('preferences.json');
       await store.set('show_recording_notification', enabled);
       await store.save();
-      toast.success('Preference saved');
+      toast.success('Đã lưu tùy chọn');
       await Analytics.track('recording_notification_preference_changed', {
         enabled: enabled.toString()
       });
     } catch (error) {
       console.error('Failed to save notification preference:', error);
-      toast.error('Failed to save preference');
+      toast.error('Không lưu được tùy chọn');
     }
   };
 
@@ -128,14 +128,14 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
       onSave?.(prefs);
 
       // Show success toast with device details
-      const micDevice = prefs.preferred_mic_device || 'Default';
-      const systemDevice = prefs.preferred_system_device || 'Default';
-      toast.success("Device preferences saved", {
-        description: `Microphone: ${micDevice}, System Audio: ${systemDevice}`
+      const micDevice = prefs.preferred_mic_device || 'Mặc định';
+      const systemDevice = prefs.preferred_system_device || 'Mặc định';
+      toast.success('Đã lưu thiết bị âm thanh', {
+        description: `Micro: ${micDevice}, Âm thanh hệ thống: ${systemDevice}`
       });
     } catch (error) {
       console.error('Failed to save recording preferences:', error);
-      toast.error("Failed to save device preferences", {
+      toast.error('Không lưu được thiết bị âm thanh', {
         description: error instanceof Error ? error.message : String(error)
       });
     } finally {
@@ -153,100 +153,112 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h3 className="text-lg font-semibold mb-4">Recording Settings</h3>
-        <p className="text-sm text-gray-600 mb-6">
-          Configure how your audio recordings are saved during meetings.
-        </p>
+    <div className="space-y-4">
+
+      {/* ── Lưu file âm thanh ────────────────────────────────────────── */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-50">
+          <h3 className="text-base font-semibold text-gray-900">Lưu file ghi âm</h3>
+          <p className="text-sm text-gray-500 mt-1">Cấu hình cách lưu file âm thanh sau cuộc họp.</p>
+        </div>
+
+        {/* Auto save toggle */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-50">
+          <div>
+            <p className="text-base font-medium text-gray-800">Tự động lưu</p>
+            <p className="text-sm text-gray-500 mt-0.5">Tự động lưu file âm thanh khi dừng ghi</p>
+          </div>
+          <Switch
+            checked={preferences.auto_save}
+            onCheckedChange={handleAutoSaveToggle}
+            disabled={saving}
+          />
+        </div>
+
+        {/* Folder location */}
+        {preferences.auto_save ? (
+          <div className="px-5 py-4 space-y-3">
+            <div className="flex items-start gap-3 p-4 rounded-lg bg-gray-50 border border-gray-100">
+              <div className="w-9 h-9 rounded-lg bg-white border border-gray-200 flex items-center justify-center shrink-0 shadow-sm">
+                <HardDrive className="w-4.5 h-4.5 text-gray-500" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-base font-medium text-gray-700 mb-1">Thư mục lưu</p>
+                <p className="text-sm text-gray-500 font-mono break-all leading-relaxed">
+                  {preferences.save_folder || 'Thư mục mặc định'}
+                </p>
+              </div>
+              <button
+                onClick={handleOpenFolder}
+                className="shrink-0 flex items-center gap-2 px-3.5 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors shadow-sm"
+              >
+                <FolderOpen className="w-4 h-4" />
+                Mở
+              </button>
+            </div>
+
+            <div className="flex items-start gap-3 bg-blue-50 border border-blue-100 rounded-lg px-4 py-3">
+              <Info className="w-4 h-4 text-[#16478e] shrink-0 mt-0.5" />
+              <p className="text-sm text-[#16478e]">
+                <span className="font-semibold">Định dạng:</span> {preferences.file_format.toUpperCase()} ·{' '}
+                Lưu với dấu thời gian: <span className="font-mono">YYYYMMDD_HHMMSS.{preferences.file_format}</span>
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="px-5 py-4">
+            <div className="flex items-start gap-3 bg-amber-50 border border-amber-100 rounded-lg px-4 py-3">
+              <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+              <p className="text-sm text-amber-700">
+                Lưu file đang tắt. Bật <span className="font-semibold">Tự động lưu</span> để lưu âm thanh cuộc họp sau khi ghi.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Auto Save Toggle */}
-      <div className="flex items-center justify-between p-4 border rounded-lg">
-        <div className="flex-1">
-          <div className="font-medium">Save Audio Recordings</div>
-          <div className="text-sm text-gray-600">
-            Automatically save audio files when recording stops
-          </div>
+      {/* ── Thông báo ghi ────────────────────────────────────────────── */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-50">
+          <h3 className="text-base font-semibold text-gray-900">Thông báo</h3>
         </div>
-        <Switch
-          checked={preferences.auto_save}
-          onCheckedChange={handleAutoSaveToggle}
-          disabled={saving}
-        />
+        <div className="flex items-center justify-between px-5 py-4">
+          <div className="flex items-start gap-3">
+            <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center shrink-0 mt-0.5">
+              <Bell className="w-4 h-4 text-gray-500" />
+            </div>
+            <div>
+              <p className="text-base font-medium text-gray-800">Thông báo khi bắt đầu ghi</p>
+              <p className="text-sm text-gray-500 mt-0.5">Nhắc nhở mọi người trong cuộc họp khi bắt đầu ghi âm</p>
+            </div>
+          </div>
+          <Switch
+            checked={showRecordingNotification}
+            onCheckedChange={handleNotificationToggle}
+          />
+        </div>
       </div>
 
-      {/* Folder Location - Only shown when auto_save is enabled */}
-      {preferences.auto_save && (
-        <div className="space-y-4">
-          <div className="p-4 border rounded-lg bg-gray-50">
-            <div className="font-medium mb-2">Save Location</div>
-            <div className="text-sm text-gray-600 mb-3 break-all">
-              {preferences.save_folder || 'Default folder'}
-            </div>
-            <button
-              onClick={handleOpenFolder}
-              className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
-            >
-              <FolderOpen className="w-4 h-4" />
-              Open Folder
-            </button>
-          </div>
-
-          <div className="p-4 border rounded-lg bg-blue-50">
-            <div className="text-sm text-blue-800">
-              <strong>File Format:</strong> {preferences.file_format.toUpperCase()} files
-            </div>
-            <div className="text-xs text-blue-600 mt-1">
-              Recordings are saved with timestamp: recording_YYYYMMDD_HHMMSS.{preferences.file_format}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Info when auto_save is disabled */}
-      {!preferences.auto_save && (
-        <div className="p-4 border rounded-lg bg-yellow-50">
-          <div className="text-sm text-yellow-800">
-            Audio recording is disabled. Enable "Save Audio Recordings" to automatically save your meeting audio.
-          </div>
-        </div>
-      )}
-
-      {/* Recording Notification Toggle */}
-      <div className="flex items-center justify-between p-4 border rounded-lg">
-        <div className="flex-1">
-          <div className="font-medium">Recording Start Notification</div>
-          <div className="text-sm text-gray-600">
-            Show reminder to inform participants when recording starts
-          </div>
-        </div>
-        <Switch
-          checked={showRecordingNotification}
-          onCheckedChange={handleNotificationToggle}
-        />
-      </div>
-
-      {/* Device Preferences */}
-      <div className="space-y-4">
-        <div className="border-t pt-6">
-          <h4 className="text-base font-medium text-gray-900 mb-4">Default Audio Devices</h4>
-          <p className="text-sm text-gray-600 mb-4">
-            Set your preferred microphone and system audio devices for recording. These will be automatically selected when starting new recordings.
+      {/* ── Thiết bị âm thanh ────────────────────────────────────────── */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-50">
+          <h3 className="text-base font-semibold text-gray-900">Thiết bị âm thanh mặc định</h3>
+          <p className="text-sm text-gray-500 mt-1">
+            Micro và âm thanh hệ thống ưu tiên — được chọn sẵn khi bắt đầu ghi mới.
           </p>
-
-          <div className="border rounded-lg p-4 bg-gray-50">
-            <DeviceSelection
-              selectedDevices={{
-                micDevice: preferences.preferred_mic_device,
-                systemDevice: preferences.preferred_system_device
-              }}
-              onDeviceChange={handleDeviceChange}
-              disabled={saving}
-            />
-          </div>
+        </div>
+        <div className="px-5 py-4">
+          <DeviceSelection
+            selectedDevices={{
+              micDevice: preferences.preferred_mic_device,
+              systemDevice: preferences.preferred_system_device,
+            }}
+            onDeviceChange={handleDeviceChange}
+            disabled={saving}
+          />
         </div>
       </div>
+
     </div>
   );
 }

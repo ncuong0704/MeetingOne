@@ -1,5 +1,2 @@
-pub mod analytics;
+//! Analytics đã gỡ khỏi bản nội bộ — không gửi dữ liệu ra ngoài.
 pub mod commands;
-
-pub use analytics::*;
-// Don't re-export commands to avoid conflicts - lib.rs will import directly

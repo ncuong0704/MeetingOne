@@ -1,17 +1,13 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Upload,
-  Globe,
   Loader2,
   AlertCircle,
   CheckCircle2,
   X,
-  Cpu,
   FileAudio,
   Clock,
   HardDrive,
-  ChevronDown,
-  ChevronUp,
 } from 'lucide-react';
 import {
   Dialog,
@@ -22,20 +18,12 @@ import {
   DialogTitle,
 } from '../ui/dialog';
 import { Button } from '../ui/button';
-import { Input } from '../ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../ui/select';
+import { Textarea } from '../ui/textarea';
 import { toast } from 'sonner';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useImportAudio, ImportResult } from '@/hooks/useImportAudio';
 import { useRouter } from 'next/navigation';
 import { useSidebar } from '../Sidebar/SidebarProvider';
-import { LANGUAGES } from '@/constants/languages';
 import { useTranscriptionModels, ModelOption } from '@/hooks/useTranscriptionModels';
 
 
@@ -72,11 +60,9 @@ export function ImportAudioDialog({
 }: ImportAudioDialogProps) {
   const router = useRouter();
   const { refetchMeetings } = useSidebar();
-  const { selectedLanguage, transcriptModelConfig } = useConfig();
+  const { transcriptModelConfig } = useConfig();
 
   const [title, setTitle] = useState('');
-  const [selectedLang, setSelectedLang] = useState(selectedLanguage || 'auto');
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [titleModifiedByUser, setTitleModifiedByUser] = useState(false);
 
   // Always start as false — represents "dialog has not yet been opened".
@@ -88,14 +74,12 @@ export function ImportAudioDialog({
   const {
     availableModels,
     selectedModelKey,
-    setSelectedModelKey,
-    loadingModels,
     fetchModels,
     resetSelection,
   } = useTranscriptionModels(transcriptModelConfig);
 
   const handleImportComplete = useCallback((result: ImportResult) => {
-    toast.success(`Import complete! ${result.segments_count} segments created.`);
+    toast.success(`Nhập xong! Đã tạo ${result.segments_count} đoạn bản ghi.`);
 
     // Refresh meetings list then navigate to the imported meeting
     refetchMeetings();
@@ -105,7 +89,7 @@ export function ImportAudioDialog({
   }, [router, refetchMeetings, onComplete, onOpenChange]);
 
   const handleImportError = useCallback((error: string) => {
-    toast.error('Import failed', { description: error });
+    toast.error('Nhập file thất bại', { description: error });
   }, []);
 
   const {
@@ -137,8 +121,6 @@ export function ImportAudioDialog({
       resetSelection();
       setTitle('');
       setTitleModifiedByUser(false);
-      setSelectedLang(selectedLanguage || 'auto');
-      setShowAdvanced(false);
 
       // Validate preselected file if provided
       if (preselectedFile) {
@@ -152,7 +134,7 @@ export function ImportAudioDialog({
       // Fetch available models using centralized hook
       fetchModels();
     }
-  }, [open, preselectedFile, selectedLanguage, transcriptModelConfig, reset, resetSelection, validateFile, fetchModels]);
+  }, [open, preselectedFile, transcriptModelConfig, reset, resetSelection, validateFile, fetchModels]);
 
   // Update title when fileInfo changes
   useEffect(() => {
@@ -169,13 +151,6 @@ export function ImportAudioDialog({
     const name = selectedModelKey.slice(colonIndex + 1);
     return availableModels.find((m) => m.provider === provider && m.name === name);
   }, [selectedModelKey, availableModels]);
-  const isParakeetModel = selectedModel?.provider === 'parakeet';
-
-  useEffect(() => {
-    if (isParakeetModel && selectedLang !== 'auto') {
-      setSelectedLang('auto');
-    }
-  }, [isParakeetModel, selectedLang]);
 
   const handleSelectFile = async () => {
     const info = await selectFile();
@@ -190,7 +165,7 @@ export function ImportAudioDialog({
     await startImport(
       fileInfo.path,
       title || fileInfo.filename,
-      isParakeetModel ? null : selectedLang === 'auto' ? null : selectedLang,
+      null,
       selectedModel?.name || null,
       selectedModel?.provider || null
     );
@@ -199,7 +174,7 @@ export function ImportAudioDialog({
   const handleCancel = async () => {
     if (isProcessing) {
       await cancelImport();
-      toast.info('Import cancelled');
+      toast.info('Đã hủy nhập file');
     }
     onOpenChange(false);
   };
@@ -236,31 +211,31 @@ export function ImportAudioDialog({
             {isProcessing ? (
               <>
                 <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
-                Importing Audio...
+                Đang nhập âm thanh...
               </>
             ) : error ? (
               <>
                 <AlertCircle className="h-5 w-5 text-red-600" />
-                Import Failed
+                Nhập file thất bại
               </>
             ) : status === 'complete' ? (
               <>
                 <CheckCircle2 className="h-5 w-5 text-green-600" />
-                Import Complete
+                Nhập file hoàn tất
               </>
             ) : (
               <>
                 <Upload className="h-5 w-5 text-blue-600" />
-                Import Audio File
+                Nhập file âm thanh
               </>
             )}
           </DialogTitle>
           <DialogDescription>
             {isProcessing
-              ? progress?.message || 'Processing audio...'
+              ? progress?.message || 'Đang xử lý âm thanh...'
               : error
-              ? 'An error occurred during import'
-              : 'Import an audio file to create a new meeting with transcripts'}
+              ? 'Đã xảy ra lỗi khi nhập file'
+              : 'Chọn file âm thanh để tạo cuộc họp mới kèm bản ghi'}
           </DialogDescription>
         </DialogHeader>
 
@@ -273,7 +248,7 @@ export function ImportAudioDialog({
                   <div className="flex items-start gap-3">
                     <FileAudio className="h-8 w-8 text-blue-600 flex-shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium text-gray-900 truncate">{fileInfo.filename}</p>
+                      <p className="font-medium text-gray-900">{fileInfo.filename}</p>
                       <div className="flex items-center gap-4 text-sm text-gray-500 mt-1">
                         <span className="flex items-center gap-1">
                           <Clock className="h-3.5 w-3.5" />
@@ -290,19 +265,20 @@ export function ImportAudioDialog({
 
                   {/* Editable title */}
                   <div className="space-y-1">
-                    <label className="text-sm font-medium text-gray-700">Meeting Title</label>
-                    <Input
+                    <label className="text-sm font-medium text-gray-700">Tiêu đề cuộc họp</label>
+                    <Textarea
                       value={title}
                       onChange={(e) => {
                         setTitle(e.target.value);
                         setTitleModifiedByUser(true);
                       }}
-                      placeholder="Enter meeting title"
+                      placeholder="Nhập tiêu đề cuộc họp"
+                      rows={2}
                     />
                   </div>
 
                   <Button variant="outline" size="sm" onClick={handleSelectFile} className="w-full">
-                    Choose Different File
+                    Chọn file khác
                   </Button>
                 </div>
               ) : (
@@ -312,98 +288,16 @@ export function ImportAudioDialog({
                     {status === 'validating' ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Validating...
+                        Đang kiểm tra...
                       </>
                     ) : (
                       <>
                         <Upload className="h-4 w-4 mr-2" />
-                        Select Audio File
+                        Chọn file âm thanh
                       </>
                     )}
                   </Button>
                   <p className="text-sm text-gray-500 mt-2">MP4, WAV, MP3, FLAC, OGG, MKV, WebM, WMA</p>
-                </div>
-              )}
-
-              {/* Advanced options (collapsible) */}
-              {fileInfo && (
-                <div className="border rounded-lg">
-                  <button
-                    onClick={() => setShowAdvanced(!showAdvanced)}
-                    className="w-full flex items-center justify-between p-3 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                  >
-                    <span>Advanced Options</span>
-                    {showAdvanced ? (
-                      <ChevronUp className="h-4 w-4" />
-                    ) : (
-                      <ChevronDown className="h-4 w-4" />
-                    )}
-                  </button>
-
-                  {showAdvanced && (
-                    <div className="p-3 pt-0 space-y-4 border-t">
-                      {/* Language selector */}
-                      {!isParakeetModel ? (
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2">
-                            <Globe className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm font-medium">Language</span>
-                          </div>
-                          <Select value={selectedLang} onValueChange={setSelectedLang}>
-                            <SelectTrigger className="w-full">
-                              <SelectValue placeholder="Select language" />
-                            </SelectTrigger>
-                            <SelectContent className="max-h-60">
-                              {LANGUAGES.map((lang) => (
-                                <SelectItem key={lang.code} value={lang.code}>
-                                  {lang.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2">
-                            <Globe className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm font-medium">Language</span>
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            Language selection isn't supported for Parakeet. It always uses automatic detection.
-                          </p>
-                        </div>
-                      )}
-
-                      {/* Model selector */}
-                      {availableModels.length > 0 && (
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2">
-                            <Cpu className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm font-medium">Model</span>
-                          </div>
-                          <Select
-                            value={selectedModelKey}
-                            onValueChange={setSelectedModelKey}
-                            disabled={loadingModels}
-                          >
-                            <SelectTrigger className="w-full">
-                              <SelectValue placeholder={loadingModels ? 'Loading models...' : 'Select model'} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {availableModels.map((model) => (
-                                <SelectItem
-                                  key={`${model.provider}:${model.name}`}
-                                  value={`${model.provider}:${model.name}`}
-                                >
-                                  {model.displayName} ({Math.round(model.size_mb)} MB)
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      )}
-                    </div>
-                  )}
                 </div>
               )}
             </>
@@ -415,7 +309,7 @@ export function ImportAudioDialog({
               <div className="relative">
                 <div className="w-full bg-gray-200 rounded-full h-3">
                   <div
-                    className="bg-blue-600 h-3 rounded-full transition-all duration-300 ease-out"
+                    className="bg-[#16478e] h-3 rounded-full transition-all duration-300 ease-out"
                     style={{ width: `${Math.min(progress.progress_percentage, 100)}%` }}
                   />
                 </div>
@@ -440,31 +334,31 @@ export function ImportAudioDialog({
           {!isProcessing && !error && (
             <>
               <Button variant="outline" onClick={() => onOpenChange(false)}>
-                Cancel
+                Hủy
               </Button>
               <Button
                 onClick={handleStartImport}
-                className="bg-blue-600 hover:bg-blue-700"
+                className="bg-[#16478e] hover:bg-[#1a55ab]"
                 disabled={!fileInfo}
               >
                 <Upload className="h-4 w-4 mr-2" />
-                Import
+                Nhập
               </Button>
             </>
           )}
           {isProcessing && (
             <Button variant="outline" onClick={handleCancel}>
               <X className="h-4 w-4 mr-2" />
-              Cancel
+              Hủy
             </Button>
           )}
           {error && (
             <>
               <Button variant="outline" onClick={() => onOpenChange(false)}>
-                Close
+                Đóng
               </Button>
               <Button onClick={reset} variant="outline">
-                Try Again
+                Thử lại
               </Button>
             </>
           )}

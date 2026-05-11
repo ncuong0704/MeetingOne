@@ -1,44 +1,50 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use log::error;
 
 use super::configuration::{AudioDevice, DeviceType};
 use super::platform;
 
-/// List all available audio devices on the system
+/// List all available audio devices on the system.
+/// WASAPI/COM enumeration is blocking, so we run it on a dedicated thread
+/// to avoid stalling the tokio async runtime (which causes UI freezes on startup).
 pub async fn list_audio_devices() -> Result<Vec<AudioDevice>> {
-    let host = cpal::default_host();
+    tokio::task::spawn_blocking(|| {
+        let host = cpal::default_host();
 
-    // Platform-specific device enumeration
-    let mut devices = {
-        #[cfg(target_os = "windows")]
-        {
-            platform::configure_windows_audio(&host)?
-        }
+        // Platform-specific device enumeration (blocking COM/WASAPI calls)
+        let mut devices = {
+            #[cfg(target_os = "windows")]
+            {
+                platform::configure_windows_audio(&host)?
+            }
 
-        #[cfg(target_os = "linux")]
-        {
-            platform::configure_linux_audio(&host)?
-        }
+            #[cfg(target_os = "linux")]
+            {
+                platform::configure_linux_audio(&host)?
+            }
 
-        #[cfg(target_os = "macos")]
-        {
-            platform::configure_macos_audio(&host)?
-        }
-    };
+            #[cfg(target_os = "macos")]
+            {
+                platform::configure_macos_audio(&host)?
+            }
+        };
 
-    // Add any additional devices from the default host
-    if let Ok(other_devices) = host.devices() {
-        for device in other_devices {
-            if let Ok(name) = device.name() {
-                if !devices.iter().any(|d| d.name == name) {
-                    devices.push(AudioDevice::new(name, DeviceType::Output));
+        // Add any additional devices from the default host
+        if let Ok(other_devices) = host.devices() {
+            for device in other_devices {
+                if let Ok(name) = device.name() {
+                    if !devices.iter().any(|d| d.name == name) {
+                        devices.push(AudioDevice::new(name, DeviceType::Output));
+                    }
                 }
             }
         }
-    }
 
-    Ok(devices)
+        Ok::<Vec<AudioDevice>, anyhow::Error>(devices)
+    })
+    .await
+    .map_err(|e| anyhow!("Device enumeration thread panicked: {}", e))?
 }
 
 /// Trigger audio permission request on platforms that require it

@@ -62,27 +62,14 @@ export function TranscriptPanel({
                     variant="outline"
                     size="sm"
                     onClick={copyTranscript}
-                    title="Copy Transcript"
+                    title="Sao chép bản ghi"
                   >
                     <Copy />
                     <span className='hidden md:inline'>
-                      Copy
+                      Sao chép
                     </span>
                   </Button>
                 )}
-                {transcriptModelConfig.provider === "localWhisper" &&
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => showModal('languageSettings')}
-                    title="Language"
-                  >
-                    <GlobeIcon />
-                    <span className='hidden md:inline'>
-                      Language
-                    </span>
-                  </Button>
-                }
               </ButtonGroup>
             </div>
           </div>

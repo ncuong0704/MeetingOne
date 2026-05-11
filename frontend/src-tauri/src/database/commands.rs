@@ -190,22 +190,22 @@ pub async fn initialize_fresh_database(app: AppHandle) -> Result<(), String> {
     // Set default model configuration for fresh installs
     let pool = db_manager.pool();
     
-    // Default Summary Model: Built-in AI (Gemma 3 1B)
+    // Default Summary Model: Ollama
     if let Err(e) = crate::database::repositories::setting::SettingsRepository::save_model_config(
         pool,
-        "builtin-ai",
-        "gemma3:1b",
-        "large-v3", // Default whisper model (unused for builtin but required)
+        "ollama",
+        "qwen2.5:3b",
+        "large-v3",
         None,
     ).await {
         error!("Failed to set default summary model config: {}", e);
     }
 
-    // Default Transcription Model: Parakeet
+    // Default Transcription Model: ZipFormer Vietnamese ASR
     if let Err(e) = crate::database::repositories::setting::SettingsRepository::save_transcript_config(
         pool,
-        "parakeet",
-        crate::config::DEFAULT_PARAKEET_MODEL,
+        "zipformer",
+        crate::config::ZIPFORMER_MODEL_NAME,
     ).await {
         error!("Failed to set default transcription model config: {}", e);
     }

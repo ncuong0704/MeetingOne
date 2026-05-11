@@ -92,7 +92,7 @@ export function RetranscribeDialog({
     const name = selectedModelKey.slice(colonIndex + 1);
     return availableModels.find(m => m.provider === provider && m.name === name);
   }, [selectedModelKey, availableModels]);
-  const isParakeetModel = selectedModelDetails?.provider === 'parakeet';
+  const isParakeetModel = true; // ZipFormer is Vietnamese-only: auto language always
 
   useEffect(() => {
     if (isParakeetModel && selectedLang !== 'auto') {
@@ -154,7 +154,7 @@ export function RetranscribeDialog({
 
             setIsProcessing(false);
             toast.success(
-              `Retranscription complete! ${event.payload.segments_count} segments created.`
+              `Phiên âm lại xong! Đã tạo ${event.payload.segments_count} đoạn bản ghi.`
             );
             onCompleteRef.current?.();
             onOpenChangeRef.current(false);
@@ -236,7 +236,7 @@ export function RetranscribeDialog({
         await invoke('cancel_retranscription_command');
         setIsProcessing(false);
         setProgress(null);
-        toast.info('Retranscription cancelled');
+        toast.info('Đã hủy phiên âm lại');
       } catch (err) {
         console.error('Failed to cancel retranscription:', err);
       }
@@ -276,26 +276,26 @@ export function RetranscribeDialog({
             {isProcessing ? (
               <>
                 <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
-                Retranscribing...
+                Đang phiên âm lại...
               </>
             ) : error ? (
               <>
                 <AlertCircle className="h-5 w-5 text-red-600" />
-                Retranscription Failed
+                Phiên âm lại thất bại
               </>
             ) : (
               <>
                 <RefreshCw className="h-5 w-5 text-blue-600" />
-                Retranscribe Meeting
+                Phiên âm lại cuộc họp
               </>
             )}
           </DialogTitle>
           <DialogDescription>
             {isProcessing
-              ? progress?.message || 'Processing audio...'
+              ? progress?.message || 'Đang xử lý âm thanh...'
               : error
-                ? 'An error occurred during retranscription'
-                : 'Re-process the audio with different language settings'}
+                ? 'Đã xảy ra lỗi khi phiên âm lại'
+                : 'Xử lý lại âm thanh với cài đặt ngôn ngữ khác'}
           </DialogDescription>
         </DialogHeader>
 
@@ -305,11 +305,11 @@ export function RetranscribeDialog({
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
                   <Globe className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm font-medium">Language</span>
+                  <span className="text-sm font-medium">Ngôn ngữ</span>
                 </div>
                 <Select value={selectedLang} onValueChange={setSelectedLang}>
                   <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select language" />
+                    <SelectValue placeholder="Chọn ngôn ngữ" />
                   </SelectTrigger>
                   <SelectContent className="max-h-60">
                     {LANGUAGES.map((lang) => (
@@ -320,17 +320,17 @@ export function RetranscribeDialog({
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  Select a specific language to improve accuracy, or use auto-detect
+                  Chọn ngôn ngữ cụ thể để chính xác hơn, hoặc dùng tự động
                 </p>
               </div>
             ) : (
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
                   <Globe className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm font-medium">Language</span>
+                  <span className="text-sm font-medium">Ngôn ngữ</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Language selection isn't supported for Parakeet. It always uses automatic detection.
+                  ZipFormer chỉ hỗ trợ tiếng Việt — không cần chọn ngôn ngữ thủ công.
                 </p>
               </div>
             )
@@ -340,11 +340,11 @@ export function RetranscribeDialog({
             <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <Cpu className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium">Model</span>
+                <span className="text-sm font-medium">Mô hình</span>
               </div>
               <Select value={selectedModelKey} onValueChange={setSelectedModelKey} disabled={loadingModels}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder={loadingModels ? "Loading models..." : "Select model"} />
+                  <SelectValue placeholder={loadingModels ? 'Đang tải mô hình...' : 'Chọn mô hình'} />
                 </SelectTrigger>
                 <SelectContent>
                   {availableModels.map((model) => (
@@ -355,7 +355,7 @@ export function RetranscribeDialog({
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Choose a transcription model
+                Chọn mô hình nhận dạng giọng nói
               </p>
             </div>
           )}
@@ -365,7 +365,7 @@ export function RetranscribeDialog({
               <div className="relative">
                 <div className="w-full bg-gray-200 rounded-full h-3">
                   <div
-                    className="bg-blue-600 h-3 rounded-full transition-all duration-300 ease-out"
+                    className="bg-[#16478e] h-3 rounded-full transition-all duration-300 ease-out"
                     style={{ width: `${Math.min(progress.progress_percentage, 100)}%` }}
                   />
                 </div>
@@ -391,28 +391,28 @@ export function RetranscribeDialog({
           {!isProcessing && !error && (
             <>
               <Button variant="outline" onClick={() => onOpenChange(false)}>
-                Cancel
+                Hủy
               </Button>
               <Button
                 onClick={handleStartRetranscription}
-                className="bg-blue-600 hover:bg-blue-700"
+                className="bg-[#16478e] hover:bg-[#1a55ab]"
                 disabled={!meetingFolderPath}
               >
                 <RefreshCw className="h-4 w-4 mr-2" />
-                Start Retranscription
+                Bắt đầu phiên âm lại
               </Button>
             </>
           )}
           {isProcessing && (
             <Button variant="outline" onClick={handleCancel}>
               <X className="h-4 w-4 mr-2" />
-              Cancel
+              Hủy
             </Button>
           )}
           {error && (
             <>
               <Button variant="outline" onClick={() => onOpenChange(false)}>
-                Close
+                Đóng
               </Button>
               <Button
                 onClick={() => {
@@ -421,7 +421,7 @@ export function RetranscribeDialog({
                 }}
                 variant="outline"
               >
-                Try Again
+                Thử lại
               </Button>
             </>
           )}

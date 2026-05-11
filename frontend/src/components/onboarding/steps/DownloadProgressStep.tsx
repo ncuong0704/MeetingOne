@@ -1,502 +1,535 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { Mic, Sparkles, Check, Loader2, Download } from 'lucide-react';
+import {
+  Mic, Sparkles, Check, Loader2, AlertCircle,
+  Download, Star, Cpu, ArrowRight, RefreshCw, ExternalLink,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { OnboardingContainer } from '../OnboardingContainer';
 import { useOnboarding } from '@/contexts/OnboardingContext';
 import { toast } from 'sonner';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
+import { cn } from '@/lib/utils';
 
-const PARAKEET_MODEL = 'parakeet-tdt-0.6b-v3-int8';
+// ── types (unchanged) ──────────────────────────────────────────────────────
+type ZipStatus = 'waiting' | 'downloading' | 'completed' | 'error';
+interface ZipState { status: ZipStatus; progress: number; error?: string; }
+interface OllamaModelOption {
+  name: string; family: string; size_gb: number;
+  description: string; is_pulled: boolean; is_recommended: boolean;
+}
+type OllamaStatus = 'checking' | 'not_installed' | 'selecting' | 'pulling' | 'ready';
 
-type DownloadStatus = 'waiting' | 'downloading' | 'completed' | 'error';
-
-interface DownloadState {
-  status: DownloadStatus;
-  progress: number;
-  downloadedMb: number;
-  totalMb: number;
-  speedMbps: number;
-  error?: string;
+// ── small helpers ──────────────────────────────────────────────────────────
+function StatusDot({ status }: { status: 'idle' | 'loading' | 'ok' | 'warn' | 'error' }) {
+  if (status === 'loading') return <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />;
+  if (status === 'ok') return (
+    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100">
+      <Check className="w-3.5 h-3.5 text-emerald-600" strokeWidth={2.5} />
+    </span>
+  );
+  if (status === 'warn') return (
+    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-amber-100">
+      <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+    </span>
+  );
+  if (status === 'error') return (
+    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-red-100">
+      <AlertCircle className="w-3.5 h-3.5 text-red-600" />
+    </span>
+  );
+  return <span className="h-2 w-2 rounded-full bg-gray-300" />;
 }
 
+function ProgressBar({ value, color = 'bg-gray-800' }: { value: number; color?: string }) {
+  return (
+    <div className="w-full h-1.5 rounded-full bg-gray-100 overflow-hidden">
+      <motion.div
+        className={cn('h-full rounded-full', color)}
+        initial={{ width: 0 }}
+        animate={{ width: `${value}%` }}
+        transition={{ duration: 0.4, ease: 'easeOut' }}
+      />
+    </div>
+  );
+}
+
+// ── component ──────────────────────────────────────────────────────────────
 export function DownloadProgressStep() {
   const {
-    goNext,
-    selectedSummaryModel,
-    setSelectedSummaryModel,
-    parakeetDownloaded,
-    setParakeetDownloaded,
-    summaryModelDownloaded,
-    setSummaryModelDownloaded,
-    startBackgroundDownloads,
-    completeOnboarding,
+    goNext, setSelectedSummaryModel,
+    parakeetDownloaded, setParakeetDownloaded,
+    startBackgroundDownloads, completeOnboarding,
   } = useOnboarding();
 
-  const [recommendedModel, setRecommendedModel] = useState<string>('gemma3:1b');
   const [isMac, setIsMac] = useState(false);
-
-  const [parakeetState, setParakeetState] = useState<DownloadState>({
+  const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus>('checking');
+  const [modelOptions, setModelOptions] = useState<OllamaModelOption[] | null>(null);
+  const [hardwareInfo, setHardwareInfo] = useState<{ ram_gb?: number; max_size_gb?: number } | null>(null);
+  const [selectedModel, setSelectedModel] = useState('');
+  const [pullingModel, setPullingModel] = useState('');
+  const [pullProgress, setPullProgress] = useState(0);
+  const [pullError, setPullError] = useState<string | null>(null);
+  const [zipState, setZipState] = useState<ZipState>({
     status: parakeetDownloaded ? 'completed' : 'waiting',
     progress: parakeetDownloaded ? 100 : 0,
-    downloadedMb: 0,
-    totalMb: 670,
-    speedMbps: 0,
   });
-
-  const [gemmaState, setGemmaState] = useState<DownloadState>({
-    status: summaryModelDownloaded ? 'completed' : 'waiting',
-    progress: summaryModelDownloaded ? 100 : 0,
-    downloadedMb: 0,
-    totalMb: 806, // 1b model size
-    speedMbps: 0,
-  });
-
   const [isCompleting, setIsCompleting] = useState(false);
   const downloadStartedRef = useRef(false);
   const retryingRef = useRef(false);
-  const retryingSummaryRef = useRef(false);
 
-  // Retry download handler
-  const handleRetryDownload = async () => {
-    // Prevent multiple simultaneous retries
-    if (retryingRef.current) {
-      console.log('[DownloadProgressStep] Retry already in progress, ignoring');
-      return;
+  // ── load models (logic unchanged) ─────────────────────────────────────
+  const loadModels = async () => {
+    setOllamaStatus('checking');
+    setModelOptions(null);
+    setHardwareInfo(null);
+
+    let ollamaReachable = false;
+    try {
+      await invoke<unknown[]>('get_ollama_models', { endpoint: null });
+      ollamaReachable = true;
+    } catch (err) {
+      const s = String(err);
+      if (s.includes('No models found') || s.includes('NoModelsFound')) ollamaReachable = true;
     }
 
-    console.log('[DownloadProgressStep] Retrying Parakeet download');
-    retryingRef.current = true;
-
-    // Reset error state
-    setParakeetState((prev) => ({
-      ...prev,
-      status: 'waiting',
-      error: undefined,
-      progress: 0,
-      downloadedMb: 0,
-      speedMbps: 0,
-    }));
+    if (!ollamaReachable) { setOllamaStatus('not_installed'); return; }
 
     try {
-      await invoke('parakeet_retry_download', { modelName: PARAKEET_MODEL });
-      // Progress events will update state
-    } catch (error) {
-      console.error('[DownloadProgressStep] Retry failed:', error);
-      setParakeetState((prev) => ({
-        ...prev,
-        status: 'error',
-        error: error instanceof Error ? error.message : 'Retry failed',
-      }));
+      const options = await invoke<OllamaModelOption[]>('get_ollama_model_options', { endpoint: null });
+      setModelOptions(options);
+      const rec = await invoke<{ model: string; ram_gb: number; size_gb: number }>('get_ollama_model_recommendation');
+      setHardwareInfo({ ram_gb: rec.ram_gb, max_size_gb: rec.size_gb });
 
-      toast.error('Download retry failed', {
-        description: 'Please check your connection and try again.',
-      });
-    } finally {
-      // Allow retry again after 2 seconds
-      setTimeout(() => {
-        retryingRef.current = false;
-      }, 2000);
-    }
-  };
-
-  // Retry summary download handler
-  const handleRetrySummaryDownload = async () => {
-    // Prevent multiple simultaneous retries
-    if (retryingSummaryRef.current) {
-      console.log('[DownloadProgressStep] Summary retry already in progress, ignoring');
-      return;
-    }
-
-    console.log('[DownloadProgressStep] Retrying summary model download');
-    retryingSummaryRef.current = true;
-
-    // Reset error state
-    setGemmaState((prev) => ({
-      ...prev,
-      status: 'downloading',
-      error: undefined,
-      progress: 0,
-      downloadedMb: 0,
-      speedMbps: 0,
-    }));
-
-    try {
-      // Call download command directly (no retry command exists for built-in AI)
-      await invoke('builtin_ai_download_model', { modelName: selectedSummaryModel || recommendedModel });
-    } catch (error) {
-      console.error('[DownloadProgressStep] Summary retry failed:', error);
-      setGemmaState((prev) => ({
-        ...prev,
-        status: 'error',
-        error: error instanceof Error ? error.message : 'Retry failed',
-      }));
-
-      toast.error('Summary model download retry failed', {
-        description: 'Please check your connection and try again.',
-      });
-    } finally {
-      // Allow retry again after 2 seconds
-      setTimeout(() => {
-        retryingSummaryRef.current = false;
-      }, 2000);
-    }
-  };
-
-  // Fetch recommended model and detect platform on mount
-  useEffect(() => {
-    const fetchRecommendation = async () => {
-      try {
-        const model = await invoke<string>('builtin_ai_get_recommended_model');
-        setRecommendedModel(model);
-        setSelectedSummaryModel(model);  // Update context
-      } catch (error) {
-        console.error('Failed to get recommended model:', error);
-        // Keep default gemma3:1b
+      const alreadyPulled = options.find(m => m.is_pulled);
+      if (alreadyPulled) {
+        const best = options.find(m => m.is_pulled && m.is_recommended) ?? alreadyPulled;
+        setSelectedModel(best.name);
+        setSelectedSummaryModel(best.name);
+        setOllamaStatus('ready');
+      } else {
+        const best = options.find(m => m.is_recommended) ?? options[0];
+        if (best) { setSelectedModel(best.name); setSelectedSummaryModel(best.name); }
+        setOllamaStatus('selecting');
       }
-    };
+    } catch {
+      setOllamaStatus('selecting');
+    }
+  };
 
+  useEffect(() => {
     const checkPlatform = async () => {
       try {
         const { platform } = await import('@tauri-apps/plugin-os');
         setIsMac(platform() === 'macos');
-      } catch (e) {
-        setIsMac(navigator.userAgent.includes('Mac'));
-      }
+      } catch { setIsMac(navigator.userAgent.includes('Mac')); }
     };
-
-    fetchRecommendation();
     checkPlatform();
+    loadModels();
   }, []);
 
-  // Start downloads on mount
   useEffect(() => {
     if (downloadStartedRef.current) return;
     downloadStartedRef.current = true;
-
-    startDownloads();
+    if (!parakeetDownloaded) {
+      setZipState(prev => ({ ...prev, status: 'downloading' }));
+      startBackgroundDownloads(false).catch(err =>
+        setZipState(prev => ({ ...prev, status: 'error', error: String(err) }))
+      );
+    }
   }, []);
 
-  // Listen to Parakeet download progress
   useEffect(() => {
-    const unlistenProgress = listen<{
-      modelName: string;
-      progress: number;
-      downloaded_mb?: number;
-      total_mb?: number;
-      speed_mbps?: number;
-      status?: string;
-    }>('parakeet-model-download-progress', (event) => {
-      const { modelName, progress, downloaded_mb, total_mb, speed_mbps, status } = event.payload;
-      if (modelName === PARAKEET_MODEL) {
-        setParakeetState((prev) => ({
-          ...prev,
-          status: status === 'completed' ? 'completed' : 'downloading',
-          progress,
-          downloadedMb: downloaded_mb ?? prev.downloadedMb,
-          totalMb: total_mb ?? prev.totalMb,
-          speedMbps: speed_mbps ?? prev.speedMbps,
-        }));
-
-        if (status === 'completed' || progress >= 100) {
-          setParakeetDownloaded(true);
-        }
-      }
+    const unP = listen<{ progress: number }>('zipformer-model-download-progress', (e) => {
+      const p = e.payload.progress;
+      setZipState(prev => ({ ...prev, status: p >= 100 ? 'completed' : 'downloading', progress: p }));
+      if (p >= 100) setParakeetDownloaded(true);
     });
-
-    const unlistenComplete = listen<{ modelName: string }>(
-      'parakeet-model-download-complete',
-      (event) => {
-        if (event.payload.modelName === PARAKEET_MODEL) {
-          setParakeetState((prev) => ({ ...prev, status: 'completed', progress: 100 }));
-          setParakeetDownloaded(true);
-        }
-      }
+    const unC = listen('zipformer-model-download-complete', () => {
+      setZipState({ status: 'completed', progress: 100 });
+      setParakeetDownloaded(true);
+    });
+    const unE = listen<{ error: string }>('zipformer-model-download-error', (e) =>
+      setZipState(prev => ({ ...prev, status: 'error', error: e.payload.error }))
     );
-
-    const unlistenError = listen<{ modelName: string; error: string }>(
-      'parakeet-model-download-error',
-      (event) => {
-        if (event.payload.modelName === PARAKEET_MODEL) {
-          setParakeetState((prev) => ({
-            ...prev,
-            status: 'error',
-            error: event.payload.error,
-          }));
-        }
-      }
-    );
-
-    return () => {
-      unlistenProgress.then((fn) => fn());
-      unlistenComplete.then((fn) => fn());
-      unlistenError.then((fn) => fn());
-    };
+    return () => { unP.then(f => f()); unC.then(f => f()); unE.then(f => f()); };
   }, []);
 
-  // Listen to Gemma download progress (always downloading for builtin-ai)
   useEffect(() => {
-    const unlisten = listen<{
-      model: string;
-      progress: number;
-      downloaded_mb?: number;
-      total_mb?: number;
-      speed_mbps?: number;
-      status: string;
-      error?: string;
-    }>('builtin-ai-download-progress', (event) => {
-      const { model, progress, downloaded_mb, total_mb, speed_mbps, status, error } = event.payload;
-      if (model === selectedSummaryModel || model === 'gemma3:1b' || model === 'gemma3:4b') {
-        setGemmaState((prev) => ({
-          ...prev,
-          status: status === 'completed'
-            ? 'completed'
-            : status === 'error'
-            ? 'error'
-            : 'downloading',
-          progress,
-          downloadedMb: downloaded_mb ?? prev.downloadedMb,
-          totalMb: total_mb ?? prev.totalMb,
-          speedMbps: speed_mbps ?? prev.speedMbps,
-          error: status === 'error' ? error : undefined,
-        }));
-
-        if (status === 'completed' || progress >= 100) {
-          setSummaryModelDownloaded(true);
-        }
-      }
+    const unP = listen<{ modelName: string; progress: number }>(
+      'ollama-model-download-progress', (e) => setPullProgress(e.payload.progress)
+    );
+    const unC = listen<{ modelName: string }>('ollama-model-download-complete', (e) => {
+      const tag = e.payload.modelName;
+      setPullProgress(100); setPullingModel(''); setPullError(null);
+      setModelOptions(prev => prev ? prev.map(m => m.name === tag ? { ...m, is_pulled: true } : m) : prev);
+      setSelectedModel(tag); setSelectedSummaryModel(tag);
+      setOllamaStatus('ready');
+      toast.success(`Đã tải xong ${tag}!`);
     });
+    const unE = listen<{ modelName: string; error: string }>('ollama-model-download-error', (e) => {
+      setPullingModel(''); setPullError(e.payload.error); setOllamaStatus('selecting');
+      toast.error('Tải model thất bại', { description: e.payload.error });
+    });
+    return () => { unP.then(f => f()); unC.then(f => f()); unE.then(f => f()); };
+  }, []);
 
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, [selectedSummaryModel]);
+  const handlePullModel = async (tag: string) => {
+    setPullError(null); setPullProgress(0); setPullingModel(tag); setOllamaStatus('pulling');
+    try {
+      await invoke('pull_ollama_model', { modelName: tag, endpoint: null });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setPullingModel(''); setPullError(msg); setOllamaStatus('selecting');
+      toast.error('Không thể kéo model', { description: msg });
+    }
+  };
 
-  const startDownloads = async () => {
-    // Always download both Parakeet and Gemma (system-recommended)
-    if (!parakeetDownloaded || !summaryModelDownloaded) {
-      try {
-        if (!parakeetDownloaded) {
-          setParakeetState((prev) => ({ ...prev, status: 'downloading' }));
-        }
-        if (!summaryModelDownloaded) {
-          setGemmaState((prev) => ({ ...prev, status: 'downloading' }));
-        }
-        await startBackgroundDownloads(true);  // Always download both
-      } catch (error) {
-        console.error('Failed to start downloads:', error);
-        if (!parakeetDownloaded) {
-          setParakeetState((prev) => ({ ...prev, status: 'error', error: String(error) }));
-        }
-      }
+  const handleRetryZip = async () => {
+    if (retryingRef.current) return;
+    retryingRef.current = true;
+    setZipState({ status: 'downloading', progress: 0 });
+    try {
+      await invoke('zipformer_download_model');
+    } catch (err) {
+      setZipState({ status: 'error', progress: 0, error: String(err) });
+      toast.error('Thử lại thất bại');
+    } finally {
+      setTimeout(() => { retryingRef.current = false; }, 2000);
     }
   };
 
   const handleContinue = async () => {
-    // Verify actual model availability (catches state drift)
     try {
-      await invoke('parakeet_init');
-      const actuallyAvailable = await invoke<boolean>('parakeet_has_available_models');
+      await invoke('zipformer_init');
+      const ok = await invoke<boolean>('zipformer_is_model_loaded');
+      if (ok && !parakeetDownloaded) { setParakeetDownloaded(true); setZipState({ status: 'completed', progress: 100 }); }
+    } catch { /* ignore */ }
 
-      if (actuallyAvailable && !parakeetDownloaded) {
-        console.log('[DownloadProgressStep] Model available but state not updated');
-        setParakeetDownloaded(true);
-        setParakeetState((prev) => ({
-          ...prev,
-          status: 'completed',
-          progress: 100,
-        }));
-      } else if (!actuallyAvailable && parakeetState.status === 'error') {
-        toast.error('Transcription engine required', {
-          description: 'Please retry the download before continuing.',
-        });
-        return;
-      }
-    } catch (error) {
-      console.warn('[DownloadProgressStep] Failed to verify model:', error);
-    }
-
-    // Check if downloads are complete for toast notification
-    const downloadsComplete = parakeetState.status === 'completed' &&
-      gemmaState.status === 'completed';
-
-    // Show toast if downloads still in progress
-    if (!downloadsComplete) {
-      toast.info('Downloads will continue in the background', {
-        description: 'You can start using the app. Recording will be available once speech recognition is ready.',
-        duration: 5000,
-      });
+    if (!parakeetDownloaded) {
+      toast.message('Bạn có thể tải model sau', { description: 'Chưa có bộ nhận dạng giọng nói. Bạn vẫn có thể tiếp tục và tải sau trong Cài đặt.' });
+    } else if (ollamaStatus !== 'ready') {
+      toast.message('Bạn có thể tải model tóm tắt sau', { description: 'Tóm tắt AI sẽ cần Ollama + model. Bạn có thể cài/tải sau trong Cài đặt.' });
     }
 
     if (isMac) {
-      // macOS: Go to Permissions step (will complete after permissions granted)
       goNext();
     } else {
-      // Non-macOS: Complete onboarding immediately (downloads continue in background)
       setIsCompleting(true);
       try {
         await completeOnboarding();
-
-        // Small delay to ensure state is saved before reload
-        await new Promise(resolve => setTimeout(resolve, 100));
-
+        await new Promise(r => setTimeout(r, 100));
         window.location.reload();
-      } catch (error) {
-        console.error('Failed to complete onboarding:', error);
-        toast.error('Failed to complete setup', {
-          description: 'Please try again.',
-        });
+      } catch {
+        toast.error('Không thể hoàn tất cài đặt', { description: 'Vui lòng thử lại.' });
         setIsCompleting(false);
       }
     }
   };
 
-  const renderDownloadCard = (
-    title: string,
-    icon: React.ReactNode,
-    state: DownloadState,
-    modelSize: string
-  ) => (
-    <div className="bg-white rounded-xl border border-gray-200 p-5">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
-            {icon}
-          </div>
-          <div>
-            <h3 className="font-medium text-gray-900">{title}</h3>
-            <p className="text-sm text-gray-500">{modelSize}</p>
-          </div>
-        </div>
-        <div>
-          {state.status === 'waiting' && (
-            <span className="text-sm text-gray-500">Waiting...</span>
-          )}
-          {state.status === 'downloading' && (
-            <Loader2 className="w-5 h-5 text-gray-700 animate-spin" />
-          )}
-          {state.status === 'completed' && (
-            <div className="w-6 h-6 rounded-full bg-green-100 flex items-center justify-center">
-              <Check className="w-4 h-4 text-green-600" />
-            </div>
-          )}
-          {state.status === 'error' && (
-            <span className="text-sm text-red-500">Failed</span>
-          )}
-        </div>
-      </div>
+  const pulledOptions   = modelOptions?.filter(m => m.is_pulled)  ?? [];
+  const unpulledOptions = modelOptions?.filter(m => !m.is_pulled) ?? [];
 
-      {/* Progress Bar */}
-      {(state.status === 'downloading' || state.status === 'completed') && (
-        <div className="space-y-2">
-          <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-gray-700 to-gray-900 rounded-full transition-all duration-300"
-              style={{ width: `${state.progress}%` }}
-            />
-          </div>
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-gray-600">
-              {state.downloadedMb.toFixed(1)} MB / {state.totalMb.toFixed(1)} MB
-            </span>
-            <div className="flex items-center gap-2">
-              {state.speedMbps > 0 && (
-                <span className="text-gray-500">
-                  {state.speedMbps.toFixed(1)} MB/s
-                </span>
-              )}
-              <span className="font-semibold text-gray-900">
-                {Math.round(state.progress)}%
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
+  const zipDotStatus =
+    zipState.status === 'waiting'     ? 'idle'    :
+    zipState.status === 'downloading' ? 'loading' :
+    zipState.status === 'completed'   ? 'ok'      : 'error';
 
-      {state.status === 'error' && state.error && (
-        <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-md">
-          <p className="text-sm text-red-600 font-medium">Download Error</p>
-          <p className="text-xs text-red-500 mt-1">{state.error}</p>
-          {(title === 'Transcription Engine' || title === 'Summary Engine') && (
-            <button
-              onClick={title === 'Transcription Engine' ? handleRetryDownload : handleRetrySummaryDownload}
-              className="mt-3 w-full h-9 px-4 bg-gray-900 hover:bg-gray-800 text-white text-sm font-medium rounded-md transition-colors flex items-center justify-center gap-2"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              Try Again
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
+  const ollamaDotStatus =
+    ollamaStatus === 'checking'      ? 'loading' :
+    ollamaStatus === 'ready'         ? 'ok'      :
+    ollamaStatus === 'not_installed' ? 'error'   :
+    ollamaStatus === 'pulling'       ? 'loading' : 'warn';
 
+  const isBusy = isCompleting || ollamaStatus === 'checking' || ollamaStatus === 'pulling';
+
+  // ── render ──────────────────────────────────────────────────────────────
   return (
     <OnboardingContainer
-      title="Getting things ready"
-      description="You can start using Meetily after downloading the Transcription Engine."
+      title="Đang chuẩn bị..."
+      description="Tải bộ nhận dạng giọng nói và chọn model AI tóm tắt."
       step={3}
       totalSteps={isMac ? 4 : 3}
     >
-      <div className="flex flex-col items-center space-y-6">
-        {/* Download Cards */}
-        <div className="w-full max-w-lg space-y-4">
-          {renderDownloadCard(
-            'Transcription Engine',
-            <Mic className="w-5 h-5 text-gray-600" />,
-            parakeetState,
-            '~670 MB'
-          )}
+      <div className="flex flex-col items-center gap-5">
+        <div className="w-full max-w-lg space-y-3">
 
-          {renderDownloadCard(
-            'Summary Engine',
-            <Sparkles className="w-5 h-5 text-gray-600" />,
-            gemmaState,
-            recommendedModel === 'gemma3:4b' ? '~2.5 GB' : '~806 MB'
-          )}
+          {/* ── Card 1: ZipFormer ──────────────────────────────────────── */}
+          <motion.div
+            initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35, delay: 0.05 }}
+            className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden"
+          >
+            {/* Accent bar */}
+            <div className="h-0.5 w-full bg-gradient-to-r from-blue-400 to-blue-600" />
+
+            <div className="p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
+                    <Mic className="w-4 h-4 text-blue-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">Nhận dạng giọng nói tiếng Việt</p>
+                    <p className="text-xs text-gray-500 mt-0.5">zipformer-vi-30m · ~30 MB</p>
+                  </div>
+                </div>
+                <StatusDot status={zipDotStatus} />
+              </div>
+
+              {zipState.status === 'downloading' && (
+                <div className="mt-3 space-y-1.5">
+                  <ProgressBar value={zipState.progress} color="bg-blue-500" />
+                  <div className="flex justify-between">
+                    <span className="text-[10px] text-gray-400">Đang tải...</span>
+                    <span className="text-[10px] font-medium text-blue-600">{Math.round(zipState.progress)}%</span>
+                  </div>
+                </div>
+              )}
+
+              {zipState.status === 'completed' && (
+                <p className="mt-2 text-xs text-emerald-600 font-medium">✓ Đã tải xong và sẵn sàng sử dụng</p>
+              )}
+
+              {zipState.status === 'error' && (
+                <div className="mt-3 rounded-lg bg-red-50 border border-red-100 p-3 space-y-2">
+                  <p className="text-xs text-red-600">{zipState.error}</p>
+                  <button
+                    onClick={handleRetryZip}
+                    className="flex items-center gap-1.5 text-xs font-medium text-red-700 hover:text-red-900 transition-colors"
+                  >
+                    <RefreshCw className="w-3 h-3" /> Thử lại
+                  </button>
+                </div>
+              )}
+            </div>
+          </motion.div>
+
+          {/* ── Card 2: Ollama ─────────────────────────────────────────── */}
+          <motion.div
+            initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35, delay: 0.12 }}
+            className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden"
+          >
+            <div className="h-0.5 w-full bg-gradient-to-r from-violet-400 to-violet-600" />
+
+            <div className="p-4 space-y-3">
+              {/* Header */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-violet-50 flex items-center justify-center shrink-0">
+                    <Sparkles className="w-4 h-4 text-violet-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">Model AI tóm tắt (Ollama)</p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {ollamaStatus === 'checking'      ? 'Đang phân tích phần cứng...'          :
+                       ollamaStatus === 'not_installed' ? 'Ollama chưa được cài đặt'             :
+                       ollamaStatus === 'ready'         ? `Đã chọn: ${selectedModel}`            :
+                       ollamaStatus === 'pulling'       ? `Đang tải ${pullingModel}...`          :
+                       `${modelOptions?.length ?? 0} model phù hợp với máy của bạn`}
+                    </p>
+                  </div>
+                </div>
+                <StatusDot status={ollamaDotStatus} />
+              </div>
+
+              {/* Hardware badge */}
+              {hardwareInfo && ollamaStatus !== 'not_installed' && (
+                <div className="flex items-center gap-1.5 bg-gray-50 rounded-lg border border-gray-100 px-3 py-1.5">
+                  <Cpu className="w-3 h-3 text-gray-400 shrink-0" />
+                  <span className="text-[11px] text-gray-500">
+                    {hardwareInfo.ram_gb ? `RAM ${hardwareInfo.ram_gb} GB` : 'Phần cứng'}
+                    {hardwareInfo.max_size_gb ? ` · Gợi ý model ~${hardwareInfo.max_size_gb} GB` : ''}
+                  </span>
+                </div>
+              )}
+
+              {/* ── Not installed ─────────────────────────────────────── */}
+              {ollamaStatus === 'not_installed' && (
+                <div className="rounded-lg bg-red-50 border border-red-100 p-3 space-y-2">
+                  <p className="text-xs text-red-700">Bạn chưa cài Ollama. Tải và cài đặt để sử dụng tóm tắt AI.</p>
+                  <button
+                    onClick={() => invoke('open_external_url', { url: 'https://ollama.com/download' })}
+                    className="flex items-center gap-1.5 w-full h-8 justify-center bg-gray-900 hover:bg-gray-700 text-white text-xs font-medium rounded-lg transition-colors"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    Tải Ollama tại ollama.com/download
+                  </button>
+                  <button
+                    onClick={loadModels}
+                    className="w-full h-8 border border-gray-200 hover:bg-gray-50 text-gray-600 text-xs font-medium rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    <RefreshCw className="w-3 h-3" /> Kiểm tra lại
+                  </button>
+                </div>
+              )}
+
+              {/* ── Model selection ───────────────────────────────────── */}
+              {(ollamaStatus === 'selecting' || ollamaStatus === 'pulling') && (
+                <div className="space-y-3">
+                  {pullError && (
+                    <div className="rounded-lg bg-red-50 border border-red-100 px-3 py-2">
+                      <p className="text-xs text-red-600">{pullError}</p>
+                    </div>
+                  )}
+
+                  {/* Already pulled */}
+                  {pulledOptions.length > 0 && (
+                    <div className="space-y-1.5">
+                      <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Đã có sẵn trên máy</p>
+                      {pulledOptions.map(m => (
+                        <div
+                          key={m.name}
+                          onClick={() => { setSelectedModel(m.name); setSelectedSummaryModel(m.name); }}
+                          className={cn(
+                            'flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all',
+                            selectedModel === m.name
+                              ? 'border-gray-900 bg-gray-50 ring-1 ring-gray-900'
+                              : 'border-gray-100 hover:border-gray-300 hover:bg-gray-50'
+                          )}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <div className={cn(
+                              'w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors',
+                              selectedModel === m.name ? 'border-gray-900 bg-gray-900' : 'border-gray-300'
+                            )}>
+                              {selectedModel === m.name && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs font-semibold text-gray-900">{m.name}</span>
+                                {m.is_recommended && <Star className="w-3 h-3 text-amber-400 fill-amber-400" />}
+                                <span className="text-[10px] px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-medium">Đã tải</span>
+                              </div>
+                              <p className="text-[10px] text-gray-500">{m.size_gb} GB · {m.description}</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* To pull */}
+                  <div className="space-y-1.5">
+                    <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">
+                      {pulledOptions.length > 0 ? 'Tải thêm model' : 'Chọn model để tải về'}
+                    </p>
+                    <div className="space-y-1.5 max-h-52 overflow-y-auto pr-0.5">
+                      {unpulledOptions.map(m => {
+                        const isPullingThis = pullingModel === m.name;
+                        return (
+                          <div
+                            key={m.name}
+                            className={cn(
+                              'p-3 rounded-lg border transition-all',
+                              isPullingThis ? 'border-violet-200 bg-violet-50' : 'border-gray-100'
+                            )}
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-xs font-semibold text-gray-900">{m.name}</span>
+                                  {m.is_recommended && <Star className="w-3 h-3 text-amber-400 fill-amber-400 shrink-0" />}
+                                  <span className="text-[10px] text-gray-400 font-medium">{m.family}</span>
+                                </div>
+                                <p className="text-[10px] text-gray-500 mt-0.5">{m.size_gb} GB · {m.description}</p>
+                              </div>
+                              {isPullingThis ? (
+                                <Loader2 className="w-4 h-4 text-violet-600 animate-spin shrink-0" />
+                              ) : (
+                                <button
+                                  onClick={() => handlePullModel(m.name)}
+                                  disabled={ollamaStatus === 'pulling'}
+                                  className="flex items-center gap-1.5 px-2.5 h-7 bg-gray-900 hover:bg-gray-700 disabled:opacity-40 text-white text-xs font-medium rounded-lg transition-colors shrink-0"
+                                >
+                                  <Download className="w-3 h-3" /> Tải
+                                </button>
+                              )}
+                            </div>
+                            {isPullingThis && pullProgress > 0 && (
+                              <div className="mt-2.5 space-y-1">
+                                <ProgressBar value={pullProgress} color="bg-violet-500" />
+                                <div className="flex justify-between">
+                                  <span className="text-[10px] text-violet-500">Đang tải...</span>
+                                  <span className="text-[10px] font-medium text-violet-600">{pullProgress}%</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {pulledOptions.length > 0 && (
+                    <button
+                      onClick={() => {
+                        const best = pulledOptions.find(m => m.is_recommended) ?? pulledOptions[0];
+                        setSelectedModel(best.name); setSelectedSummaryModel(best.name); setOllamaStatus('ready');
+                      }}
+                      className="w-full h-8 bg-gray-900 hover:bg-gray-700 text-white text-xs font-medium rounded-lg transition-colors"
+                    >
+                      Dùng model đã có sẵn
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* ── Ready ─────────────────────────────────────────────── */}
+              {ollamaStatus === 'ready' && selectedModel && (
+                <div className="flex items-center justify-between rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-2.5">
+                  <div>
+                    <p className="text-xs font-semibold text-emerald-800">{selectedModel} · Sẵn sàng</p>
+                    {modelOptions?.find(m => m.name === selectedModel) && (
+                      <p className="text-[10px] text-emerald-700 mt-0.5">
+                        {modelOptions.find(m => m.name === selectedModel)?.size_gb} GB ·{' '}
+                        {modelOptions.find(m => m.name === selectedModel)?.description}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => setOllamaStatus('selecting')}
+                    className="text-[10px] text-gray-500 hover:text-gray-700 underline shrink-0 ml-3 transition-colors"
+                  >
+                    Đổi model
+                  </button>
+                </div>
+              )}
+            </div>
+          </motion.div>
         </div>
 
-        {/* Info Message - Only show when Parakeet is downloaded */}
-        <AnimatePresence>
-          {parakeetDownloaded && !summaryModelDownloaded && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.3, ease: 'easeOut' }}
-              className="w-full max-w-lg bg-gray-100 rounded-lg p-4 text-sm text-gray-800"
-            >
-              <div className="flex items-start gap-3">
-                <Download className="w-5 h-5 text-gray-600 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-medium">You can continue while this finishes</p>
-                  <p className="text-gray-700 mt-1">
-                    Download will continue in the background.
-                  </p>
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Continue Button */}
-        <div className="w-full max-w-xs">
+        {/* ── Continue ──────────────────────────────────────────────────── */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35, delay: 0.22 }}
+          className="w-full max-w-xs space-y-2"
+        >
           <Button
             onClick={handleContinue}
-            disabled={!parakeetDownloaded || isCompleting}
-            className="w-full h-11 bg-gray-900 hover:bg-gray-800 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={isBusy}
+            className="w-full h-11 bg-gray-900 hover:bg-gray-700 text-white rounded-xl group transition-colors disabled:opacity-50"
           >
-            {(isCompleting || !parakeetDownloaded) ? (
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            {isBusy ? (
+              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Đang xử lý...</>
             ) : (
-              'Continue'
+              <>Tiếp tục <ArrowRight className="w-4 h-4 ml-2 transition-transform group-hover:translate-x-0.5" /></>
             )}
           </Button>
-        </div>
+
+          {!parakeetDownloaded && (
+            <p className="text-[11px] text-center text-gray-400">
+              Đang tải bộ nhận dạng giọng nói — có thể bỏ qua và tải sau
+            </p>
+          )}
+          {ollamaStatus === 'not_installed' && (
+            <p className="text-[11px] text-center text-gray-400">
+              Chưa có Ollama — bạn có thể tiếp tục và cài sau trong Cài đặt
+            </p>
+          )}
+        </motion.div>
       </div>
     </OnboardingContainer>
   );

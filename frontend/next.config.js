@@ -9,8 +9,8 @@ const nextConfig = {
   basePath: '',
   assetPrefix: '/',
 
-  // Add webpack configuration for Tauri
-  webpack: (config, { isServer }) => {
+  // Webpack configuration for Tauri
+  webpack: (config, { isServer, dev }) => {
     if (!isServer) {
       config.resolve.fallback = {
         ...config.resolve.fallback,

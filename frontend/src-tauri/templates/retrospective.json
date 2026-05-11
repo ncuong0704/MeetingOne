@@ -1,45 +1,45 @@
 {
-      "name": "Retrospective (Agile)",
-      "description": "Sprint retrospective template for continuous improvement.",
-      "sections": [
-        {
-          "title": "Sprint",
-          "instruction": "Sprint name/number and date range",
-          "format": "string"
-        },
-        {
-          "title": "Attendance",
-          "instruction": "List of participants",
-          "format": "list"
-        },
-        {
-          "title": "Start Doing",
-          "instruction": "Actions or experiments to start next sprint",
-          "format": "list",
-          "item_format": "| **Idea** | **Proposer** |\n| --- | --- |"
-        },
-        {
-          "title": "Stop Doing",
-          "instruction": "Practices to stop",
-          "format": "list",
-          "item_format": "| **Practice** | **Reason** |\n| --- | --- |"
-        },
-        {
-          "title": "Continue Doing",
-          "instruction": "Practices to continue",
-          "format": "list",
-          "item_format": "| **Practice** | **Notes** |\n| --- | --- |"
-        },
-        {
-          "title": "Action Items",
-          "instruction": "Concrete experiments with owners and success metrics",
-          "format": "list",
-          "item_format": "| **Owner** | **Task** | **Due Date** | **Success Metric** |\n| --- | --- | --- | --- |"
-        },
-        {
-          "title": "Notes & Votes",
-          "instruction": "Summary and top-voted items",
-          "format": "paragraph"
-        }
-      ]
+  "name": "Họp cải tiến quy trình",
+  "description": "Mẫu họp cải tiến quy trình sau chu kỳ làm việc để cải tiến liên tục.",
+  "sections": [
+    {
+      "title": "Chu kỳ làm việc",
+      "instruction": "Tên/số chu kỳ làm việc và khoảng thời gian",
+      "format": "string"
+    },
+    {
+      "title": "Người tham dự",
+      "instruction": "Danh sách người tham gia",
+      "format": "list"
+    },
+    {
+      "title": "Bắt đầu làm",
+      "instruction": "Các hành động hoặc thử nghiệm để bắt đầu trong chu kỳ làm việc tiếp theo, bằng tiếng Việt",
+      "format": "list",
+      "item_format": "| Ý tưởng | Người đề xuất |\n| --- | --- |"
+    },
+    {
+      "title": "Ngừng làm",
+      "instruction": "Các thói quen/quy trình cần dừng lại, bằng tiếng Việt",
+      "format": "list",
+      "item_format": "| Thói quen | Lý do |\n| --- | --- |"
+    },
+    {
+      "title": "Tiếp tục làm",
+      "instruction": "Các thói quen/quy trình tốt cần duy trì, bằng tiếng Việt",
+      "format": "list",
+      "item_format": "| Thói quen | Ghi chú |\n| --- | --- |"
+    },
+    {
+      "title": "Công việc cần thực hiện",
+      "instruction": "Các thử nghiệm cụ thể kèm người phụ trách và tiêu chí thành công, bằng tiếng Việt",
+      "format": "list",
+      "item_format": "| Người phụ trách | Nhiệm vụ | Thời hạn | Tiêu chí thành công |\n| --- | --- | --- | --- |"
+    },
+    {
+      "title": "Ghi chú & Bình chọn",
+      "instruction": "Tóm tắt và các mục được bình chọn cao nhất, bằng tiếng Việt",
+      "format": "paragraph"
     }
+  ]
+}

@@ -7,6 +7,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { formatDistanceToNow } from 'date-fns';
+import { vi } from 'date-fns/locale';
 import { AlertCircle, CheckCircle2, Clock, FileText, Trash2, XCircle } from 'lucide-react';
 import {
   Dialog,
@@ -86,7 +87,7 @@ export function TranscriptRecovery({
       onClose();
     } catch (error) {
       console.error('Recovery failed:', error);
-      alert('Failed to recover meeting. Please try again.');
+      alert('Không khôi phục được cuộc họp. Vui lòng thử lại.');
     } finally {
       setIsRecovering(false);
     }
@@ -95,7 +96,7 @@ export function TranscriptRecovery({
   const handleDelete = async () => {
     if (!selectedMeetingId) return;
 
-    if (!confirm('Are you sure you want to delete this meeting? This cannot be undone.')) {
+    if (!confirm('Bạn có chắc muốn xóa cuộc họp này? Thao tác không thể hoàn tác.')) {
       return;
     }
 
@@ -106,7 +107,7 @@ export function TranscriptRecovery({
       setPreviewTranscripts([]);
     } catch (error) {
       console.error('Delete failed:', error);
-      alert('Failed to delete meeting. Please try again.');
+      alert('Không xóa được cuộc họp. Vui lòng thử lại.');
     } finally {
       setIsDeleting(false);
     }
@@ -118,16 +119,16 @@ export function TranscriptRecovery({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-4xl h-[80vh] flex flex-col p-0">
         <DialogHeader className="px-6 pt-6">
-          <DialogTitle className="text-2xl">Recover Interrupted Meetings</DialogTitle>
+          <DialogTitle className="text-2xl">Khôi phục cuộc họp bị gián đoạn</DialogTitle>
           <DialogDescription>
-            We found {recoverableMeetings.length} meeting{recoverableMeetings.length !== 1 ? 's' : ''} that {recoverableMeetings.length !== 1 ? 'were' : 'was'} interrupted. Select a meeting to preview and recover it.
+            Phát hiện {recoverableMeetings.length} cuộc họp bị gián đoạn. Chọn một cuộc để xem trước và khôi phục.
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 flex gap-4 px-6 pb-6 overflow-hidden">
           {/* Meeting List */}
           <div className="w-1/3 flex flex-col">
-            <h3 className="text-sm font-medium mb-2">Interrupted Meetings</h3>
+            <h3 className="text-sm font-medium mb-2">Cuộc họp bị gián đoạn</h3>
             <ScrollArea className="flex-1 border rounded-lg">
               <div className="p-2 space-y-2">
                 {recoverableMeetings.map((meeting) => (
@@ -150,15 +151,15 @@ export function TranscriptRecovery({
                         </p>
                         <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
                           <FileText className="w-3 h-3" />
-                          {meeting.transcriptCount} transcript{meeting.transcriptCount !== 1 ? 's' : ''}
+                          {meeting.transcriptCount} đoạn bản ghi
                         </p>
                       </div>
                       {meeting.folderPath ? (
-                        <span title="Audio available">
+                        <span title="Có file âm thanh">
                           <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
                         </span>
                       ) : (
-                        <span title="No audio">
+                        <span title="Không có âm thanh">
                           <AlertCircle className="w-4 h-4 text-yellow-500 flex-shrink-0" />
                         </span>
                       )}
@@ -179,22 +180,22 @@ export function TranscriptRecovery({
                   <div className="p-4 border-b bg-muted/50">
                     <h4 className="font-semibold">{selectedMeeting.title}</h4>
                     <p className="text-sm text-muted-foreground mt-1">
-                      Started {new Date(selectedMeeting.startTime).toLocaleString()}
+                      Bắt đầu lúc {new Date(selectedMeeting.startTime).toLocaleString('vi-VN')}
                     </p>
                     <div className="flex items-center gap-4 mt-2 text-sm">
                       <span className="flex items-center gap-1">
                         <FileText className="w-4 h-4" />
-                        {selectedMeeting.transcriptCount} transcripts
+                        {selectedMeeting.transcriptCount} đoạn bản ghi
                       </span>
                       {selectedMeeting.folderPath ? (
                         <span className="flex items-center gap-1 text-green-600">
                           <CheckCircle2 className="w-4 h-4" />
-                          Audio available
+                          Có âm thanh
                         </span>
                       ) : (
                         <span className="flex items-center gap-1 text-yellow-600">
                           <AlertCircle className="w-4 h-4" />
-                          No audio
+                          Không có âm thanh
                         </span>
                       )}
                     </div>
@@ -204,13 +205,13 @@ export function TranscriptRecovery({
                   <ScrollArea className="flex-1 p-4">
                     {isLoadingPreview ? (
                       <div className="flex items-center justify-center h-full text-muted-foreground">
-                        Loading preview...
+                        Đang tải xem trước…
                       </div>
                     ) : previewTranscripts.length > 0 ? (
                       <div className="space-y-3">
                         <Alert>
                           <AlertDescription>
-                            Showing first {previewTranscripts.length} transcript segments (of {selectedMeeting.transcriptCount} total)
+                            Hiển thị {previewTranscripts.length} đoạn đầu (trong tổng {selectedMeeting.transcriptCount})
                           </AlertDescription>
                         </Alert>
                         {previewTranscripts.map((transcript, index) => {
@@ -244,20 +245,20 @@ export function TranscriptRecovery({
                         })}
                         {selectedMeeting.transcriptCount > 10 && (
                           <p className="text-sm text-muted-foreground italic">
-                            ... and {selectedMeeting.transcriptCount - 10} more transcript{selectedMeeting.transcriptCount - 10 !== 1 ? 's' : ''}
+                            … và {selectedMeeting.transcriptCount - 10} đoạn bản ghi nữa
                           </p>
                         )}
                       </div>
                     ) : (
                       <div className="flex items-center justify-center h-full text-muted-foreground">
-                        No transcripts to preview
+                        Không có bản ghi để xem trước
                       </div>
                     )}
                   </ScrollArea>
                 </>
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground">
-                  Select a meeting to preview
+                  Chọn một cuộc họp để xem trước
                 </div>
               )}
             </div>
@@ -270,7 +271,7 @@ export function TranscriptRecovery({
             onClick={onClose}
             disabled={isRecovering || isDeleting}
           >
-            Cancel
+            Hủy
           </Button>
           <Button
             variant="destructive"
@@ -280,12 +281,12 @@ export function TranscriptRecovery({
             {isDeleting ? (
               <>
                 <XCircle className="w-4 h-4 mr-2 animate-spin" />
-                Deleting...
+                Đang xóa…
               </>
             ) : (
               <>
                 <Trash2 className="w-4 h-4 mr-2" />
-                Delete
+                Xóa
               </>
             )}
           </Button>
@@ -296,12 +297,12 @@ export function TranscriptRecovery({
             {isRecovering ? (
               <>
                 <CheckCircle2 className="w-4 h-4 mr-2 animate-spin" />
-                Recovering...
+                Đang khôi phục…
               </>
             ) : (
               <>
                 <CheckCircle2 className="w-4 h-4 mr-2" />
-                Recover
+                Khôi phục
               </>
             )}
           </Button>

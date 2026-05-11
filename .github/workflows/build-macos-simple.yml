@@ -1,0 +1,134 @@
+name: "Build macOS (Unsigned)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      build-type:
+        description: 'Build type'
+        required: true
+        type: choice
+        options:
+          - release
+          - debug
+        default: release
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-macos:
+    name: Build macOS Apple Silicon
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version
+        id: get-version
+        run: |
+          VERSION=$(grep -o '"version": "[^"]*"' frontend/src-tauri/tauri.conf.json | head -1 | cut -d'"' -f4)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "App version: $VERSION"
+
+      - name: Determine build profile
+        id: build-profile
+        run: |
+          if [[ "${{ github.event.inputs.build-type }}" == "debug" ]]; then
+            echo "profile=debug" >> "$GITHUB_OUTPUT"
+            echo "args=--debug" >> "$GITHUB_OUTPUT"
+          else
+            echo "profile=release" >> "$GITHUB_OUTPUT"
+            echo "args=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          key: macos-aarch64
+
+      - name: Get pnpm store directory
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          pnpm install
+
+      - name: Create llama-helper stub binary
+        run: |
+          mkdir -p frontend/src-tauri/binaries
+          # Create a stub binary since llama-helper source is not in this repo
+          cat > frontend/src-tauri/binaries/llama-helper-aarch64-apple-darwin << 'EOF'
+          #!/bin/sh
+          echo "llama-helper stub"
+          EOF
+          chmod +x frontend/src-tauri/binaries/llama-helper-aarch64-apple-darwin
+          echo "Created llama-helper stub for macOS"
+
+      - name: Cache FFmpeg binary
+        uses: actions/cache@v4
+        with:
+          path: frontend/src-tauri/binaries/ffmpeg-*
+          key: ${{ runner.os }}-ffmpeg-${{ hashFiles('frontend/src-tauri/build.rs', 'frontend/src-tauri/build/ffmpeg.rs') }}
+
+      - name: Build Tauri app (unsigned)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: frontend
+          args: --target aarch64-apple-darwin ${{ steps.build-profile.outputs.args }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: MeetingOne-macOS-${{ steps.get-version.outputs.version }}-${{ steps.build-profile.outputs.profile }}
+          path: |
+            target/aarch64-apple-darwin/${{ steps.build-profile.outputs.profile }}/bundle/dmg/*.dmg
+            target/aarch64-apple-darwin/${{ steps.build-profile.outputs.profile }}/bundle/macos/*.app.tar.gz
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Build summary
+        run: |
+          echo "## macOS Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| | |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| Version | ${{ steps.get-version.outputs.version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Profile | ${{ steps.build-profile.outputs.profile }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Target | aarch64-apple-darwin (Apple Silicon) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Signed | No (unsigned build) |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
+          find target/aarch64-apple-darwin/${{ steps.build-profile.outputs.profile }}/bundle -type f \( -name "*.dmg" -o -name "*.app.tar.gz" \) 2>/dev/null | while read f; do
+            size=$(du -sh "$f" | cut -f1)
+            echo "- \`$(basename $f)\` ($size)" >> $GITHUB_STEP_SUMMARY
+          done

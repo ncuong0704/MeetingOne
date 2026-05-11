@@ -100,8 +100,8 @@ impl SummaryService {
             }
         };
 
-        // Validate and setup api_key, Flexible for Ollama, BuiltInAI, and CustomOpenAI
-        let api_key = if provider == LLMProvider::Ollama || provider == LLMProvider::BuiltInAI || provider == LLMProvider::CustomOpenAI {
+        // Validate and setup api_key, Flexible for Ollama and CustomOpenAI
+        let api_key = if provider == LLMProvider::Ollama || provider == LLMProvider::CustomOpenAI {
             // These providers don't require API keys from the standard database column
             String::new()
         } else {
@@ -174,49 +174,46 @@ impl SummaryService {
         let token_threshold = if provider == LLMProvider::Ollama {
             match METADATA_CACHE.get_or_fetch(&model_name, ollama_endpoint.as_deref()).await {
                 Ok(metadata) => {
-                    // Reserve 300 tokens for prompt overhead
-                    let optimal = metadata.context_size.saturating_sub(300);
+                    // Cap at 1500 tokens per chunk so small Ollama models (1.5b–7b)
+                    // can summarize each chunk reliably without losing language/format.
+                    // Large context windows (32k+) cause small models to ignore instructions.
+                    let optimal = metadata.context_size.saturating_sub(300).min(3000);
                     info!(
-                        "✓ Using dynamic context for {}: {} tokens (chunk size: {})",
+                        "✓ Using dynamic context for {}: {} tokens (chunk size capped: {})",
                         model_name, metadata.context_size, optimal
                     );
                     optimal
                 }
                 Err(e) => {
                     warn!(
-                        "Failed to fetch context for {}: {}. Using default 4000",
+                        "Failed to fetch context for {}: {}. Using default 3000",
                         model_name, e
                     );
-                    4000  // Fallback to safe default
-                }
-            }
-        } else if provider == LLMProvider::BuiltInAI {
-            // Get model's context size from registry
-            use crate::summary::summary_engine::models;
-            let model = models::get_model_by_name(&model_name)
-                .ok_or_else(|| format!("Unknown model: {}", model_name));
-
-            match model {
-                Ok(model_def) => {
-                    // Reserve 300 tokens for prompt overhead
-                    let optimal = model_def.context_size.saturating_sub(300) as usize;
-                    info!(
-                        "✓ Using BuiltInAI context size: {} tokens (chunk size: {})",
-                        model_def.context_size, optimal
-                    );
-                    optimal
-                }
-                Err(e) => {
-                    warn!("{}, using default 2048", e);
-                    1748  // 2048 - 300 for overhead
+                    3000  // Fallback to safe default
                 }
             }
         } else {
-            // Cloud providers (OpenAI, Claude, Groq, CustomOpenAI) handle large contexts automatically
-            100000  // Effectively unlimited for single-pass processing
+            // Provider-specific safe token thresholds.
+            // Groq has strict TPM (tokens-per-minute) limits on the free tier — chunking is required
+            // for long transcripts. Other cloud providers support large contexts natively.
+            match &provider {
+                LLMProvider::Groq => {
+                    // Free tier limit: ~6000 TPM for most Groq models (e.g. llama-3.1-8b-instant).
+                    // Use 4000 tokens so prompt overhead (~600 tokens) + output (~1400 tokens) fit safely.
+                    info!(
+                        "Groq provider: using token_threshold=4000 to respect TPM limits for model {}",
+                        model_name
+                    );
+                    4000
+                }
+                _ => {
+                    // OpenAI, Claude, OpenRouter, CustomOpenAI support large contexts natively
+                    100_000
+                }
+            }
         };
 
-        // Get app data directory for BuiltInAI provider
+        // Get app data directory (kept for API compatibility)
         let app_data_dir = _app.path().app_data_dir().ok();
 
         // Generate summary

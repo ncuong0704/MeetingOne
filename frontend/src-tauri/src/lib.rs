@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex as StdMutex;
 // Removed unused import
 
 // Performance optimization: Conditional logging macros for hot paths
@@ -29,8 +28,6 @@ macro_rules! perf_trace {
 }
 
 // Make these macros available to other modules
-pub(crate) use perf_debug;
-pub(crate) use perf_trace;
 
 // Re-export async logging macros for external use (removed due to macro conflicts)
 
@@ -48,12 +45,12 @@ pub mod openai;
 pub mod anthropic;
 pub mod groq;
 pub mod openrouter;
-pub mod parakeet_engine;
+pub mod report_export;
 pub mod state;
 pub mod summary;
 pub mod tray;
 pub mod utils;
-pub mod whisper_engine;
+pub mod zipformer_engine;
 
 use audio::{list_audio_devices, AudioDevice, trigger_audio_permission};
 use log::{error as log_error, info as log_info};
@@ -64,9 +61,6 @@ use tokio::sync::RwLock;
 
 static RECORDING_FLAG: AtomicBool = AtomicBool::new(false);
 
-// Global language preference storage (default to "auto-translate" for automatic translation to English)
-static LANGUAGE_PREFERENCE: std::sync::LazyLock<StdMutex<String>> =
-    std::sync::LazyLock::new(|| StdMutex::new("auto-translate".to_string()));
 
 #[derive(Debug, Deserialize)]
 struct RecordingArgs {
@@ -228,6 +222,11 @@ fn read_audio_file(file_path: String) -> Result<Vec<u8>, String> {
 }
 
 #[tauri::command]
+fn check_file_exists(file_path: String) -> bool {
+    std::path::Path::new(&file_path).exists()
+}
+
+#[tauri::command]
 async fn save_transcript(file_path: String, content: String) -> Result<(), String> {
     log_info!("Saving transcript to: {}", file_path);
 
@@ -279,7 +278,6 @@ async fn is_audio_level_monitoring() -> bool {
 
 // Analytics commands are now handled by analytics::commands module
 
-// Whisper commands are now handled by whisper_engine::commands module
 
 #[tauri::command]
 async fn get_audio_devices() -> Result<Vec<AudioDevice>, String> {
@@ -372,20 +370,6 @@ async fn start_recording_with_devices_and_meeting<R: Runtime>(
     }
 }
 
-#[tauri::command]
-async fn set_language_preference(language: String) -> Result<(), String> {
-    let mut lang_pref = LANGUAGE_PREFERENCE
-        .lock()
-        .map_err(|e| format!("Failed to set language preference: {}", e))?;
-    log_info!("Setting language preference to: {}", language);
-    *lang_pref = language;
-    Ok(())
-}
-
-// Internal helper function to get language preference (for use within Rust code)
-pub fn get_language_preference_internal() -> Option<String> {
-    LANGUAGE_PREFERENCE.lock().ok().map(|lang| lang.clone())
-}
 
 pub fn run() {
     log::set_max_level(log::LevelFilter::Info);
@@ -394,14 +378,11 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .manage(whisper_engine::parallel_commands::ParallelProcessorState::new())
         .manage(Arc::new(RwLock::new(
             None::<notifications::manager::NotificationManager<tauri::Wry>>,
         )) as NotificationManagerState<tauri::Wry>)
         .manage(audio::init_system_audio_state())
-        .manage(summary::summary_engine::ModelManagerState(Arc::new(tokio::sync::Mutex::new(None))))
         .setup(|_app| {
             log::info!("Application setup complete");
 
@@ -436,37 +417,8 @@ pub fn run() {
                 }
             });
 
-            // Set models directory to use app_data_dir (unified storage location)
-            whisper_engine::commands::set_models_directory(&_app.handle());
-
-            // Initialize Whisper engine on startup
-            tauri::async_runtime::spawn(async {
-                if let Err(e) = whisper_engine::commands::whisper_init().await {
-                    log::error!("Failed to initialize Whisper engine on startup: {}", e);
-                }
-            });
-
-            // Set Parakeet models directory
-            parakeet_engine::commands::set_models_directory(&_app.handle());
-
-            // Initialize Parakeet engine on startup
-            tauri::async_runtime::spawn(async {
-                if let Err(e) = parakeet_engine::commands::parakeet_init().await {
-                    log::error!("Failed to initialize Parakeet engine on startup: {}", e);
-                }
-            });
-
-            // Initialize ModelManager for summary engine (async, non-blocking)
-            let app_handle_for_model_manager = _app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                match summary::summary_engine::commands::init_model_manager_at_startup(&app_handle_for_model_manager).await {
-                    Ok(_) => log::info!("ModelManager initialized successfully at startup"),
-                    Err(e) => {
-                        log::warn!("Failed to initialize ModelManager at startup: {}", e);
-                        log::warn!("ModelManager will be lazy-initialized on first use");
-                    }
-                }
-            });
+            // Initialize ZipFormer Vietnamese ASR engine (init + set models dir in sequence)
+            zipformer_engine::commands::init_on_startup(&_app.handle());
 
             // Trigger system audio permission request on startup (similar to microphone permission)
             // #[cfg(target_os = "macos")]
@@ -479,10 +431,13 @@ pub fn run() {
             // }
 
             // Initialize database (handles first launch detection and conditional setup)
-            tauri::async_runtime::block_on(async {
-                database::setup::initialize_database_on_startup(&_app.handle()).await
-            })
-            .expect("Failed to initialize database");
+            let app_handle_for_db = _app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = database::setup::initialize_database_on_startup(&app_handle_for_db).await
+                {
+                    log::error!("Failed to initialize database: {}", e);
+                }
+            });
 
             // Initialize bundled templates directory for dynamic template discovery
             log::info!("Initializing bundled templates directory...");
@@ -502,6 +457,7 @@ pub fn run() {
             is_recording,
             get_transcription_status,
             read_audio_file,
+            check_file_exists,
             save_transcript,
             analytics::commands::init_analytics,
             analytics::commands::disable_analytics,
@@ -528,45 +484,15 @@ pub fn run() {
             analytics::commands::track_analytics_enabled,
             analytics::commands::track_analytics_disabled,
             analytics::commands::track_analytics_transparency_viewed,
-            whisper_engine::commands::whisper_init,
-            whisper_engine::commands::whisper_get_available_models,
-            whisper_engine::commands::whisper_load_model,
-            whisper_engine::commands::whisper_get_current_model,
-            whisper_engine::commands::whisper_is_model_loaded,
-            whisper_engine::commands::whisper_has_available_models,
-            whisper_engine::commands::whisper_validate_model_ready,
-            whisper_engine::commands::whisper_transcribe_audio,
-            whisper_engine::commands::whisper_get_models_directory,
-            whisper_engine::commands::whisper_download_model,
-            whisper_engine::commands::whisper_cancel_download,
-            whisper_engine::commands::whisper_delete_corrupted_model,
-            // Parakeet engine commands
-            parakeet_engine::commands::parakeet_init,
-            parakeet_engine::commands::parakeet_get_available_models,
-            parakeet_engine::commands::parakeet_load_model,
-            parakeet_engine::commands::parakeet_get_current_model,
-            parakeet_engine::commands::parakeet_is_model_loaded,
-            parakeet_engine::commands::parakeet_has_available_models,
-            parakeet_engine::commands::parakeet_validate_model_ready,
-            parakeet_engine::commands::parakeet_transcribe_audio,
-            parakeet_engine::commands::parakeet_get_models_directory,
-            parakeet_engine::commands::parakeet_download_model,
-            parakeet_engine::commands::parakeet_retry_download,
-            parakeet_engine::commands::parakeet_cancel_download,
-            parakeet_engine::commands::parakeet_delete_corrupted_model,
-            parakeet_engine::commands::open_parakeet_models_folder,
-            // Parallel processing commands
-            whisper_engine::parallel_commands::initialize_parallel_processor,
-            whisper_engine::parallel_commands::start_parallel_processing,
-            whisper_engine::parallel_commands::pause_parallel_processing,
-            whisper_engine::parallel_commands::resume_parallel_processing,
-            whisper_engine::parallel_commands::stop_parallel_processing,
-            whisper_engine::parallel_commands::get_parallel_processing_status,
-            whisper_engine::parallel_commands::get_system_resources,
-            whisper_engine::parallel_commands::check_resource_constraints,
-            whisper_engine::parallel_commands::calculate_optimal_workers,
-            whisper_engine::parallel_commands::prepare_audio_chunks,
-            whisper_engine::parallel_commands::test_parallel_processing_setup,
+            // ZipFormer Vietnamese ASR commands
+            zipformer_engine::commands::zipformer_init,
+            zipformer_engine::commands::zipformer_get_model_status,
+            zipformer_engine::commands::zipformer_is_model_loaded,
+            zipformer_engine::commands::zipformer_get_models_directory,
+            zipformer_engine::commands::zipformer_download_model,
+            zipformer_engine::commands::zipformer_load_model,
+            zipformer_engine::commands::zipformer_transcribe_audio,
+            zipformer_engine::commands::zipformer_validate_model_ready,
             get_audio_devices,
             trigger_microphone_permission,
             start_recording_with_devices,
@@ -620,6 +546,7 @@ pub fn run() {
             api::api_get_meeting,
             api::api_get_meeting_metadata,
             api::api_get_meeting_transcripts,
+            api::api_update_transcript_text,
             api::api_save_meeting_title,
             api::api_save_transcript,
             api::open_meeting_folder,
@@ -630,6 +557,8 @@ pub fn run() {
             api::api_save_custom_openai_config,
             api::api_get_custom_openai_config,
             api::api_test_custom_openai_connection,
+            api::api_export_summary_docx,
+            api::api_save_export_file,
             // Summary commands
             summary::api_process_transcript,
             summary::api_get_summary,
@@ -639,15 +568,6 @@ pub fn run() {
             summary::api_list_templates,
             summary::api_get_template_details,
             summary::api_validate_template,
-            // Built-in AI commands
-            summary::summary_engine::builtin_ai_list_models,
-            summary::summary_engine::builtin_ai_get_model_info,
-            summary::summary_engine::builtin_ai_download_model,
-            summary::summary_engine::builtin_ai_cancel_download,
-            summary::summary_engine::builtin_ai_delete_model,
-            summary::summary_engine::builtin_ai_is_model_ready,
-            summary::summary_engine::builtin_ai_get_available_summary_model,
-            summary::summary_engine::builtin_ai_get_recommended_model,
             openrouter::get_openrouter_models,
             audio::recording_preferences::get_recording_preferences,
             audio::recording_preferences::set_recording_preferences,
@@ -658,8 +578,6 @@ pub fn run() {
             audio::recording_preferences::get_current_audio_backend,
             audio::recording_preferences::set_audio_backend,
             audio::recording_preferences::get_audio_backend_info,
-            // Language preference commands
-            set_language_preference,
             // Notification system commands
             notifications::commands::get_notification_settings,
             notifications::commands::set_notification_settings,
@@ -697,12 +615,13 @@ pub fn run() {
             // Database and Models path commands
             database::commands::get_database_directory,
             database::commands::open_database_folder,
-            whisper_engine::commands::open_models_folder,
             // Onboarding commands
             onboarding::get_onboarding_status,
             onboarding::save_onboarding_status_cmd,
             onboarding::reset_onboarding_status_cmd,
             onboarding::complete_onboarding,
+            onboarding::get_ollama_model_recommendation,
+            onboarding::get_ollama_model_options,
             // System settings commands
             #[cfg(target_os = "macos")]
             utils::open_system_settings,
@@ -710,6 +629,7 @@ pub fn run() {
             audio::retranscription::start_retranscription_command,
             audio::retranscription::cancel_retranscription_command,
             audio::retranscription::is_retranscription_in_progress_command,
+            audio::retranscription::resolve_meeting_audio_file_path,
             // Import audio commands
             audio::import::select_and_validate_audio_command,
             audio::import::validate_audio_file_command,
@@ -735,11 +655,6 @@ pub fn run() {
                         log::warn!("AppState not available for database cleanup (likely first launch)");
                     }
 
-                    // Clean up sidecar
-                    log::info!("Cleaning up sidecar...");
-                    if let Err(e) = summary::summary_engine::force_shutdown_sidecar().await {
-                        log::error!("Failed to force shutdown sidecar: {}", e);
-                    }
                 });
                 log::info!("Application cleanup complete");
             }

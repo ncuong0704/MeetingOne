@@ -120,6 +120,20 @@ impl TranscriptsRepository {
         Ok(results)
     }
 
+    /// Update the text of a single transcript segment.
+    pub async fn update_transcript_text(
+        pool: &SqlitePool,
+        transcript_id: &str,
+        new_text: &str,
+    ) -> Result<(), SqlxError> {
+        sqlx::query("UPDATE transcripts SET transcript = ? WHERE id = ?")
+            .bind(new_text)
+            .bind(transcript_id)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
     /// Helper function to extract a snippet of text around the first match of a query.
     fn get_match_context(transcript: &str, query: &str) -> String {
         let transcript_lower = transcript.to_lowercase();

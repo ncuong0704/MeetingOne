@@ -1,4 +1,4 @@
-# GitHub Actions Workflows Overview
+﻿# GitHub Actions Workflows Overview
 
 This document provides a quick overview of all available CI/CD workflows in this repository.
 
@@ -104,7 +104,7 @@ This document provides a quick overview of all available CI/CD workflows in this
 - All platforms in parallel
 - Uses reusable `build.yml` workflow
 - 30-day artifact retention
-- Artifacts prefixed with `meetily-test-`
+- Artifacts prefixed with `meetingone-test-`
 
 **Triggers:**
 - Manual dispatch only
@@ -263,13 +263,13 @@ Standalone (don't use build.yml):
 ## Artifact Naming Convention
 
 ```
-meetily-{workflow}-{platform}-{target}-{version}
+meetingone-{workflow}-{platform}-{target}-{version}
 ```
 
 **Examples:**
-- `meetily-devtest-macOS-aarch64-apple-darwin-0.1.3`
-- `meetily-test-windows-x86_64-pc-windows-msvc-0.1.3`
-- `meetily-macos-aarch64-release-0.1.3`
+- `meetingone-devtest-macOS-aarch64-apple-darwin-0.1.3`
+- `meetingone-test-windows-x86_64-pc-windows-msvc-0.1.3`
+- `meetingone-macos-aarch64-release-0.1.3`
 
 ---
 
@@ -297,7 +297,7 @@ All workflows require these secrets to be configured:
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` - Key password
 
 ### Application Configuration
-- `MEETILY_RSA_PUBLIC_KEY` - License validation public key
+- `MEETINGONE_RSA_PUBLIC_KEY` - License validation public key
 - `SUPABASE_URL` - Online license verification
 - `SUPABASE_ANON_KEY` - Supabase anonymous key
 

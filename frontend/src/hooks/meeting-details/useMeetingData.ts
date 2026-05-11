@@ -15,7 +15,7 @@ export function useMeetingData({ meeting, summaryData, onMeetingUpdated }: UseMe
   // State
   // Use prop directly since summary generation fetches transcripts independently
   const transcripts = meeting.transcripts;
-  const [meetingTitle, setMeetingTitle] = useState(meeting.title || '+ New Call');
+  const [meetingTitle, setMeetingTitle] = useState(meeting.title || '+ Cuộc họp mới');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [isTitleDirty, setIsTitleDirty] = useState(false);
   const [aiSummary, setAiSummary] = useState<Summary | null>(summaryData);
@@ -132,10 +132,10 @@ export function useMeetingData({ meeting, summaryData, onMeetingUpdated }: UseMe
         await handleSaveSummary(aiSummary);
       }
 
-      toast.success("Changes saved successfully");
+      toast.success('Đã lưu thay đổi');
     } catch (error) {
       console.error('Failed to save changes:', error);
-      toast.error("Failed to save changes", { description: String(error) });
+      toast.error('Không lưu được thay đổi', { description: String(error) });
     } finally {
       setIsSaving(false);
     }

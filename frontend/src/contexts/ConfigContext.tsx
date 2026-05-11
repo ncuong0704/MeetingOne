@@ -5,8 +5,6 @@ import { TranscriptModelProps } from '@/components/TranscriptSettings';
 import { SelectedDevices } from '@/components/DeviceSelection';
 import { configService, ModelConfig } from '@/services/configService';
 import { invoke } from '@tauri-apps/api/core';
-import Analytics from '@/lib/analytics';
-import { BetaFeatures, BetaFeatureKey, loadBetaFeatures, saveBetaFeatures } from '@/types/betaFeatures';
 
 export interface OllamaModel {
   name: string;
@@ -63,10 +61,6 @@ interface ConfigContextType {
   showConfidenceIndicator: boolean;
   toggleConfidenceIndicator: (checked: boolean) => void;
 
-  // Beta features
-  betaFeatures: BetaFeatures;
-  toggleBetaFeature: (featureKey: BetaFeatureKey, enabled: boolean) => void;
-
   // Ollama models
   models: OllamaModel[];
   modelOptions: Record<ModelConfig['provider'], string[]>;
@@ -107,8 +101,8 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
 
   // Transcript model configuration state
   const [transcriptModelConfig, setTranscriptModelConfig] = useState<TranscriptModelProps>({
-    provider: 'parakeet',
-    model: 'parakeet-tdt-0.6b-v3-int8',
+    provider: 'zipformer',
+    model: 'zipformer-vi-30m',
     apiKey: null
   });
 
@@ -163,11 +157,6 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     return false;
   });
 
-  // Beta features state (localStorage)
-  const [betaFeatures, setBetaFeatures] = useState<BetaFeatures>(() => {
-    return loadBetaFeatures();
-  });
-
   // Preference settings state (lazy loaded)
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings | null>(null);
   const [storageLocations, setStorageLocations] = useState<StorageLocations | null>(null);
@@ -199,8 +188,8 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
         if (config) {
           console.log('[ConfigContext] Loaded saved transcript config:', config);
           setTranscriptModelConfig({
-            provider: config.provider || 'parakeet',
-            model: config.model || 'parakeet-tdt-0.6b-v3-int8',
+            provider: (config.provider as 'zipformer') || 'zipformer',
+            model: config.model || 'zipformer-vi-30m',
             apiKey: config.apiKey || null
           });
         }
@@ -211,18 +200,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     loadTranscriptConfig();
   }, []);
 
-  // Sync language preference to Rust on mount (fixes startup desync bug)
-  useEffect(() => {
-    if (selectedLanguage) {
-      invoke('set_language_preference', { language: selectedLanguage })
-        .then(() => {
-          console.log('[ConfigContext] Synced language preference to Rust on startup:', selectedLanguage);
-        })
-        .catch(err => {
-          console.error('[ConfigContext] Failed to sync language preference to Rust on startup:', err);
-        });
-    }
-  }, []); 
+  // Language is fixed to Vietnamese — no sync needed
 
   // Load model configuration on mount
   useEffect(() => {
@@ -368,7 +346,6 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     groq: ['llama-3.3-70b-versatile'],
     openrouter: [],
     openai: ['gpt-4', 'gpt-4-turbo', 'gpt-3.5-turbo'],
-    'builtin-ai': [],
     'custom-openai': [],
   };
 
@@ -388,22 +365,6 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
       localStorage.setItem('isAutoSummary', checked.toString());
     }
   }, [])
-
-  // Toggle beta feature with localStorage persistence and analytics
-  const toggleBetaFeature = useCallback((featureKey: BetaFeatureKey, enabled: boolean) => {
-    setBetaFeatures(prev => {
-      const updated = { ...prev, [featureKey]: enabled };
-      saveBetaFeatures(updated);
-
-      // Track analytics with specific feature
-      Analytics.track('beta_feature_toggled', {
-        feature: featureKey,
-        enabled: enabled.toString(),
-      }).catch(err => console.error('Failed to track beta feature toggle:', err));
-
-      return updated;
-    });
-  }, []);
 
   // Update individual provider API key
   const updateProviderApiKey = useCallback((provider: string, apiKey: string | null) => {
@@ -439,7 +400,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
       // Load storage locations
       const [dbDir, modelsDir, recordingsDir] = await Promise.all([
         invoke<string>('get_database_directory'),
-        invoke<string>('whisper_get_models_directory'),
+        invoke<string>('zipformer_get_models_directory'),
         invoke<string>('get_default_recordings_folder_path')
       ]);
 
@@ -470,16 +431,13 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Wrapper for setSelectedLanguage that persists to localStorage and syncs to Rust
+  // Wrapper for setSelectedLanguage that persists to localStorage
   const handleSetSelectedLanguage = useCallback((lang: string) => {
     setSelectedLanguage(lang);
     if (typeof window !== 'undefined') {
       localStorage.setItem('primaryLanguage', lang);
     }
-    // Sync with Rust in-memory state for live recording
-    invoke('set_language_preference', { language: lang }).catch(err =>
-      console.error('Failed to sync language preference to Rust:', err)
-    );
+    // Note: ZipFormer is Vietnamese-only, no need to sync language to Rust
   }, []);
 
   const value: ConfigContextType = useMemo(() => ({
@@ -497,8 +455,6 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     setSelectedLanguage: handleSetSelectedLanguage,
     showConfidenceIndicator,
     toggleConfidenceIndicator,
-    betaFeatures,
-    toggleBetaFeature,
     models,
     modelOptions,
     error,
@@ -519,8 +475,6 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     handleSetSelectedLanguage,
     showConfidenceIndicator,
     toggleConfidenceIndicator,
-    betaFeatures,
-    toggleBetaFeature,
     models,
     modelOptions,
     error,

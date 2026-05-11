@@ -9,10 +9,13 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { RecordingStatusBar } from "./RecordingStatusBar";
 import { motion, AnimatePresence } from "framer-motion";
 import { TranscriptSegmentData } from "@/types";
+import { Pencil, Check, X } from "lucide-react";
 
 export interface VirtualizedTranscriptViewProps {
     /** Transcript segments to display */
     segments: TranscriptSegmentData[];
+    /** Called when user saves an edit to a segment. Return promise; component handles optimistic update. */
+    onSegmentEdit?: (segmentId: string, newText: string) => Promise<void>;
     /** Whether recording is in progress */
     isRecording?: boolean;
     /** Whether recording is paused */
@@ -63,7 +66,7 @@ function cleanStopWords(text: string): string {
     return cleanedText.replace(/\s+/g, ' ').trim();
 }
 
-// Memoized transcript segment component
+// Memoized transcript segment component with inline editing
 const TranscriptSegment = memo(function TranscriptSegment({
     id,
     timestamp,
@@ -71,6 +74,7 @@ const TranscriptSegment = memo(function TranscriptSegment({
     confidence,
     isStreaming,
     showConfidence,
+    onEdit,
 }: {
     id: string;
     timestamp: number;
@@ -78,15 +82,70 @@ const TranscriptSegment = memo(function TranscriptSegment({
     confidence?: number;
     isStreaming: boolean;
     showConfidence: boolean;
+    onEdit?: (segmentId: string, newText: string) => Promise<void>;
 }) {
-    const displayText = cleanStopWords(text) || (text.trim() === '' ? '[Silence]' : text);
+    const displayText = cleanStopWords(text) || (text.trim() === '' ? '[Im lặng]' : text);
+    const [isEditing, setIsEditing] = useState(false);
+    const [editValue, setEditValue] = useState(text);
+    const [isSaving, setIsSaving] = useState(false);
+    const [optimisticText, setOptimisticText] = useState<string | null>(null);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+    // Auto-resize textarea
+    useEffect(() => {
+        if (isEditing && textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+            textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+            textareaRef.current.focus();
+            textareaRef.current.select();
+        }
+    }, [isEditing]);
+
+    const handleStartEdit = () => {
+        setEditValue(optimisticText ?? text);
+        setIsEditing(true);
+    };
+
+    const handleSave = async () => {
+        const trimmed = editValue.trim();
+        if (!trimmed || trimmed === (optimisticText ?? text)) {
+            setIsEditing(false);
+            return;
+        }
+        setIsSaving(true);
+        setOptimisticText(trimmed); // optimistic update
+        setIsEditing(false);
+        try {
+            await onEdit?.(id, trimmed);
+        } catch {
+            setOptimisticText(null); // rollback on error
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleCancel = () => {
+        setEditValue(optimisticText ?? text);
+        setIsEditing(false);
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            handleSave();
+        }
+        if (e.key === 'Escape') handleCancel();
+    };
+
+    const shownText = optimisticText ?? displayText;
 
     return (
-        <div id={`segment-${id}`} className="mb-3">
+        <div id={`segment-${id}`} className="mb-3 group/seg">
             <div className="flex items-start gap-2">
+                {/* Timestamp */}
                 <Tooltip>
                     <TooltipTrigger>
-                        <span className="text-xs text-gray-400 mt-1 flex-shrink-0 min-w-[50px]">
+                        <span className="text-xs text-gray-400 mt-1 flex-shrink-0 min-w-[50px] tabular-nums">
                             {formatRecordingTime(timestamp)}
                         </span>
                     </TooltipTrigger>
@@ -96,13 +155,61 @@ const TranscriptSegment = memo(function TranscriptSegment({
                         )}
                     </TooltipContent>
                 </Tooltip>
-                <div className="flex-1">
-                    {isStreaming ? (
+
+                {/* Content */}
+                <div className="flex-1 min-w-0">
+                    {isEditing ? (
+                        // Edit mode
+                        <div className="rounded-lg border border-[rgba(22,71,142,0.4)] bg-[rgba(22,71,142,0.05)] ring-2 ring-[rgba(22,71,142,0.2)] overflow-hidden">
+                            <textarea
+                                ref={textareaRef}
+                                value={editValue}
+                                onChange={e => {
+                                    setEditValue(e.target.value);
+                                    e.target.style.height = 'auto';
+                                    e.target.style.height = `${e.target.scrollHeight}px`;
+                                }}
+                                onKeyDown={handleKeyDown}
+                                className="w-full px-3 py-2 text-base text-gray-800 leading-relaxed bg-transparent resize-none focus:outline-none"
+                                rows={1}
+                            />
+                            <div className="flex items-center justify-end gap-1 px-2 pb-1.5 pt-0">
+                                <span className="text-[10px] text-gray-400 mr-auto">Enter để lưu · Esc để huỷ</span>
+                                <button
+                                    onClick={handleCancel}
+                                    className="flex items-center gap-1 px-2 py-0.5 text-xs text-gray-500 hover:text-gray-700 rounded-md hover:bg-gray-100 transition-colors"
+                                >
+                                    <X className="w-3 h-3" /> Huỷ
+                                </button>
+                                <button
+                                    onClick={handleSave}
+                                    className="flex items-center gap-1 px-2 py-0.5 text-xs text-white bg-[#16478e] hover:bg-[#1a55ab] rounded-md transition-colors"
+                                >
+                                    <Check className="w-3 h-3" /> Lưu
+                                </button>
+                            </div>
+                        </div>
+                    ) : isStreaming ? (
                         <div className="bg-gray-100 border border-gray-200 rounded-lg px-3 py-2">
-                            <p className="text-base text-gray-800 leading-relaxed">{displayText}</p>
+                            <p className="text-base text-gray-800 leading-relaxed">{shownText}</p>
                         </div>
                     ) : (
-                        <p className="text-base text-gray-800 leading-relaxed">{displayText}</p>
+                        // View mode — show edit button on hover
+                        <div className="flex items-start gap-1.5">
+                            <p className={`flex-1 text-base leading-relaxed ${isSaving ? 'text-gray-400' : 'text-gray-800'}`}>
+                                {shownText}
+                                {isSaving && <span className="ml-1.5 text-xs text-gray-400">Đang lưu...</span>}
+                            </p>
+                            {onEdit && (
+                                <button
+                                    onClick={handleStartEdit}
+                                    title="Chỉnh sửa đoạn này"
+                                    className="opacity-0 group-hover/seg:opacity-100 mt-1 flex-shrink-0 p-1 rounded-md text-gray-400 hover:text-[#16478e] hover:bg-[rgba(22,71,142,0.08)] transition-all"
+                                >
+                                    <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                            )}
+                        </div>
                     )}
                 </div>
             </div>
@@ -112,6 +219,7 @@ const TranscriptSegment = memo(function TranscriptSegment({
 
 export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps> = ({
     segments,
+    onSegmentEdit,
     isRecording = false,
     isPaused = false,
     isProcessing = false,
@@ -224,7 +332,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
     const useVirtualization = segments.length >= VIRTUALIZATION_THRESHOLD;
 
     return (
-        <div ref={scrollRef} className="flex flex-col h-full overflow-y-auto px-4 py-2">
+        <div ref={scrollRef} className="flex h-full min-h-0 flex-col overflow-y-auto px-4 py-2">
             {/* Recording Status Bar - Sticky at top, always visible when recording */}
             <AnimatePresence>
                 {isRecording && (
@@ -249,16 +357,16 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                 <div className={`w-3 h-3 rounded-full ${isPaused ? 'bg-orange-500' : 'bg-blue-500 animate-pulse'}`}></div>
                             </div>
                             <p className="text-sm text-gray-600">
-                                {isPaused ? 'Recording paused' : 'Listening for speech...'}
+                                {isPaused ? 'Đã tạm dừng ghi âm' : 'Đang lắng nghe giọng nói...'}
                             </p>
                             <p className="text-xs mt-1 text-gray-400">
-                                {isPaused ? 'Click resume to continue recording' : 'Speak to see live transcription'}
+                                {isPaused ? 'Nhấn tiếp tục để ghi âm lại' : 'Nói để xem bản ghi trực tiếp'}
                             </p>
                         </>
                     ) : (
                         <>
-                            <p className="text-lg font-semibold">Welcome to meetily!</p>
-                            <p className="text-xs mt-1">Start recording to see live transcription</p>
+                            <p className="text-lg font-semibold">Chào mừng đến ACT MeetingOne!</p>
+                            <p className="text-xs mt-1">Bắt đầu ghi âm để xem bản ghi trực tiếp</p>
                         </>
                     )}
                 </motion.div>
@@ -296,6 +404,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                         confidence={segment.confidence}
                                         isStreaming={isStreaming}
                                         showConfidence={showConfidence}
+                                        onEdit={!isRecording ? onSegmentEdit : undefined}
                                     />
                                 </div>
                             );
@@ -308,11 +417,11 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                             {isLoadingMore ? (
                                 <div className="flex items-center gap-2 text-gray-500">
                                     <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
-                                    <span className="text-sm">Loading more...</span>
+                                    <span className="text-sm">Đang tải thêm...</span>
                                 </div>
                             ) : hasMore && totalCount > 0 ? (
                                 <span className="text-sm text-gray-400">
-                                    Showing {loadedCount} of {totalCount} segments
+                                    Hiển thị {loadedCount} / {totalCount} đoạn
                                 </span>
                             ) : null}
                         </div>
@@ -327,7 +436,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                             className="flex items-center gap-2 mt-4 text-gray-500"
                         >
                             <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                            <span className="text-sm">Listening...</span>
+                            <span className="text-sm">Đang lắng nghe...</span>
                         </motion.div>
                     )}
                 </>
@@ -352,6 +461,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                         confidence={segment.confidence}
                                         isStreaming={isStreaming}
                                         showConfidence={showConfidence}
+                                        onEdit={!isRecording ? onSegmentEdit : undefined}
                                     />
                                 </motion.div>
                             );
@@ -364,11 +474,11 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                             {isLoadingMore ? (
                                 <div className="flex items-center gap-2 text-gray-500">
                                     <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
-                                    <span className="text-sm">Loading more...</span>
+                                    <span className="text-sm">Đang tải thêm...</span>
                                 </div>
                             ) : hasMore && totalCount > 0 ? (
                                 <span className="text-sm text-gray-400">
-                                    Showing {loadedCount} of {totalCount} segments
+                                    Hiển thị {loadedCount} / {totalCount} đoạn
                                 </span>
                             ) : null}
                         </div>
@@ -383,7 +493,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                             className="flex items-center gap-2 mt-4 text-gray-500"
                         >
                             <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                            <span className="text-sm">Listening...</span>
+                            <span className="text-sm">Đang lắng nghe...</span>
                         </motion.div>
                     )}
                 </>

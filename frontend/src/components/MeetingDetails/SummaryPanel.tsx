@@ -1,7 +1,6 @@
 "use client";
 
 import { Summary, SummaryResponse, Transcript } from '@/types';
-import { EditableTitle } from '@/components/EditableTitle';
 import { BlockNoteSummaryView, BlockNoteSummaryViewRef } from '@/components/AISummary/BlockNoteSummaryView';
 import { EmptyStateSummary } from '@/components/EmptyStateSummary';
 import { ModelConfig } from '@/components/ModelSettingsModal';
@@ -27,6 +26,7 @@ interface SummaryPanelProps {
   onSaveAll: () => Promise<void>;
   onCopySummary: () => Promise<void>;
   onOpenFolder: () => Promise<void>;
+  onExportDocx: () => Promise<void>;
   aiSummary: Summary | null;
   summaryStatus: 'idle' | 'processing' | 'summarizing' | 'regenerating' | 'completed' | 'error';
   transcripts: Transcript[];
@@ -50,6 +50,36 @@ interface SummaryPanelProps {
   onOpenModelSettings?: (openFn: () => void) => void;
 }
 
+function SummarySkeleton() {
+  return (
+    <div className="flex-1 p-6 space-y-6 animate-pulse">
+      <div className="space-y-2">
+        <div className="h-4 bg-gray-100 rounded-full w-1/4" />
+        <div className="h-3 bg-gray-100 rounded-full" />
+        <div className="h-3 bg-gray-100 rounded-full w-5/6" />
+        <div className="h-3 bg-gray-100 rounded-full w-4/6" />
+      </div>
+      <div className="space-y-2">
+        <div className="h-4 bg-gray-100 rounded-full w-1/3" />
+        <div className="h-3 bg-gray-100 rounded-full w-3/4" />
+        <div className="h-3 bg-gray-100 rounded-full w-5/6" />
+        <div className="h-3 bg-gray-100 rounded-full w-2/3" />
+      </div>
+      <div className="space-y-2">
+        <div className="h-4 bg-gray-100 rounded-full w-1/4" />
+        <div className="h-3 bg-gray-100 rounded-full w-4/5" />
+        <div className="h-3 bg-gray-100 rounded-full w-3/5" />
+      </div>
+      <div className="space-y-2">
+        <div className="h-4 bg-gray-100 rounded-full w-2/5" />
+        <div className="h-3 bg-gray-100 rounded-full w-full" />
+        <div className="h-3 bg-gray-100 rounded-full w-5/6" />
+        <div className="h-3 bg-gray-100 rounded-full w-3/4" />
+      </div>
+    </div>
+  );
+}
+
 export function SummaryPanel({
   meeting,
   meetingTitle,
@@ -63,6 +93,7 @@ export function SummaryPanel({
   onSaveAll,
   onCopySummary,
   onOpenFolder,
+  onExportDocx,
   aiSummary,
   summaryStatus,
   transcripts,
@@ -87,161 +118,74 @@ export function SummaryPanel({
 }: SummaryPanelProps) {
   const isSummaryLoading = summaryStatus === 'processing' || summaryStatus === 'summarizing' || summaryStatus === 'regenerating';
 
+  const statusBadge = summaryStatus === 'error'
+    ? <span className="inline-flex items-center rounded-full bg-[rgba(230,48,39,0.08)] border border-[rgba(230,48,39,0.2)] px-2 py-0.5 text-xs font-medium text-[#e63027]">Lỗi</span>
+    : summaryStatus === 'completed'
+    ? <span className="inline-flex items-center rounded-full bg-green-50 border border-green-100 px-2 py-0.5 text-xs font-medium text-green-600">Đã tạo</span>
+    : isSummaryLoading
+    ? <span className="inline-flex items-center gap-1 rounded-full bg-[rgba(22,71,142,0.10)] border border-[rgba(22,71,142,0.2)] px-2 py-0.5 text-xs font-medium text-[#16478e]">
+        <span className="h-1.5 w-1.5 rounded-full bg-[#16478e] animate-pulse" />
+        Đang tạo…
+      </span>
+    : null;
+
+  const sharedGeneratorProps = {
+    modelConfig,
+    setModelConfig,
+    onSaveModelConfig,
+    onGenerateSummary,
+    onStopGeneration,
+    customPrompt,
+    summaryStatus,
+    availableTemplates,
+    selectedTemplate,
+    onTemplateSelect,
+    hasTranscripts: transcripts.length > 0,
+    isModelConfigLoading,
+    onOpenModelSettings,
+  };
+
   return (
-    <div className="flex-1 min-w-0 flex flex-col bg-white overflow-hidden">
-      {/* Title area */}
-      <div className="p-4 border-b border-gray-200">
-        {/* <EditableTitle
-          title={meetingTitle}
-          isEditing={isEditingTitle}
-          onStartEditing={onStartEditTitle}
-          onFinishEditing={onFinishEditTitle}
-          onChange={onTitleChange}
-        /> */}
-
-        {/* Button groups - only show when summary exists */}
-        {aiSummary && !isSummaryLoading && (
-          <div className="flex items-center justify-center w-full pt-0 gap-2">
-            {/* Left-aligned: Summary Generator Button Group */}
-            <div className="flex-shrink-0">
-              <SummaryGeneratorButtonGroup
-                modelConfig={modelConfig}
-                setModelConfig={setModelConfig}
-                onSaveModelConfig={onSaveModelConfig}
-                onGenerateSummary={onGenerateSummary}
-                onStopGeneration={onStopGeneration}
-                customPrompt={customPrompt}
-                summaryStatus={summaryStatus}
-                availableTemplates={availableTemplates}
-                selectedTemplate={selectedTemplate}
-                onTemplateSelect={onTemplateSelect}
-                hasTranscripts={transcripts.length > 0}
-                isModelConfigLoading={isModelConfigLoading}
-                onOpenModelSettings={onOpenModelSettings}
-              />
-            </div>
-
-            {/* Right-aligned: Summary Updater Button Group */}
-            <div className="flex-shrink-0">
-              <SummaryUpdaterButtonGroup
-                isSaving={isSaving}
-                isDirty={isTitleDirty || (summaryRef.current?.isDirty || false)}
-                onSave={onSaveAll}
-                onCopy={onCopySummary}
-                onFind={() => {
-                  // TODO: Implement find in summary functionality
-                  console.log('Find in summary clicked');
-                }}
-                onOpenFolder={onOpenFolder}
-                hasSummary={!!aiSummary}
-              />
-            </div>
-          </div>
-        )}
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden bg-white">
+      {/* Unified header — [&_span]:hidden forces icon-only buttons so they fit in narrow split panels */}
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-gray-100 px-4 py-3 min-w-0">
+        <div className="flex items-center gap-2 shrink-0 min-w-0">
+          <span className="text-sm font-semibold text-gray-800 whitespace-nowrap">Báo cáo AI</span>
+          <span className="hidden sm:block">{statusBadge}</span>
+        </div>
+        {/* [&_span]:hidden collapses all button text to icon-only — tooltips (title=) remain for discoverability */}
+        <div className="flex items-center gap-1.5 shrink-0 [&_span]:hidden">
+          <SummaryGeneratorButtonGroup {...sharedGeneratorProps} />
+          {aiSummary && !isSummaryLoading && (
+            <SummaryUpdaterButtonGroup
+              isSaving={isSaving}
+              isDirty={isTitleDirty || (summaryRef.current?.isDirty || false)}
+              onSave={onSaveAll}
+              onCopy={onCopySummary}
+              onFind={() => {}}
+              onOpenFolder={onOpenFolder}
+              onExportDocx={onExportDocx}
+              hasSummary={!!aiSummary}
+            />
+          )}
+        </div>
       </div>
 
+      {/* Content area */}
       {isSummaryLoading ? (
-        <div className="flex flex-col h-full">
-          {/* Show button group during generation */}
-          <div className="flex items-center justify-center pt-8 pb-4">
-            <SummaryGeneratorButtonGroup
-              modelConfig={modelConfig}
-              setModelConfig={setModelConfig}
-              onSaveModelConfig={onSaveModelConfig}
-              onGenerateSummary={onGenerateSummary}
-              onStopGeneration={onStopGeneration}
-              customPrompt={customPrompt}
-              summaryStatus={summaryStatus}
-              availableTemplates={availableTemplates}
-              selectedTemplate={selectedTemplate}
-              onTemplateSelect={onTemplateSelect}
-              hasTranscripts={transcripts.length > 0}
-              isModelConfigLoading={isModelConfigLoading}
-              onOpenModelSettings={onOpenModelSettings}
-            />
-          </div>
-          {/* Loading spinner */}
-          <div className="flex items-center justify-center flex-1">
-            <div className="text-center">
-              <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
-              <p className="text-gray-600">Generating AI Summary...</p>
-            </div>
-          </div>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <SummarySkeleton />
         </div>
       ) : !aiSummary ? (
-        <div className="flex flex-col h-full">
-          {/* Centered Summary Generator Button Group when no summary */}
-          <div className="flex items-center justify-center pt-8 pb-4">
-            <SummaryGeneratorButtonGroup
-              modelConfig={modelConfig}
-              setModelConfig={setModelConfig}
-              onSaveModelConfig={onSaveModelConfig}
-              onGenerateSummary={onGenerateSummary}
-              onStopGeneration={onStopGeneration}
-              customPrompt={customPrompt}
-              summaryStatus={summaryStatus}
-              availableTemplates={availableTemplates}
-              selectedTemplate={selectedTemplate}
-              onTemplateSelect={onTemplateSelect}
-              hasTranscripts={transcripts.length > 0}
-              isModelConfigLoading={isModelConfigLoading}
-              onOpenModelSettings={onOpenModelSettings}
-            />
-          </div>
-          {/* Empty state message */}
+        <div className="min-h-0 flex-1 overflow-y-auto">
           <EmptyStateSummary
             onGenerate={() => onGenerateSummary(customPrompt)}
             hasModel={modelConfig.provider !== null && modelConfig.model !== null}
-            isGenerating={isSummaryLoading}
+            isGenerating={false}
           />
         </div>
-      ) : transcripts?.length > 0 && (
+      ) : transcripts?.length > 0 ? (
         <div className="flex-1 overflow-y-auto min-h-0">
-          {summaryResponse && (
-            <div className="fixed bottom-0 left-0 right-0 bg-white shadow-lg p-4 max-h-1/3 overflow-y-auto">
-              <h3 className="text-lg font-semibold mb-2">Meeting Summary</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-white p-4 rounded-lg shadow-sm">
-                  <h4 className="font-medium mb-1">Key Points</h4>
-                  <ul className="list-disc pl-4">
-                    {summaryResponse.summary.key_points.blocks.map((block, i) => (
-                      <li key={i} className="text-sm">{block.content}</li>
-                    ))}
-                  </ul>
-                </div>
-                <div className="bg-white p-4 rounded-lg shadow-sm mt-4">
-                  <h4 className="font-medium mb-1">Action Items</h4>
-                  <ul className="list-disc pl-4">
-                    {summaryResponse.summary.action_items.blocks.map((block, i) => (
-                      <li key={i} className="text-sm">{block.content}</li>
-                    ))}
-                  </ul>
-                </div>
-                <div className="bg-white p-4 rounded-lg shadow-sm mt-4">
-                  <h4 className="font-medium mb-1">Decisions</h4>
-                  <ul className="list-disc pl-4">
-                    {summaryResponse.summary.decisions.blocks.map((block, i) => (
-                      <li key={i} className="text-sm">{block.content}</li>
-                    ))}
-                  </ul>
-                </div>
-                <div className="bg-white p-4 rounded-lg shadow-sm mt-4">
-                  <h4 className="font-medium mb-1">Main Topics</h4>
-                  <ul className="list-disc pl-4">
-                    {summaryResponse.summary.main_topics.blocks.map((block, i) => (
-                      <li key={i} className="text-sm">{block.content}</li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-              {summaryResponse.raw_summary ? (
-                <div className="mt-4">
-                  <h4 className="font-medium mb-1">Full Summary</h4>
-                  <p className="text-sm whitespace-pre-wrap">{summaryResponse.raw_summary}</p>
-                </div>
-              ) : null}
-            </div>
-          )}
           <div className="p-6 w-full">
             <BlockNoteSummaryView
               ref={summaryRef}
@@ -262,16 +206,13 @@ export function SummaryPanel({
               }}
             />
           </div>
-          {summaryStatus !== 'idle' && (
-            <div className={`mt-4 p-4 rounded-lg ${summaryStatus === 'error' ? 'bg-red-100 text-red-700' :
-              summaryStatus === 'completed' ? 'bg-green-100 text-green-700' :
-                'bg-blue-100 text-blue-700'
-              }`}>
+          {summaryStatus === 'error' && (
+            <div className="mx-6 mb-6 p-3 rounded-lg bg-red-50 border border-red-100 text-red-700">
               <p className="text-sm font-medium">{getSummaryStatusMessage(summaryStatus)}</p>
             </div>
           )}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

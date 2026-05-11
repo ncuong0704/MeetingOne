@@ -1,6 +1,7 @@
 use log::{debug as log_debug, error as log_error, info as log_info, warn as log_warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs;
 use tauri::{AppHandle, Runtime};
 use tauri_plugin_store::StoreExt;
 
@@ -12,6 +13,7 @@ use crate::{
             transcript::TranscriptsRepository,
         },
     },
+    report_export,
     state::AppState,
     summary::CustomOpenAIConfig,
 };
@@ -557,13 +559,6 @@ pub async fn api_save_model_config<R: Runtime>(
         }
     }
 
-    // Trigger graceful shutdown of built-in AI sidecar if it's running
-    // This ensures that if the user switched models/providers, the old one is cleaned up
-    // The shutdown happens in the background, so it won't block the UI
-    if let Err(e) = crate::summary::summary_engine::client::shutdown_sidecar_gracefully().await {
-        log_warn!("Failed to initiate graceful sidecar shutdown: {}", e);
-    }
-
     log_info!("✅ Successfully saved model configuration to database");
     Ok(
         serde_json::json!({ "status": "success", "message": "Model configuration saved successfully" }),
@@ -607,35 +602,32 @@ pub async fn api_get_transcript_config<R: Runtime>(
 
     match SettingsRepository::get_transcript_config(pool).await {
         Ok(Some(config)) => {
+            // Migrate legacy providers to zipformer
+            let provider = match config.provider.as_str() {
+                "parakeet" | "localWhisper" | "whisper" => "zipformer".to_string(),
+                other => other.to_string(),
+            };
+            let model = if provider == "zipformer" && (config.model.contains("parakeet") || config.model.contains("ggml")) {
+                crate::config::ZIPFORMER_MODEL_NAME.to_string()
+            } else {
+                config.model.clone()
+            };
+
             log_info!(
-                "Found transcript config: provider={}, model={}",
-                &config.provider,
-                &config.model
+                "Found transcript config: provider={}, model={} (original: {}, {})",
+                provider, model, config.provider, config.model
             );
-            match SettingsRepository::get_transcript_api_key(pool, &config.provider).await {
-                Ok(api_key) => {
-                    log_info!("Successfully retrieved transcript config and API key.");
-                    Ok(Some(TranscriptConfig {
-                        provider: config.provider,
-                        model: config.model,
-                        api_key,
-                    }))
-                }
-                Err(e) => {
-                    log_error!(
-                        "Failed to get transcript API key for provider {}: {}",
-                        &config.provider,
-                        e
-                    );
-                    Err(e.to_string())
-                }
-            }
+            Ok(Some(TranscriptConfig {
+                provider,
+                model,
+                api_key: None,
+            }))
         }
         Ok(None) => {
             log_info!("No transcript config found, returning default.");
             Ok(Some(TranscriptConfig {
-                provider: "parakeet".to_string(),
-                model: crate::config::DEFAULT_PARAKEET_MODEL.to_string(),
+                provider: "zipformer".to_string(),
+                model: crate::config::ZIPFORMER_MODEL_NAME.to_string(),
                 api_key: None,
             }))
         }
@@ -806,6 +798,21 @@ pub async fn api_get_meeting<R: Runtime>(
             Err(format!("Failed to retrieve meeting: {}", e))
         }
     }
+}
+
+/// Update the text of a single transcript segment
+#[tauri::command]
+pub async fn api_update_transcript_text<R: Runtime>(
+    _app: AppHandle<R>,
+    transcript_id: String,
+    new_text: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    log_info!("api_update_transcript_text: id={}", transcript_id);
+    let pool = state.db_manager.pool();
+    TranscriptsRepository::update_transcript_text(pool, &transcript_id, &new_text)
+        .await
+        .map_err(|e| format!("Failed to update transcript: {}", e))
 }
 
 /// Get meeting metadata without transcripts (for pagination)
@@ -1380,4 +1387,110 @@ pub async fn api_test_custom_openai_connection<R: Runtime>(
             }
         }
     }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExportSummaryResponse {
+    pub status: String,
+    pub path: Option<String>,
+    pub message: String,
+}
+
+fn prepare_export_destination<R: Runtime>(
+    app: AppHandle<R>,
+    meeting_title: &str,
+    extension: &str,
+) -> Result<Option<std::path::PathBuf>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let default_name = format!(
+        "{}.{}",
+        report_export::sanitize_file_stem(meeting_title),
+        extension
+    );
+
+    let selected = app
+        .dialog()
+        .file()
+        .set_file_name(&default_name)
+        .add_filter(&format!("{} file", extension.to_uppercase()), &[extension])
+        .blocking_save_file();
+
+    match selected {
+        Some(file_path) => {
+            let raw_path = std::path::PathBuf::from(file_path.to_string());
+            Ok(Some(report_export::ensure_extension(&raw_path, extension)))
+        }
+        None => Ok(None),
+    }
+}
+
+#[tauri::command]
+pub async fn api_export_summary_docx<R: Runtime>(
+    app: AppHandle<R>,
+    markdown: String,
+    meeting_title: String,
+) -> Result<ExportSummaryResponse, String> {
+    log_info!(
+        "api_export_summary_docx called: title='{}', markdown_chars={}",
+        meeting_title,
+        markdown.chars().count()
+    );
+
+    if markdown.trim().is_empty() {
+        return Err("Nội dung tóm tắt trống, không thể xuất DOCX".to_string());
+    }
+
+    let destination = prepare_export_destination(app, &meeting_title, "docx")?;
+    let Some(path) = destination else {
+        return Ok(ExportSummaryResponse {
+            status: "cancelled".to_string(),
+            path: None,
+            message: "Đã hủy lưu file DOCX".to_string(),
+        });
+    };
+
+    report_export::export_markdown_to_docx(&markdown, &path)?;
+
+    Ok(ExportSummaryResponse {
+        status: "success".to_string(),
+        path: Some(path.to_string_lossy().to_string()),
+        message: "Xuất DOCX thành công".to_string(),
+    })
+}
+
+#[tauri::command]
+pub async fn api_save_export_file<R: Runtime>(
+    app: AppHandle<R>,
+    meeting_title: String,
+    extension: String,
+    file_data_base64: String,
+) -> Result<ExportSummaryResponse, String> {
+    use base64::Engine;
+
+    let ext = extension.trim().to_lowercase();
+    if ext != "docx" {
+        return Err("Định dạng file không được hỗ trợ".to_string());
+    }
+
+    let destination = prepare_export_destination(app, &meeting_title, &ext)?;
+    let Some(path) = destination else {
+        return Ok(ExportSummaryResponse {
+            status: "cancelled".to_string(),
+            path: None,
+            message: format!("Đã hủy lưu file {}", ext.to_uppercase()),
+        });
+    };
+
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(file_data_base64.as_bytes())
+        .map_err(|e| format!("Không thể giải mã dữ liệu file: {}", e))?;
+
+    fs::write(&path, bytes).map_err(|e| format!("Không thể ghi file: {}", e))?;
+
+    Ok(ExportSummaryResponse {
+        status: "success".to_string(),
+        path: Some(path.to_string_lossy().to_string()),
+        message: format!("Xuất {} thành công", ext.to_uppercase()),
+    })
 }

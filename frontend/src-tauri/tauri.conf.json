@@ -1,8 +1,8 @@
 {
     "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-    "productName": "meetily",
+    "productName": "ACT MeetingOne",
     "version": "0.3.0",
-    "identifier": "com.meetily.ai",
+    "identifier": "com.meetingone.app",
     "build": {
         "frontendDist": "../out",
         "devUrl": "http://localhost:3118",
@@ -12,7 +12,7 @@
     "app": {
         "windows": [
             {
-                "title": "meetily",
+                "title": "ACT MeetingOne",
                 "width": 1100,
                 "height": 700,
                 "resizable": true,
@@ -24,10 +24,11 @@
         "macOSPrivateApi": true,
         "security": {
             "csp": {
-                "default-src": "'self'",
+                "default-src": "'self' 'unsafe-eval'",
+                "script-src": "'self' 'unsafe-eval' 'unsafe-inline'",
                 "style-src": "'self' 'unsafe-inline'",
                 "img-src": "'self' asset: https://asset.localhost data:",
-                "connect-src": "'self' http://localhost:11434 http://localhost:5167 http://localhost:8178 https://api.ollama.ai"
+                "connect-src": "'self' http://localhost:11434 http://localhost:5167 https://api.ollama.ai https://huggingface.co"
             },
             "assetProtocol": {
                 "enable": true,
@@ -63,7 +64,6 @@
                         "store:default",
                         "notification:default",
                         "notification:allow-is-permission-granted",
-                        "updater:default",
                         "process:default",
                         {
                             "identifier": "fs:scope",
@@ -88,11 +88,11 @@
             "app",
             "dmg"
         ],
-        "createUpdaterArtifacts": true,
+        "createUpdaterArtifacts": false,
         "icon": [
             "icons/icon.png",
-            "icons/app_icon.icns",
-            "icons/app_icon.ico"
+            "icons/icon.icns",
+            "icons/icon.ico"
         ],
         "resources": [
             "templates/*.json"
@@ -108,14 +108,6 @@
         },
         "windows": {
             "signCommand": "powershell -ExecutionPolicy Bypass -File scripts/sign-windows.ps1 -FilePath %1"
-        }
-    },
-    "plugins": {
-        "updater": {
-            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVDQTYzMUQ3ODc5N0M4MkEKUldRcXlKZUgxekdtN09DRkVWSHNpZlJseEVOUmpNd1dDSTNaLzZ3MXJGTnY3WW1pdnlOYjBpbkIK",
-            "endpoints": [
-                "https://github.com/Zackriya-Solutions/meeting-minutes/releases/latest/download/latest.json"
-            ]
         }
     }
 }

@@ -26,7 +26,7 @@ const TranscriptContext = createContext<TranscriptContextType | undefined>(undef
 
 export function TranscriptProvider({ children }: { children: ReactNode }) {
   const [transcripts, setTranscripts] = useState<Transcript[]>([]);
-  const [meetingTitle, setMeetingTitle] = useState('+ New Call');
+  const [meetingTitle, setMeetingTitle] = useState('+ Cuộc họp mới');
   const [currentMeetingId, setCurrentMeetingId] = useState<string | null>(null);
 
   // Recording state context - provides backend-synced state
@@ -338,7 +338,7 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
         console.log('✅ MAIN transcript listener setup complete');
       } catch (error) {
         console.error('❌ Failed to setup MAIN transcript listener:', error);
-        alert('Failed to setup transcript listener. Check console for details.');
+            alert('Không thiết lập được listener bản ghi. Xem chi tiết trong console.');
       }
     };
 
@@ -469,7 +469,7 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
       .join('\n');
     navigator.clipboard.writeText(fullTranscript);
 
-    toast.success("Transcript copied to clipboard");
+    toast.success('Đã sao chép bản ghi vào bảng nhớ tạm');
   }, [transcripts]);
 
   // Force flush buffer (for final transcript processing)

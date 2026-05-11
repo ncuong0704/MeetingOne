@@ -4,11 +4,11 @@ import { invoke } from '@tauri-apps/api/core';
 export interface RawModelInfo {
   name: string;
   size_mb: number;
-  status: 'Available' | 'Missing' | { Downloading: { progress: number } } | { Error: string };
+  status: 'Available' | 'Missing' | { Downloading: number } | { Error: string };
 }
 
 export interface ModelOption {
-  provider: 'whisper' | 'parakeet';
+  provider: 'zipformer';
   name: string;
   displayName: string;
   size_mb: number;
@@ -19,23 +19,12 @@ interface TranscriptModelConfig {
   model?: string;
 }
 
-/**
- * Custom hook for fetching and managing transcription models (Whisper and Parakeet).
- *
- * This hook centralizes the model fetching logic that was previously duplicated
- * in ImportAudioDialog and RetranscribeDialog components.
- *
- * @param transcriptModelConfig - User's saved model configuration from context
- * @returns Object containing available models, selected model key, loading state, and fetch function
- */
 export function useTranscriptionModels(transcriptModelConfig: TranscriptModelConfig | undefined) {
   const [availableModels, setAvailableModels] = useState<ModelOption[]>([]);
-  const [selectedModelKey, setSelectedModelKey] = useState<string>('');
+  const [selectedModelKey, setSelectedModelKey] = useState<string>('zipformer:zipformer-vi-30m');
   const [loadingModels, setLoadingModels] = useState(false);
-  // Track whether the user has manually changed the model selection
   const userSelectedRef = useRef(false);
 
-  // Wrap setSelectedModelKey to track user-initiated changes
   const setSelectedModelKeyWithTracking = useCallback((key: string) => {
     userSelectedRef.current = true;
     setSelectedModelKey(key);
@@ -43,69 +32,31 @@ export function useTranscriptionModels(transcriptModelConfig: TranscriptModelCon
 
   const fetchModels = useCallback(async () => {
     setLoadingModels(true);
-    const allModels: ModelOption[] = [];
 
-    // Fetch Whisper models
     try {
-      const whisperModels = await invoke<RawModelInfo[]>('whisper_get_available_models');
-      const availableWhisper = whisperModels
-        .filter((m) => m.status === 'Available')
-        .map((m) => ({
-          provider: 'whisper' as const,
-          name: m.name,
-          displayName: `🏠 Whisper: ${m.name}`,
-          size_mb: m.size_mb,
-        }));
-      allModels.push(...availableWhisper);
-    } catch (err) {
-      console.error('Failed to fetch Whisper models:', err);
-    }
+      await invoke('zipformer_init');
+      const isLoaded = await invoke<boolean>('zipformer_is_model_loaded');
 
-    // Fetch Parakeet models
-    try {
-      const parakeetModels = await invoke<RawModelInfo[]>('parakeet_get_available_models');
-      const availableParakeet = parakeetModels
-        .filter((m) => m.status === 'Available')
-        .map((m) => ({
-          provider: 'parakeet' as const,
-          name: m.name,
-          displayName: `⚡ Parakeet: ${m.name}`,
-          size_mb: m.size_mb,
-        }));
-      allModels.push(...availableParakeet);
-    } catch (err) {
-      console.error('Failed to fetch Parakeet models:', err);
-    }
+      const zipformerModel: ModelOption = {
+        provider: 'zipformer',
+        name: 'zipformer-vi-30m',
+        displayName: '🇻🇳 ZipFormer Vietnamese ASR (~30 MB)',
+        size_mb: 30,
+      };
 
-    setAvailableModels(allModels);
+      setAvailableModels(isLoaded ? [zipformerModel] : []);
 
-    // Set default model based on user's saved configuration
-    const configuredProvider = transcriptModelConfig?.provider || '';
-    const configuredModel = transcriptModelConfig?.model || '';
-
-    // Try to match the configured model
-    // Note: 'localWhisper' in config maps to 'whisper' provider in model list
-    const configuredMatch = allModels.find(
-      (m) =>
-        (configuredProvider === 'localWhisper' && m.provider === 'whisper' && m.name === configuredModel) ||
-        (configuredProvider === 'parakeet' && m.provider === 'parakeet' && m.name === configuredModel)
-    );
-
-    // Only set default model if user hasn't manually selected one
-    if (!userSelectedRef.current) {
-      if (configuredMatch) {
-        // Use the configured model if available
-        setSelectedModelKey(`${configuredMatch.provider}:${configuredMatch.name}`);
-      } else if (allModels.length > 0) {
-        // Fall back to first available model
-        setSelectedModelKey(`${allModels[0].provider}:${allModels[0].name}`);
+      if (!userSelectedRef.current && isLoaded) {
+        setSelectedModelKey('zipformer:zipformer-vi-30m');
       }
+    } catch (err) {
+      console.error('Failed to check ZipFormer status:', err);
+      setAvailableModels([]);
     }
 
     setLoadingModels(false);
   }, [transcriptModelConfig]);
 
-  // Reset user selection tracking (call when dialog opens fresh)
   const resetSelection = useCallback(() => {
     userSelectedRef.current = false;
   }, []);

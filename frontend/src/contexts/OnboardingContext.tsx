@@ -5,24 +5,17 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { PermissionStatus, OnboardingPermissions } from '@/types/onboarding';
 
-const PARAKEET_MODEL = 'parakeet-tdt-0.6b-v3-int8';
+const ZIPFORMER_MODEL = 'zipformer-vi-30m';
 
 interface OnboardingStatus {
   version: string;
   completed: boolean;
   current_step: number;
   model_status: {
-    parakeet: string;
+    zipformer: string;
     summary: string;
   };
   last_updated: string;
-}
-
-interface SummaryModelProgressInfo {
-  percent: number;
-  downloadedMb: number;
-  totalMb: number;
-  speedMbps: number;
 }
 
 interface ParakeetProgressInfo {
@@ -37,9 +30,6 @@ interface OnboardingContextType {
   parakeetDownloaded: boolean;
   parakeetProgress: number;
   parakeetProgressInfo: ParakeetProgressInfo;
-  summaryModelDownloaded: boolean;
-  summaryModelProgress: number;
-  summaryModelProgressInfo: SummaryModelProgressInfo;
   selectedSummaryModel: string;
   databaseExists: boolean;
   isBackgroundDownloading: boolean;
@@ -52,7 +42,6 @@ interface OnboardingContextType {
   goPrevious: () => void;
   // Setters
   setParakeetDownloaded: (value: boolean) => void;
-  setSummaryModelDownloaded: (value: boolean) => void;
   setSelectedSummaryModel: (value: string) => void;
   setDatabaseExists: (value: boolean) => void;
   setPermissionStatus: (permission: keyof OnboardingPermissions, status: PermissionStatus) => void;
@@ -70,14 +59,6 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   const [parakeetDownloaded, setParakeetDownloaded] = useState(false);
   const [parakeetProgress, setParakeetProgress] = useState(0);
   const [parakeetProgressInfo, setParakeetProgressInfo] = useState<ParakeetProgressInfo>({
-    percent: 0,
-    downloadedMb: 0,
-    totalMb: 0,
-    speedMbps: 0,
-  });
-  const [summaryModelDownloaded, setSummaryModelDownloaded] = useState(false);
-  const [summaryModelProgress, setSummaryModelProgress] = useState(0);
-  const [summaryModelProgressInfo, setSummaryModelProgressInfo] = useState<SummaryModelProgressInfo>({
     percent: 0,
     downloadedMb: 0,
     totalMb: 0,
@@ -103,15 +84,15 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     checkDatabaseStatus();
     initializeDatabaseInBackground();
 
-    // Fetch and set recommended model
+    // Fetch and set recommended Ollama model
     const fetchRecommendation = async () => {
       try {
-        const recommendedModel = await invoke<string>('builtin_ai_get_recommended_model');
-        setSelectedSummaryModel(recommendedModel);
-        console.log('[OnboardingContext] Set recommended model:', recommendedModel);
+        const rec = await invoke<{ model: string }>('get_ollama_model_recommendation');
+        setSelectedSummaryModel(rec.model);
+        console.log('[OnboardingContext] Set recommended Ollama model:', rec.model);
       } catch (error) {
-        console.error('[OnboardingContext] Failed to get recommended model:', error);
-        // Keep default gemma3:1b
+        console.error('[OnboardingContext] Failed to get Ollama recommendation:', error);
+        // Keep default
       }
     };
     fetchRecommendation();
@@ -140,7 +121,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   const performAutoDetection = async () => {
     // Check Homebrew (macOS only)
     if (typeof navigator !== 'undefined' && navigator.platform?.toLowerCase().includes('mac')) {
-      const homebrewDbPath = '/usr/local/var/meetily/meeting_minutes.db';
+      const homebrewDbPath = '/usr/local/var/meetingone/meeting_minutes.db';
       try {
         const homebrewCheck = await invoke<{ exists: boolean; size: number } | null>(
           'check_homebrew_database',
@@ -194,54 +175,32 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
-  }, [currentStep, parakeetDownloaded, summaryModelDownloaded, completed]);
+  }, [currentStep, parakeetDownloaded, completed]);
 
   // Listen to Parakeet download progress
   useEffect(() => {
-    const unlisten = listen<{
-      modelName: string;
-      progress: number;
-      downloaded_mb?: number;
-      total_mb?: number;
-      speed_mbps?: number;
-      status?: string;
-    }>(
-      'parakeet-model-download-progress',
+    const unlisten = listen<{ progress: number }>(
+      'zipformer-model-download-progress',
       (event) => {
-        const { modelName, progress, downloaded_mb, total_mb, speed_mbps, status } = event.payload;
-        if (modelName === PARAKEET_MODEL) {
-          setParakeetProgress(progress);
-          setParakeetProgressInfo({
-            percent: progress,
-            downloadedMb: downloaded_mb ?? 0,
-            totalMb: total_mb ?? 0,
-            speedMbps: speed_mbps ?? 0,
-          });
-          if (status === 'completed' || progress >= 100) {
-            setParakeetDownloaded(true);
-          }
-        }
+        const { progress } = event.payload;
+        setParakeetProgress(progress);
+        setParakeetProgressInfo({ percent: progress, downloadedMb: 0, totalMb: 30, speedMbps: 0 });
+        if (progress >= 100) setParakeetDownloaded(true);
       }
     );
 
-    const unlistenComplete = listen<{ modelName: string }>(
-      'parakeet-model-download-complete',
-      (event) => {
-        const { modelName } = event.payload;
-        if (modelName === PARAKEET_MODEL) {
-          setParakeetDownloaded(true);
-          setParakeetProgress(100);
-        }
+    const unlistenComplete = listen(
+      'zipformer-model-download-complete',
+      () => {
+        setParakeetDownloaded(true);
+        setParakeetProgress(100);
       }
     );
 
-    const unlistenError = listen<{ modelName: string; error: string }>(
-      'parakeet-model-download-error',
+    const unlistenError = listen<{ error: string }>(
+      'zipformer-model-download-error',
       (event) => {
-        const { modelName } = event.payload;
-        if (modelName === PARAKEET_MODEL) {
-          console.error('Parakeet download error:', event.payload.error);
-        }
+        console.error('ZipFormer download error:', event.payload.error);
       }
     );
 
@@ -252,39 +211,6 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     };
   }, [selectedSummaryModel]);
 
-  // Listen to summary model (Built-in AI) download progress
-  useEffect(() => {
-    const unlisten = listen<{
-      model: string;
-      progress: number;
-      downloaded_mb?: number;
-      total_mb?: number;
-      speed_mbps?: number;
-      status: string;
-    }>(
-      'builtin-ai-download-progress',
-      (event) => {
-        const { model, progress, downloaded_mb, total_mb, speed_mbps, status } = event.payload;
-        // Check if this is the selected summary model (gemma3:1b or gemma3:4b)
-        if (model === selectedSummaryModel || model === 'gemma3:1b' || model === 'gemma3:4b') {
-          setSummaryModelProgress(progress);
-          setSummaryModelProgressInfo({
-            percent: progress,
-            downloadedMb: downloaded_mb ?? 0,
-            totalMb: total_mb ?? 0,
-            speedMbps: speed_mbps ?? 0,
-          });
-          if (status === 'completed' || progress >= 100) {
-            setSummaryModelDownloaded(true);
-          }
-        }
-      }
-    );
-
-    return () => {
-      unlisten.then(fn => fn());
-    };
-  }, [selectedSummaryModel]);
 
   const checkDatabaseStatus = async () => {
     try {
@@ -309,7 +235,6 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
         setCurrentStep(verifiedStatus.currentStep);
         setCompleted(verifiedStatus.completed);
         setParakeetDownloaded(verifiedStatus.parakeetDownloaded);
-        setSummaryModelDownloaded(verifiedStatus.summaryModelDownloaded);
 
         console.log('[OnboardingContext] Verified status:', verifiedStatus);
 
@@ -324,46 +249,30 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   // Verify that models actually exist on disk, not just trust saved JSON
   const verifyModelStatus = async (savedStatus: OnboardingStatus) => {
     let parakeetDownloaded = false;
-    let summaryModelDownloaded = false;
 
-    // Verify Parakeet model exists on disk
+    // Verify ZipFormer model exists on disk
     try {
-      await invoke('parakeet_init');
-      parakeetDownloaded = await invoke<boolean>('parakeet_has_available_models');
-      console.log('[OnboardingContext] Parakeet verified on disk:', parakeetDownloaded);
+      await invoke('zipformer_init');
+      parakeetDownloaded = await invoke<boolean>('zipformer_is_model_loaded');
+      console.log('[OnboardingContext] ZipFormer verified on disk:', parakeetDownloaded);
     } catch (error) {
-      console.warn('[OnboardingContext] Failed to verify Parakeet:', error);
+      console.warn('[OnboardingContext] Failed to verify ZipFormer:', error);
       parakeetDownloaded = false;
     }
 
-    // Verify Summary model exists on disk - check if ANY model is available
-    // Onboarding always uses builtin-ai (local models)
-    try {
-      const availableModel = await invoke<string | null>('builtin_ai_get_available_summary_model');
-      summaryModelDownloaded = !!availableModel;
-      console.log('[OnboardingContext] Summary model verified on disk:', summaryModelDownloaded, 'model:', availableModel);
-    } catch (error) {
-      console.warn('[OnboardingContext] Failed to verify Summary model:', error);
-      summaryModelDownloaded = false;
-    }
-
     // Determine the correct step based on verified status
-    // New simplified flow: Step 1: Welcome, Step 2: Setup Overview, Step 3: Download Progress, Step 4: Permissions (macOS)
     let currentStep = savedStatus.current_step;
     let completed = savedStatus.completed;
 
     // Clamp step to new max (4)
     if (currentStep > 4) {
-      currentStep = 3; // Go to download progress step
+      currentStep = 3;
     }
 
-    // Trust the completed status - don't revert based on model downloads
-    // Downloads continue in background; user stays in main app regardless
     return {
       currentStep,
       completed,
       parakeetDownloaded,
-      summaryModelDownloaded,
     };
   };
 
@@ -383,8 +292,8 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
           completed: completed,
           current_step: currentStep,
           model_status: {
-            parakeet: parakeetDownloaded ? 'downloaded' : 'not_downloaded',
-            summary: summaryModelDownloaded ? 'downloaded' : 'not_downloaded',
+            zipformer: parakeetDownloaded ? 'downloaded' : 'not_downloaded',
+            summary: 'not_downloaded',
           },
           last_updated: new Date().toISOString(),
         },
@@ -405,12 +314,12 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
         saveTimeoutRef.current = undefined;
       }
 
-      // Onboarding always uses builtin-ai with selected model
+      // Onboarding uses ollama with the recommended model
       await invoke('complete_onboarding', {
         model: selectedSummaryModel,
       });
       setCompleted(true);
-      console.log('[OnboardingContext] Onboarding completed with model:', selectedSummaryModel);
+      console.log('[OnboardingContext] Onboarding completed with Ollama model:', selectedSummaryModel);
 
       // Reset the flag so subsequent state updates can be saved
       isCompletingRef.current = false;
@@ -421,26 +330,16 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     }
   };
 
-  // Start background downloads for models (parallel - Parakeet first, then Gemma immediately)
-  const startBackgroundDownloads = async (includeGemma: boolean) => {
-    console.log('[OnboardingContext] Starting background downloads, includeGemma:', includeGemma);
+  // Start background downloads — only ZipFormer (Ollama handles its own models)
+  const startBackgroundDownloads = async (_includeGemma: boolean) => {
+    console.log('[OnboardingContext] Starting background downloads (ZipFormer only)');
     setIsBackgroundDownloading(true);
 
     try {
-      // Start Parakeet download first (speech recognition - always required)
       if (!parakeetDownloaded) {
-        console.log('[OnboardingContext] Starting Parakeet download');
-        invoke('parakeet_download_model', { modelName: PARAKEET_MODEL })
-          .catch(err => console.error('[OnboardingContext] Parakeet download failed:', err));
-      }
-
-      // Start Gemma download after a delay to prioritize Parakeet bandwidth
-      if (includeGemma && !summaryModelDownloaded) {
-        setTimeout(() => {
-          console.log('[OnboardingContext] Starting Gemma download (delayed to prioritize Parakeet)');
-          invoke('builtin_ai_download_model', { modelName: selectedSummaryModel || 'gemma3:1b' })
-            .catch(err => console.error('[OnboardingContext] Gemma download failed:', err));
-        }, 3000); // 3 second delay to give Parakeet priority
+        console.log('[OnboardingContext] Starting ZipFormer download');
+        invoke('zipformer_download_model')
+          .catch(err => console.error('[OnboardingContext] ZipFormer download failed:', err));
       }
     } catch (error) {
       console.error('[OnboardingContext] Failed to start background downloads:', error);
@@ -452,25 +351,20 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   // Check if any models are currently downloading (for re-entry)
   const checkActiveDownloads = async () => {
     try {
-      const models = await invoke<any[]>('parakeet_get_available_models');
-      const isDownloading = models.some(m => m.status && (typeof m.status === 'object' ? 'Downloading' in m.status : m.status === 'Downloading'));
-      
-      if (isDownloading) {
-        console.log('[OnboardingContext] Detected active background downloads on mount');
+      const status = await invoke<{ type: string }>('zipformer_get_model_status');
+      if (status?.type === 'Downloading') {
+        console.log('[OnboardingContext] Detected active ZipFormer download on mount');
         setIsBackgroundDownloading(true);
       }
-      
-      // Also check for Gemma/Built-in AI downloads if possible (though less critical as Parakeet is the main blocker)
-      
     } catch (error) {
       console.warn('[OnboardingContext] Failed to check active downloads:', error);
     }
   };
 
   const retryParakeetDownload = async () => {
-    console.log('[OnboardingContext] Retrying Parakeet download');
+    console.log('[OnboardingContext] Retrying ZipFormer download');
     try {
-      await invoke('parakeet_retry_download', { modelName: PARAKEET_MODEL });
+      await invoke('zipformer_download_model');
     } catch (error) {
       console.error('[OnboardingContext] Retry failed:', error);
       throw error;
@@ -511,9 +405,6 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
         parakeetDownloaded,
         parakeetProgress,
         parakeetProgressInfo,
-        summaryModelDownloaded,
-        summaryModelProgress,
-        summaryModelProgressInfo,
         selectedSummaryModel,
         databaseExists,
         isBackgroundDownloading,
@@ -523,7 +414,6 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
         goNext,
         goPrevious,
         setParakeetDownloaded,
-        setSummaryModelDownloaded,
         setSelectedSummaryModel,
         setDatabaseExists,
         setPermissionStatus,

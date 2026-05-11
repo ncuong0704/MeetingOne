@@ -1,229 +1,104 @@
 "use client"
 
-import { useEffect, useState, useRef } from "react"
-import { Switch } from "./ui/switch"
-import { FolderOpen } from "lucide-react"
+import { useEffect, useRef } from "react"
+import { FolderOpen, HardDrive, Info } from "lucide-react"
 import { invoke } from "@tauri-apps/api/core"
 import Analytics from "@/lib/analytics"
-import AnalyticsConsentSwitch from "./AnalyticsConsentSwitch"
-import { useConfig, NotificationSettings } from "@/contexts/ConfigContext"
+import { useConfig } from "@/contexts/ConfigContext"
+
+function SettingCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+      {children}
+    </div>
+  );
+}
+
+function SettingCardHeader({ title, description }: { title: string; description?: string }) {
+  return (
+    <div className="px-5 py-4 border-b border-gray-50">
+      <h3 className="text-base font-semibold text-gray-900">{title}</h3>
+      {description && <p className="text-sm text-gray-500 mt-1 leading-relaxed">{description}</p>}
+    </div>
+  );
+}
 
 export function PreferenceSettings() {
-  const {
-    notificationSettings,
-    storageLocations,
-    isLoadingPreferences,
-    loadPreferences,
-    updateNotificationSettings
-  } = useConfig();
-
-  const [notificationsEnabled, setNotificationsEnabled] = useState<boolean | null>(null);
-  const [isInitialLoad, setIsInitialLoad] = useState(true);
-  const [previousNotificationsEnabled, setPreviousNotificationsEnabled] = useState<boolean | null>(null);
+  const { storageLocations, isLoadingPreferences, loadPreferences } = useConfig();
   const hasTrackedViewRef = useRef(false);
 
-  // Lazy load preferences on mount (only loads if not already cached)
   useEffect(() => {
     loadPreferences();
-    // Reset tracking ref on mount (every tab visit)
     hasTrackedViewRef.current = false;
   }, [loadPreferences]);
 
-  // Track preferences viewed analytics on every tab visit (once per mount)
   useEffect(() => {
     if (hasTrackedViewRef.current) return;
-
-    const trackPreferencesViewed = async () => {
-      // Wait for notification settings to be available (either from cache or after loading)
-      if (notificationSettings) {
-        await Analytics.track('preferences_viewed', {
-          notifications_enabled: notificationSettings.notification_preferences.show_recording_started ? 'true' : 'false'
-        });
-        hasTrackedViewRef.current = true;
-      } else if (!isLoadingPreferences) {
-        // If not loading and no settings available, track with default value
-        await Analytics.track('preferences_viewed', {
-          notifications_enabled: 'false'
-        });
+    const track = async () => {
+      if (!isLoadingPreferences) {
+        await Analytics.track('preferences_viewed', {});
         hasTrackedViewRef.current = true;
       }
     };
-
-    trackPreferencesViewed();
-  }, [notificationSettings, isLoadingPreferences]);
-
-  // Update notificationsEnabled when notificationSettings are loaded from global state
-  useEffect(() => {
-    if (notificationSettings) {
-      // Notification enabled means both started and stopped notifications are enabled
-      const enabled =
-        notificationSettings.notification_preferences.show_recording_started &&
-        notificationSettings.notification_preferences.show_recording_stopped;
-      setNotificationsEnabled(enabled);
-      if (isInitialLoad) {
-        setPreviousNotificationsEnabled(enabled);
-        setIsInitialLoad(false);
-      }
-    } else if (!isLoadingPreferences) {
-      // If not loading and no settings, use default
-      setNotificationsEnabled(true);
-      if (isInitialLoad) {
-        setPreviousNotificationsEnabled(true);
-        setIsInitialLoad(false);
-      }
-    }
-  }, [notificationSettings, isLoadingPreferences, isInitialLoad])
-
-  useEffect(() => {
-    // Skip update on initial load or if value hasn't actually changed
-    if (isInitialLoad || notificationsEnabled === null || notificationsEnabled === previousNotificationsEnabled) return;
-    if (!notificationSettings) return;
-
-    const handleUpdateNotificationSettings = async () => {
-      console.log("Updating notification settings to:", notificationsEnabled);
-
-      try {
-        // Update the notification preferences
-        const updatedSettings: NotificationSettings = {
-          ...notificationSettings,
-          notification_preferences: {
-            ...notificationSettings.notification_preferences,
-            show_recording_started: notificationsEnabled,
-            show_recording_stopped: notificationsEnabled,
-          }
-        };
-
-        console.log("Calling updateNotificationSettings with:", updatedSettings);
-        await updateNotificationSettings(updatedSettings);
-        setPreviousNotificationsEnabled(notificationsEnabled);
-        console.log("Successfully updated notification settings to:", notificationsEnabled);
-
-        // Track notification preference change - only fires when user manually toggles
-        await Analytics.track('notification_settings_changed', {
-          notifications_enabled: notificationsEnabled.toString()
-        });
-      } catch (error) {
-        console.error('Failed to update notification settings:', error);
-      }
-    };
-
-    handleUpdateNotificationSettings();
-  }, [notificationsEnabled, notificationSettings, isInitialLoad, previousNotificationsEnabled, updateNotificationSettings])
+    track();
+  }, [isLoadingPreferences]);
 
   const handleOpenFolder = async (folderType: 'database' | 'models' | 'recordings') => {
     try {
       switch (folderType) {
-        case 'database':
-          await invoke('open_database_folder');
-          break;
-        case 'models':
-          await invoke('open_models_folder');
-          break;
-        case 'recordings':
-          await invoke('open_recordings_folder');
-          break;
+        case 'database':   await invoke('open_database_folder');   break;
+        case 'models':     await invoke('open_models_folder');     break;
+        case 'recordings': await invoke('open_recordings_folder'); break;
       }
-
-      // Track storage folder access
-      await Analytics.track('storage_folder_opened', {
-        folder_type: folderType
-      });
+      await Analytics.track('storage_folder_opened', { folder_type: folderType });
     } catch (error) {
       console.error(`Failed to open ${folderType} folder:`, error);
     }
   };
 
-  // Show loading only if we're actually loading and don't have cached data
-  if (isLoadingPreferences && !notificationSettings && !storageLocations) {
-    return <div className="max-w-2xl mx-auto p-6">Loading Preferences...</div>
+  if (isLoadingPreferences && !storageLocations) {
+    return (
+      <div className="space-y-3 animate-pulse">
+        <div className="h-32 bg-gray-100 rounded-xl" />
+      </div>
+    );
   }
-
-  // Show loading if notificationsEnabled hasn't been determined yet
-  if (notificationsEnabled === null && !isLoadingPreferences) {
-    return <div className="max-w-2xl mx-auto p-6">Loading Preferences...</div>
-  }
-
-  // Ensure we have a boolean value for the Switch component
-  const notificationsEnabledValue = notificationsEnabled ?? false;
 
   return (
-    <div className="space-y-6">
-      {/* Notifications Section */}
-      <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Notifications</h3>
-            <p className="text-sm text-gray-600">Enable or disable notifications of start and end of meeting</p>
-          </div>
-          <Switch checked={notificationsEnabledValue} onCheckedChange={setNotificationsEnabled} />
-        </div>
-      </div>
-
-      {/* Data Storage Locations Section */}
-      <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Data Storage Locations</h3>
-        <p className="text-sm text-gray-600 mb-6">
-          View and access where Meetily stores your data
-        </p>
-
-        <div className="space-y-4">
-          {/* Database Location */}
-          {/* <div className="p-4 border rounded-lg bg-gray-50">
-            <div className="font-medium mb-2">Database</div>
-            <div className="text-sm text-gray-600 mb-3 break-all font-mono text-xs">
-              {storageLocations?.database || 'Loading...'}
+    <div className="space-y-4">
+      <SettingCard>
+        <SettingCardHeader
+          title="Vị trí lưu trữ dữ liệu"
+          description="Xem và truy cập nơi ACT MeetingOne lưu dữ liệu của bạn."
+        />
+        <div className="p-5 space-y-3">
+          <div className="flex items-start gap-3 p-4 rounded-lg bg-gray-50 border border-gray-100">
+            <div className="w-9 h-9 rounded-lg bg-white border border-gray-200 flex items-center justify-center shrink-0 shadow-sm">
+              <HardDrive className="w-4.5 h-4.5 text-gray-500" />
             </div>
-            <button
-              onClick={() => handleOpenFolder('database')}
-              className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-100 transition-colors"
-            >
-              <FolderOpen className="w-4 h-4" />
-              Open Folder
-            </button>
-          </div> */}
-
-          {/* Models Location */}
-          {/* <div className="p-4 border rounded-lg bg-gray-50">
-            <div className="font-medium mb-2">Whisper Models</div>
-            <div className="text-sm text-gray-600 mb-3 break-all font-mono text-xs">
-              {storageLocations?.models || 'Loading...'}
-            </div>
-            <button
-              onClick={() => handleOpenFolder('models')}
-              className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-100 transition-colors"
-            >
-              <FolderOpen className="w-4 h-4" />
-              Open Folder
-            </button>
-          </div> */}
-
-          {/* Recordings Location */}
-          <div className="p-4 border rounded-lg bg-gray-50">
-            <div className="font-medium mb-2">Meeting Recordings</div>
-            <div className="text-sm text-gray-600 mb-3 break-all font-mono text-xs">
-              {storageLocations?.recordings || 'Loading...'}
+            <div className="flex-1 min-w-0">
+              <p className="text-base font-medium text-gray-800 mb-1">Bản ghi cuộc họp</p>
+              <p className="text-sm text-gray-500 font-mono break-all leading-relaxed">
+                {storageLocations?.recordings || 'Đang tải...'}
+              </p>
             </div>
             <button
               onClick={() => handleOpenFolder('recordings')}
-              className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-100 transition-colors"
+              className="shrink-0 flex items-center gap-2 px-3.5 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors shadow-sm"
             >
               <FolderOpen className="w-4 h-4" />
-              Open Folder
+              Mở
             </button>
           </div>
-        </div>
 
-        <div className="mt-4 p-3 bg-blue-50 rounded-md">
-          <p className="text-xs text-blue-800">
-            <strong>Note:</strong> Database and models are stored together in your application data directory for unified management.
-          </p>
+          <div className="flex items-start gap-3 bg-[rgba(22,71,142,0.08)] border border-[rgba(22,71,142,0.2)] rounded-lg px-4 py-3">
+            <Info className="w-4 h-4 text-[#16478e] shrink-0 mt-0.5" />
+            <p className="text-sm text-[#16478e] leading-relaxed">
+              Cơ sở dữ liệu và mô hình AI được lưu cùng nhau trong thư mục dữ liệu ứng dụng.
+            </p>
+          </div>
         </div>
-      </div>
-
-      {/* Analytics Section */}
-      <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
-        <AnalyticsConsentSwitch />
-      </div>
+      </SettingCard>
     </div>
-  )
+  );
 }

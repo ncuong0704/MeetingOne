@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Analytics from "@/lib/analytics";
 import { invoke } from "@tauri-apps/api/core";
 import { LoaderIcon } from "lucide-react";
+import { toast } from 'sonner';
 import { useConfig } from "@/contexts/ConfigContext";
 import { usePaginatedTranscripts } from "@/hooks/usePaginatedTranscripts";
 
@@ -22,7 +23,6 @@ interface MeetingDetailsResponse {
 function MeetingDetailsContent() {
   const searchParams = useSearchParams();
   const meetingId = searchParams.get('id');
-  const source = searchParams.get('source'); // Check if navigated from recording
   const { setCurrentMeeting, refetchMeetings, stopSummaryPolling } = useSidebar();
   const { isAutoSummary } = useConfig(); // Get auto-summary toggle state
   const router = useRouter();
@@ -65,17 +65,9 @@ function MeetingDetailsContent() {
   const setupAutoGeneration = useCallback(async () => {
     if (hasCheckedAutoGen) return; // Only check once
 
-    // Only auto-generate if navigated from recording
-    if (source !== 'recording') {
-      console.log('Not from recording navigation, skipping auto-generation');
-      setHasCheckedAutoGen(true);
-      return;
-    }
-
-    // Respect user's auto-summary toggle preference
+    // Respect user's auto-summary toggle preference (do NOT set hasCheckedAutoGen here — user may enable the toggle after transcripts load)
     if (!isAutoSummary) {
       console.log('Auto-summary is disabled in settings');
-      setHasCheckedAutoGen(true);
       return;
     }
 
@@ -114,7 +106,7 @@ function MeetingDetailsContent() {
     }
 
     setHasCheckedAutoGen(true);
-  }, [hasCheckedAutoGen, checkForGemmaModel, source, isAutoSummary]);
+  }, [hasCheckedAutoGen, checkForGemmaModel, isAutoSummary]);
 
   // Sync meeting metadata from pagination hook to meeting details state
   useEffect(() => {
@@ -209,8 +201,15 @@ function MeetingDetailsContent() {
 
         // Check if the summary request failed with 404 or error status, or if no summary exists yet (idle)
         // Note: 'cancelled' and 'failed' statuses can still have data if backup was restored
-        if (summary.status === 'idle' || (!summary.data && summary.status === 'error')) {
-          console.warn('Meeting summary not found or no summary generated yet:', summary.error || 'idle');
+        if (summary.status === 'error' && !summary.data) {
+          const errMsg = summary.error || 'Lỗi không xác định';
+          console.warn('Meeting summary fetch error:', errMsg);
+          toast.error(`Không thể tải báo cáo: ${errMsg}`, { duration: 5000 });
+          setMeetingSummary(null);
+          return;
+        }
+        if (summary.status === 'idle') {
+          console.warn('Meeting summary not found or no summary generated yet');
           setMeetingSummary(null);
           return;
         }
@@ -342,7 +341,7 @@ function MeetingDetailsContent() {
           <p className="text-red-500 mb-4">{error}</p>
           <button
             onClick={() => router.push('/')}
-            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+            className="px-4 py-2 bg-[#16478e] text-white rounded hover:bg-[#1a55ab]"
           >
             Go Back
           </button>

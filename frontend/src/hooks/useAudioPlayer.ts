@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 
-export const useAudioPlayer = (audioPath: string | null) => {
+/** `meetingFolderPath`: absolute folder where meeting audio was saved (file name resolved in Rust). */
+export const useAudioPlayer = (meetingFolderPath: string | null) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -12,6 +13,8 @@ export const useAudioPlayer = (audioPath: string | null) => {
   const audioBufferRef = useRef<AudioBuffer | null>(null);
   const rafRef = useRef<number>();
   const seekTimeRef = useRef<number>(0);
+  /** Đồng bộ với Web Audio (state React có thể lệch khi seek nhanh). */
+  const isPlayingRef = useRef(false);
 
   const initAudioContext = async () => {
     try {
@@ -57,10 +60,12 @@ export const useAudioPlayer = (audioPath: string | null) => {
   }, []);
 
   const loadAudio = async () => {
-    if (!audioPath) {
-      console.log('No audio path provided');
+    if (!meetingFolderPath) {
+      console.log('No meeting folder path provided');
       return;
     }
+
+    let resolvedAudioPath: string | null = null;
 
     try {
       // Initialize context first
@@ -70,11 +75,15 @@ export const useAudioPlayer = (audioPath: string | null) => {
         return;
       }
 
-      console.log('Loading audio from:', audioPath);
+      resolvedAudioPath = await invoke<string>('resolve_meeting_audio_file_path', {
+        folderPath: meetingFolderPath,
+      });
+
+      console.log('Loading audio from:', resolvedAudioPath);
       
       // Read the file using Tauri command
       const result = await invoke<number[]>('read_audio_file', { 
-        filePath: audioPath 
+        filePath: resolvedAudioPath 
       });
       
       if (!result || result.length === 0) {
@@ -114,25 +123,31 @@ export const useAudioPlayer = (audioPath: string | null) => {
       setError(null);
       console.log('Audio loaded and ready to play');
     } catch (error) {
-      console.error('Error loading audio:', error);
-      if (error instanceof Error) {
-        console.error('Error details:', {
-          message: error.message,
-          name: error.name,
-          stack: error.stack,
-        });
+      const msg = error instanceof Error ? error.message : String(error);
+      const low = msg.toLowerCase();
+      const isNotFound =
+        msg.includes('os error 2') ||
+        low.includes('cannot find') ||
+        low.includes('no such file') ||
+        low.includes('no audio file found');
+
+      if (isNotFound) {
+        console.warn('Audio file not found:', resolvedAudioPath ?? meetingFolderPath);
+        setError('FILE_NOT_FOUND');
+      } else {
+        console.error('Error loading audio:', error);
+        setError('Failed to load audio file');
       }
-      setError('Failed to load audio file');
     }
   };
 
-  // Load audio when path changes
+  // Load audio when meeting folder changes
   useEffect(() => {
-    console.log('Audio path changed:', audioPath);
-    if (audioPath) {
+    console.log('Meeting folder path changed:', meetingFolderPath);
+    if (meetingFolderPath) {
       loadAudio();
     }
-  }, [audioPath]);
+  }, [meetingFolderPath]);
 
   const stopPlayback = () => {
     console.log('Stopping playback');
@@ -142,13 +157,17 @@ export const useAudioPlayer = (audioPath: string | null) => {
     }
     if (sourceRef.current) {
       try {
-        sourceRef.current.stop();
-        sourceRef.current.disconnect();
+        const src = sourceRef.current;
+        // Tránh onended khi stop() do tua/pause — handler cũ có thể gọi stopPlayback/setCurrentTime(0) và phá luồng seek.
+        src.onended = null;
+        src.stop();
+        src.disconnect();
       } catch (e) {
         console.log('Error stopping source:', e);
       }
       sourceRef.current = null;
     }
+    isPlayingRef.current = false;
     setIsPlaying(false);
   };
 
@@ -192,11 +211,16 @@ export const useAudioPlayer = (audioPath: string | null) => {
       sourceRef.current.onended = () => {
         console.log('Playback ended naturally');
         stopPlayback();
+        // onended có thể chạy trước RAF — khi đó updateTime thoát sớm (sourceRef null) và không reset seekTimeRef; Play lại sẽ start gần cuối buffer và “lỗi”.
+        seekTimeRef.current = 0;
         setCurrentTime(0);
       };
       
-      // Start playback from the seek time
-      const startTime = seekTimeRef.current;
+      // Start playback from the seek time (offset phải < duration buffer)
+      const buffer = audioBufferRef.current;
+      const maxOffset = Math.max(0, buffer.duration - 1e-6);
+      const startTime = Math.min(Math.max(0, seekTimeRef.current), maxOffset);
+      seekTimeRef.current = startTime;
       startTimeRef.current = audioRef.current.currentTime - startTime;
       console.log('Starting playback', {
         startTime,
@@ -205,6 +229,7 @@ export const useAudioPlayer = (audioPath: string | null) => {
       });
       
       sourceRef.current.start(0, startTime);
+      isPlayingRef.current = true;
       setIsPlaying(true);
       setError(null);
 
@@ -242,7 +267,7 @@ export const useAudioPlayer = (audioPath: string | null) => {
     if (time < 0) time = 0;
     if (time > duration) time = duration;
     
-    const wasPlaying = isPlaying;
+    const wasPlaying = isPlayingRef.current;
     
     // Stop current playback
     stopPlayback();

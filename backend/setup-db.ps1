@@ -1,4 +1,4 @@
-# Database Setup Script for Meeting App
+﻿# Database Setup Script for Meeting App
 # Handles existing database discovery and migration
 
 param(
@@ -127,15 +127,15 @@ function Find-ExistingDatabases {
     
     # Check other common locations (Windows/cross-platform paths)
     $commonPaths = @(
-        "$env:USERPROFILE\.meetily\meeting_minutes.db",
-        "$env:USERPROFILE\Documents\meetily\meeting_minutes.db",
+        "$env:USERPROFILE\.MeetingOne\meeting_minutes.db",
+        "$env:USERPROFILE\Documents\MeetingOne\meeting_minutes.db",
         "$env:USERPROFILE\Desktop\meeting_minutes.db",
         ".\meeting_minutes.db"
     )
     
     # Add potential HomeBrew paths if on macOS/Linux
     if ($env:HOMEBREW_PREFIX) {
-        $commonPaths += "$env:HOMEBREW_PREFIX/Cellar/meetily-backend/*/backend/meeting_minutes.db"
+        $commonPaths += "$env:HOMEBREW_PREFIX/Cellar/MeetingOne-backend/*/backend/meeting_minutes.db"
     }
     
     foreach ($pattern in $commonPaths) {

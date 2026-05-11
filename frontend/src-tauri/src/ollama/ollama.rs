@@ -102,9 +102,9 @@ pub async fn get_ollama_models(endpoint: Option<String>) -> Result<Vec<OllamaMod
         }
     }
 
-    // Add timeout wrapper (5 seconds max)
+    // Add timeout wrapper (2 seconds max — avoid blocking UI on startup when Ollama is not running)
     match timeout(
-        Duration::from_secs(5),
+        Duration::from_secs(2),
         get_models_via_http_with_retry(endpoint.as_deref())
     ).await {
         Ok(Ok(models)) => {
@@ -130,8 +130,8 @@ pub async fn get_ollama_models(endpoint: Option<String>) -> Result<Vec<OllamaMod
 
 // HTTP request with retry logic and exponential backoff
 async fn get_models_via_http_with_retry(endpoint: Option<&str>) -> Result<Vec<OllamaModel>, String> {
-    const MAX_RETRIES: u32 = 2;
-    const INITIAL_BACKOFF_MS: u64 = 300;
+    const MAX_RETRIES: u32 = 1;
+    const INITIAL_BACKOFF_MS: u64 = 100;
 
     let mut last_error = String::new();
 
@@ -165,7 +165,7 @@ async fn get_models_via_http_async(endpoint: Option<&str>) -> Result<Vec<OllamaM
 
     let response = client
         .get(&url)
-        .timeout(Duration::from_secs(3)) // Per-request timeout
+        .timeout(Duration::from_secs(2)) // Per-request timeout
         .send()
         .await
         .map_err(|e| {

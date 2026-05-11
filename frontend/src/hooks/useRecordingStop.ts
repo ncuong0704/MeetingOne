@@ -288,19 +288,19 @@ export function useRecordingStop(
             }
           } catch (error) {
             console.warn('Could not fetch meeting details, using ID only:', error);
-            setCurrentMeeting({ id: meetingId, title: savedMeetingName || meetingTitle || 'New Meeting' });
+            setCurrentMeeting({ id: meetingId, title: savedMeetingName || meetingTitle || 'Cuộc họp mới' });
           }
 
           // Mark as completed
           setStatus(RecordingStatus.COMPLETED);
 
           // Show success toast with navigation option
-          toast.success('Recording saved successfully!', {
-            description: `${freshTranscripts.length} transcript segments saved.`,
+          toast.success('Đã lưu bản ghi thành công!', {
+            description: `Đã lưu ${freshTranscripts.length} đoạn bản ghi.`,
             action: {
-              label: 'View Meeting',
+              label: 'Xem cuộc họp',
               onClick: () => {
-                router.push(`/meeting-details?id=${meetingId}`);
+                router.push(`/meeting-details?id=${meetingId}&source=recording`);
                 Analytics.trackButtonClick('view_meeting_from_toast', 'recording_complete');
               }
             },
@@ -370,8 +370,8 @@ export function useRecordingStop(
         } catch (saveError) {
           console.error('Failed to save meeting to database:', saveError);
           setStatus(RecordingStatus.ERROR, saveError instanceof Error ? saveError.message : 'Unknown error');
-          toast.error('Failed to save meeting', {
-            description: saveError instanceof Error ? saveError.message : 'Unknown error'
+          toast.error('Không lưu được cuộc họp', {
+            description: saveError instanceof Error ? saveError.message : 'Lỗi không xác định'
           });
           throw saveError;
         }

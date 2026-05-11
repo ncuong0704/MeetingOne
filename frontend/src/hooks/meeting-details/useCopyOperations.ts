@@ -4,6 +4,7 @@ import { BlockNoteSummaryViewRef } from '@/components/AISummary/BlockNoteSummary
 import { toast } from 'sonner';
 import Analytics from '@/lib/analytics';
 import { invoke as invokeTauri } from '@tauri-apps/api/core';
+import { copyRichText, markdownToWordHtml, wrapWordHtml, enrichBlockNoteHtml } from '@/lib/clipboardUtils';
 
 interface UseCopyOperationsProps {
   meeting: any;
@@ -51,7 +52,7 @@ export function useCopyOperations({
       return allData.transcripts;
     } catch (error) {
       console.error('❌ Error fetching all transcripts:', error);
-      toast.error('Failed to fetch transcripts for copying');
+      toast.error('Không tải được bản ghi để sao chép');
       return [];
     }
   }, []);
@@ -63,7 +64,7 @@ export function useCopyOperations({
     const allTranscripts = await fetchAllTranscripts(meeting.id);
 
     if (!allTranscripts.length) {
-      const error_msg = 'No transcripts available to copy';
+      const error_msg = 'Không có bản ghi để sao chép';
       console.log(error_msg);
       toast.error(error_msg);
       return;
@@ -83,14 +84,34 @@ export function useCopyOperations({
       return `[${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}]`;
     };
 
-    const header = `# Transcript of the Meeting: ${meeting.id} - ${meetingTitle ?? meeting.title}\n\n`;
-    const date = `## Date: ${new Date(meeting.created_at).toLocaleDateString()}\n\n`;
-    const fullTranscript = allTranscripts
-      .map(t => `${formatTime(t.audio_start_time, t.timestamp)} ${t.text}  `)
-      .join('\n');
+    const dateStr = new Date(meeting.created_at).toLocaleDateString('vi-VN');
+    const titleStr = meetingTitle ?? meeting.title;
 
-    await navigator.clipboard.writeText(header + date + fullTranscript);
-    toast.success("Transcript copied to clipboard");
+    // ── Plain text ───────────────────────────────────────────────────────────
+    const plainText =
+      `# Bản ghi cuộc họp: ${titleStr}\n\n` +
+      `Ngày: ${dateStr}\n\n` +
+      allTranscripts.map(t => `${formatTime(t.audio_start_time, t.timestamp)} ${t.text}`).join('\n');
+
+    // ── Rich HTML (Word-compatible) ──────────────────────────────────────────
+    const FONT = "Calibri,'Segoe UI',Arial,sans-serif";
+    const rowsHtml = allTranscripts
+      .map(t =>
+        `<p style="font-family:${FONT};font-size:11pt;margin:3pt 0;">` +
+        `<span style="font-family:'Courier New',monospace;font-size:9.5pt;color:#666;margin-right:6pt;">${formatTime(t.audio_start_time, t.timestamp)}</span>` +
+        `${t.text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}` +
+        `</p>`
+      ).join('\n');
+
+    const bodyHtml =
+      `<h1 style="font-family:${FONT};font-size:18pt;font-weight:bold;color:#111;margin:0 0 6pt;">Bản ghi cuộc họp: ${titleStr.replace(/&/g, '&amp;')}</h1>` +
+      `<p style="font-family:${FONT};font-size:10pt;color:#666;margin:0 0 10pt;">Ngày: ${dateStr}</p>` +
+      `<hr style="border:none;border-top:1pt solid #ccc;margin:8pt 0;">` +
+      rowsHtml;
+    const richHtml = wrapWordHtml(bodyHtml);
+
+    await copyRichText(richHtml, plainText);
+    toast.success('Đã sao chép bản ghi vào bảng nhớ tạm');
 
     // Track copy analytics
     const wordCount = allTranscripts
@@ -152,31 +173,47 @@ export function useCopyOperations({
       // If still no summary content, show message
       if (!summaryMarkdown.trim()) {
         console.error('❌ No summary content available to copy');
-        toast.error('No summary content available to copy');
+        toast.error('Không có nội dung tóm tắt để sao chép');
         return;
       }
 
-      // Build metadata header
-      const header = `# Meeting Summary: ${meetingTitle}\n\n`;
-      const metadata = `**Meeting ID:** ${meeting.id}\n**Date:** ${new Date(meeting.created_at).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      })}\n**Copied on:** ${new Date().toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      })}\n\n---\n\n`;
+      const dateStr = new Date(meeting.created_at).toLocaleDateString('vi-VN', {
+        year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit',
+      });
 
-      const fullMarkdown = header + metadata + summaryMarkdown;
-      await navigator.clipboard.writeText(fullMarkdown);
+      // ── Plain text ─────────────────────────────────────────────────────────
+      const plainText =
+        `# Tóm tắt cuộc họp: ${meetingTitle}\n\n` +
+        `Ngày họp: ${dateStr}\n\n---\n\n` +
+        summaryMarkdown;
+
+      // ── Rich HTML: try BlockNote native HTML first ─────────────────────────
+      let blockNoteHtml = '';
+      if (blockNoteSummaryRef.current?.getHTML) {
+        try {
+          blockNoteHtml = await blockNoteSummaryRef.current.getHTML();
+        } catch (_) {}
+      }
+
+      let richHtml: string;
+      if (blockNoteHtml.trim()) {
+        // Use BlockNote's own HTML output (most accurate formatting)
+        richHtml = enrichBlockNoteHtml(blockNoteHtml, `Tóm tắt cuộc họp: ${meetingTitle}`, `Ngày họp: ${dateStr}`);
+      } else {
+        // Fallback: convert markdown to Word-compatible HTML
+        const bodyHtml =
+          `<h1 style="font-family:Calibri,sans-serif;font-size:18pt;font-weight:bold;color:#111;margin:0 0 6pt;">` +
+          `Tóm tắt cuộc họp: ${meetingTitle}</h1>` +
+          `<p style="font-family:Calibri,sans-serif;font-size:10pt;color:#666;margin:0 0 10pt;">Ngày họp: ${dateStr}</p>` +
+          `<hr style="border:none;border-top:1pt solid #ccc;margin:8pt 0;">` +
+          markdownToWordHtml(summaryMarkdown);
+        richHtml = wrapWordHtml(bodyHtml);
+      }
+
+      await copyRichText(richHtml, plainText);
 
       console.log('✅ Successfully copied to clipboard!');
-      toast.success("Summary copied to clipboard");
+      toast.success('Đã sao chép tóm tắt vào bảng nhớ tạm');
 
       // Track copy analytics
       await Analytics.trackCopy('summary', {
@@ -185,7 +222,7 @@ export function useCopyOperations({
       });
     } catch (error) {
       console.error('❌ Failed to copy summary:', error);
-      toast.error("Failed to copy summary");
+      toast.error('Không sao chép được tóm tắt');
     }
   }, [aiSummary, meetingTitle, meeting, blockNoteSummaryRef]);
 

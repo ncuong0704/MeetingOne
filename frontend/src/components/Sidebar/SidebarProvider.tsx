@@ -65,7 +65,7 @@ export const useSidebar = () => {
 };
 
 export function SidebarProvider({ children }: { children: React.ReactNode }) {
-  const [currentMeeting, setCurrentMeeting] = useState<CurrentMeeting | null>({ id: 'intro-call', title: '+ New Call' });
+  const [currentMeeting, setCurrentMeeting] = useState<CurrentMeeting | null>({ id: 'intro-call', title: '+ Cuộc họp mới' });
   const [isCollapsed, setIsCollapsed] = useState(true);
   const [meetings, setMeetings] = useState<CurrentMeeting[]>([]);
   const [sidebarItems, setSidebarItems] = useState<SidebarItem[]>([]);
@@ -132,7 +132,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   // Update current meeting when on home page
   useEffect(() => {
     if (pathname === '/') {
-      setCurrentMeeting({ id: 'intro-call', title: '+ New Call' });
+      setCurrentMeeting({ id: 'intro-call', title: '+ Cuộc họp mới' });
     }
     setSidebarItems(baseItems);
   }, [pathname]);
@@ -203,7 +203,13 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
     const pollInterval = setInterval(async () => {
       pollCount++;
 
-      // Timeout safety: Stop after 10 minutes
+      // Progress feedback mỗi 60 giây (12 lần poll × 5 giây = 60 giây)
+      if (pollCount % 12 === 0 && pollCount > 0) {
+        const minutes = Math.floor(pollCount / 12);
+        onUpdate({ status: 'processing', progressMessage: `Đang xử lý... (${minutes} phút)` });
+      }
+
+      // Timeout safety: Stop after ~16.5 minutes
       if (pollCount >= MAX_POLLS) {
         console.warn(`⏱️ Polling timeout for ${meetingId} after ${MAX_POLLS} iterations`);
         clearInterval(pollInterval);
@@ -214,7 +220,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
         });
         onUpdate({
           status: 'error',
-          error: 'Summary generation timed out after 15 minutes. Please try again or check your model configuration.'
+          error: 'Tạo tóm tắt quá thời gian sau 15 phút. Hãy thử lại hoặc kiểm tra cấu hình mô hình.'
         });
         return;
       }

@@ -8,6 +8,7 @@ import { Block } from '@blocknote/core';
 import { useCreateBlockNote } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/shadcn';
 import "@blocknote/shadcn/style.css";
+import { useVnMarkPreservation } from '@/hooks/useVnMarkPreservation';
 
 // Dynamically import BlockNote Editor to avoid SSR issues
 const Editor = dynamic(() => import('../BlockNoteEditor/Editor'), { ssr: false });
@@ -30,6 +31,8 @@ interface BlockNoteSummaryViewProps {
 export interface BlockNoteSummaryViewRef {
   saveSummary: () => Promise<void>;
   getMarkdown: () => Promise<string>;
+  getHTML: () => Promise<string>;
+  getEditorElement: () => HTMLElement | null;
   isDirty: boolean;
 }
 
@@ -79,11 +82,16 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
   const [currentBlocks, setCurrentBlocks] = useState<Block[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const isContentLoaded = useRef(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const markdownEditorRef = useRef<HTMLDivElement>(null);
 
   // Create BlockNote editor for markdown parsing
   const editor = useCreateBlockNote({
     initialContent: undefined
   });
+
+  // Fix: Preserve bold/italic marks when typing Vietnamese diacritics (markdown format editor)
+  useVnMarkPreservation(editor, markdownEditorRef);
 
   // Parse markdown to blocks when format is markdown
   useEffect(() => {
@@ -197,6 +205,18 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
         return '';
       }
     },
+    getHTML: async () => {
+      try {
+        if (!editor) return '';
+        const blocks = format === 'markdown' ? editor.document : currentBlocks;
+        if (!blocks?.length) return '';
+        return await editor.blocksToHTMLLossy(blocks);
+      } catch (err) {
+        console.error('❌ Failed to generate HTML:', err);
+        return '';
+      }
+    },
+    getEditorElement: () => containerRef.current,
     isDirty
   }), [handleSave, isDirty, editor, format, currentBlocks, data]);
 
@@ -219,7 +239,7 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
   if (format === 'blocknote') {
     console.log('🎨 Rendering BLOCKNOTE format (direct)');
     return (
-      <div className="flex flex-col w-full">
+      <div ref={containerRef} className="flex flex-col w-full">
         <div className="w-full">
           <Editor
             initialContent={data.summary_json}
@@ -238,8 +258,8 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
   if (format === 'markdown') {
     console.log('🎨 Rendering MARKDOWN format (parsed to BlockNote)');
     return (
-      <div className="flex flex-col w-full">
-        <div className="w-full">
+      <div ref={containerRef} className="flex flex-col w-full">
+        <div ref={markdownEditorRef} className="w-full">
           <BlockNoteView
             editor={editor}
             editable={true}
@@ -249,6 +269,7 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
               }
             }}
             theme="light"
+            spellCheck={false}
           />
         </div>
       </div>

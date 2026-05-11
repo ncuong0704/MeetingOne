@@ -141,7 +141,7 @@ export function useModalState(transcriptModelConfig?: TranscriptModelProps): Use
             showModal('modelSelector', userMessage);
           } else {
             // Show toast instead of modal for non-actionable errors (consistent with sidebar)
-            toast.error('', {
+            toast.error('Lỗi', {
               description: userMessage,
               duration: 5000,
             });
@@ -168,18 +168,13 @@ export function useModalState(transcriptModelConfig?: TranscriptModelProps): Use
     const setupDownloadListeners = async () => {
       const unlisteners: (() => void)[] = [];
 
-      // Listen for Whisper model download complete
-      const unlistenWhisper = await listen<{ modelName: string }>('model-download-complete', (event) => {
-        const { modelName } = event.payload;
-        console.log('[useModalState] Whisper model download complete:', modelName);
-
-        // Auto-close modal if the downloaded model matches the selected one
-        if (transcriptModelConfig?.provider === 'localWhisper' && transcriptModelConfig?.model === modelName) {
-          toast.success('Model ready! Closing window...', { duration: 1500 });
-          setTimeout(() => hideModal('modelSelector'), 1500);
-        }
+      // Listen for ZipFormer model download complete
+      const unlistenZipformer = await listen('zipformer-model-download-complete', () => {
+        console.log('[useModalState] ZipFormer model download complete');
+        toast.success('Model tiếng Việt sẵn sàng!', { duration: 1500 });
+        setTimeout(() => hideModal('modelSelector'), 1500);
       });
-      unlisteners.push(unlistenWhisper);
+      unlisteners.push(unlistenZipformer);
 
       return () => {
         unlisteners.forEach(unsub => unsub());

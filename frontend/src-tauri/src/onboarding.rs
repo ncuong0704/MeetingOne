@@ -7,6 +7,155 @@ use anyhow::Result;
 use crate::state::AppState;
 use crate::database::repositories::setting::SettingsRepository;
 
+/// A single model option shown to the user during onboarding
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ModelOption {
+    pub name: String,
+    pub family: String,
+    pub size_gb: f32,
+    pub description: String,
+    pub is_pulled: bool,
+    pub is_recommended: bool,
+}
+
+/// Returns a list of Ollama models compatible with the system RAM,
+/// each marked with whether it is already pulled locally and whether it is recommended.
+#[tauri::command]
+pub async fn get_ollama_model_options(
+    endpoint: Option<String>,
+) -> Result<Vec<ModelOption>, String> {
+    // Read total system RAM in GB
+    let ram_gb = tokio::task::spawn_blocking(|| {
+        use sysinfo::System;
+        let mut sys = System::new();
+        sys.refresh_memory();
+        sys.total_memory() / (1024 * 1024 * 1024)
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking failed: {}", e))?;
+
+    // Curated catalogue: (name, family, size_gb, min_ram_gb, description)
+    // Ordered from smallest to largest. Tags follow Ollama naming (Qwen3 / Gemma / Llama).
+    let catalogue: &[(&str, &str, f32, u64, &str)] = &[
+        ("qwen3.5:2b",    "Qwen",    2.1,  4,  "Qwen 3.5 2B — mới hơn, nhẹ; multilingual (~2B)"),
+        ("llama3.2:3b",   "Llama",   2.5,  4,  "Ổn định; kém Qwen3 một chút về tiếng Việt"),
+        ("gemma3:4b",     "Gemma",   3.0,  6,  "Khá tốt, nhanh — thay thế nếu thích Gemma"),
+        ("qwen3:4b",      "Qwen",    3.5,  6,  "Rất tốt, vượt trội theo size — lựa chọn hàng đầu (nhẹ)"),
+        ("qwen3.5:4b",    "Qwen",    3.6,  6,  "Qwen 3.5 4B — mới hơn, mạnh; multilingual (~4B)"),
+        ("gemma2:9b",     "Gemma",   5.5,  8,  "Gemma ~9B, nhanh — thay thế nếu thích hệ Gemma"),
+        ("qwen3:8b",      "Qwen",    6.5,  8,  "Xuất sắc, multilingual mạnh — cân bằng tốt (nhẹ–mạnh)"),
+    ];
+
+    // Recommended tag must appear exactly in `catalogue` above.
+    let recommended = if ram_gb >= 8 {
+        "qwen3:8b"
+    } else if ram_gb >= 6 {
+        "qwen3:4b"
+    } else if ram_gb >= 4 {
+        "qwen3.5:2b"
+    } else {
+        "qwen3.5:2b"
+    };
+
+    // Fetch locally pulled models (ignore errors — Ollama may not be running yet)
+    let pulled_names: Vec<String> = crate::ollama::ollama::get_ollama_models(endpoint)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|m| m.name.to_lowercase())
+        .collect();
+
+    let options: Vec<ModelOption> = catalogue
+        .iter()
+        .filter(|(_, _, _, min_ram, _)| ram_gb >= *min_ram)
+        .map(|(name, family, size_gb, _, desc)| {
+            let name_lc = name.to_lowercase();
+            // Exact tag or same base with extra suffix (e.g. `qwen3:4b-q4_K_M`), not `qwen3:8b`.
+            let is_pulled = pulled_names.iter().any(|p| {
+                p == &name_lc
+                    || (p.starts_with(&name_lc)
+                        && p.len() > name_lc.len()
+                        && matches!(
+                            p.as_bytes().get(name_lc.len()),
+                            Some(b':' | b'-')
+                        ))
+            });
+            ModelOption {
+                name: name.to_string(),
+                family: family.to_string(),
+                size_gb: *size_gb,
+                description: desc.to_string(),
+                is_pulled,
+                is_recommended: *name == recommended,
+            }
+        })
+        .collect();
+
+    info!("Returning {} model options for RAM={}GB", options.len(), ram_gb);
+    Ok(options)
+}
+
+/// Recommended Ollama model for meeting summarization based on system RAM.
+/// Logic: match model size tier to available RAM.
+#[tauri::command]
+pub async fn get_ollama_model_recommendation() -> Result<OllamaModelRecommendation, String> {
+    // Run blocking sysinfo call on a dedicated thread to avoid blocking the async runtime
+    let ram_gb = tokio::task::spawn_blocking(|| {
+        use sysinfo::System;
+        let mut sys = System::new();
+        sys.refresh_memory();
+        sys.total_memory() / (1024 * 1024 * 1024)
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking failed: {}", e))?;
+
+    // Footprint ≈ quantized weights; leave headroom for OS + app + context.
+    let (model, size_gb, description) = if ram_gb >= 8 {
+        (
+            "qwen3:8b",
+            6.5,
+            "Xuất sắc, multilingual mạnh — cân bằng tốt (nhẹ–mạnh)",
+        )
+    } else if ram_gb >= 6 {
+        (
+            "qwen3:4b",
+            3.5,
+            "Rất tốt, vượt trội theo size — lựa chọn hàng đầu (nhẹ)",
+        )
+    } else if ram_gb >= 4 {
+        (
+            "qwen3.5:2b",
+            2.1,
+            "Qwen 3.5 2B — mới hơn, nhẹ; multilingual (~2B)",
+        )
+    } else {
+        (
+            "qwen3.5:2b",
+            2.1,
+            "Qwen 3.5 2B — mới hơn, nhẹ; multilingual (~2B)",
+        )
+    };
+
+    info!("Ollama model recommendation: {} (RAM={}GB)", model, ram_gb);
+
+    Ok(OllamaModelRecommendation {
+        model: model.to_string(),
+        size_gb,
+        description: description.to_string(),
+        ram_gb,
+        pull_command: format!("ollama pull {}", model),
+    })
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct OllamaModelRecommendation {
+    pub model: String,
+    pub size_gb: f32,
+    pub description: String,
+    pub ram_gb: u64,
+    pub pull_command: String,
+}
+
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct OnboardingStatus {
@@ -19,8 +168,14 @@ pub struct OnboardingStatus {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ModelStatus {
-    pub parakeet: String,  // "downloaded" | "not_downloaded" | "downloading"
-    pub summary: String,   // Generic field for summary model (gemma3:1b or gemma3:4b)
+    #[serde(alias = "parakeet", default = "default_not_downloaded")]
+    pub zipformer: String,  // "downloaded" | "not_downloaded" | "downloading"
+    #[serde(default = "default_not_downloaded")]
+    pub summary: String,
+}
+
+fn default_not_downloaded() -> String {
+    "not_downloaded".to_string()
 }
 
 impl Default for OnboardingStatus {
@@ -30,8 +185,8 @@ impl Default for OnboardingStatus {
             completed: false,
             current_step: 1,
             model_status: ModelStatus {
-                parakeet: "not_downloaded".to_string(),
-                summary: "not_downloaded".to_string(),  // Changed from gemma
+                zipformer: "not_downloaded".to_string(),
+                summary: "not_downloaded".to_string(),
             },
             last_updated: chrono::Utc::now().to_rfc3339(),
         }
@@ -170,34 +325,34 @@ pub async fn complete_onboarding<R: Runtime>(
     state: tauri::State<'_, AppState>,
     model: String,
 ) -> Result<(), String> {
-    info!("Completing onboarding with builtin-ai model: {}", model);
+    info!("Completing onboarding with ollama model: {}", model);
 
     // Step 1: Save model configuration to SQLite database FIRST
     let pool = state.db_manager.pool();
 
-    // Onboarding always uses builtin-ai (local LLM)
+    // Onboarding uses ollama as the summary provider
     if let Err(e) = SettingsRepository::save_model_config(
         pool,
-        "builtin-ai",
+        "ollama",
         &model,
         "large-v3",
         None,
     ).await {
-        error!("Failed to save builtin-ai model config: {}", e);
-        return Err(format!("Failed to save builtin-ai model config: {}", e));
+        error!("Failed to save ollama model config: {}", e);
+        return Err(format!("Failed to save ollama model config: {}", e));
     }
-    info!("Saved builtin-ai model config: model={}", model);
+    info!("Saved ollama model config: model={}", model);
 
-    // Save transcription model config (parakeet provider) - always parakeet
+    // Save transcription model config (ZipFormer Vietnamese ASR)
     if let Err(e) = SettingsRepository::save_transcript_config(
         pool,
-        "parakeet",
-        crate::config::DEFAULT_PARAKEET_MODEL,
+        "zipformer",
+        crate::config::ZIPFORMER_MODEL_NAME,
     ).await {
         error!("Failed to save transcription model config: {}", e);
         return Err(format!("Failed to save transcription model config: {}", e));
     }
-    info!("Saved transcription model config: provider=parakeet, model={}", crate::config::DEFAULT_PARAKEET_MODEL);
+    info!("Saved transcription model config: provider=zipformer, model={}", crate::config::ZIPFORMER_MODEL_NAME);
 
     // Step 2: Only NOW mark onboarding as complete (after DB operations succeed)
     let mut status = load_onboarding_status(&app)
@@ -205,9 +360,9 @@ pub async fn complete_onboarding<R: Runtime>(
         .map_err(|e| format!("Failed to load onboarding status: {}", e))?;
 
     status.completed = true;
-    status.current_step = 4; // Max step (4 on macOS with permissions, 3 on other platforms)
-    status.model_status.parakeet = "downloaded".to_string();
-    status.model_status.summary = "downloaded".to_string();
+    status.current_step = 4;
+    status.model_status.zipformer = "not_downloaded".to_string(); // user downloads separately
+    status.model_status.summary = "not_downloaded".to_string();
 
     save_onboarding_status(&app, &status)
         .await

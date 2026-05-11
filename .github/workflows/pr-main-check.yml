@@ -1,4 +1,4 @@
-name: "Validation Check"
+﻿name: "Validation Check"
 
 # This workflow runs basic validation checks without building
 # Use this to verify version and configuration before a release

@@ -28,7 +28,7 @@ export function SummaryModelSettings({ refetchTrigger }: SummaryModelSettingsPro
       const data = await invoke('api_get_model_config') as any;
       if (data && data.provider !== null) {
         // Fetch API key if not included and provider requires it
-        if (data.provider !== 'ollama' && data.provider !== 'builtin-ai' && !data.apiKey) {
+        if (data.provider !== 'ollama' && !data.apiKey) {
           try {
             const apiKeyData = await invoke('api_get_api_key', {
               provider: data.provider
@@ -61,7 +61,7 @@ export function SummaryModelSettings({ refetchTrigger }: SummaryModelSettingsPro
       }
     } catch (error) {
       console.error('Failed to fetch model config:', error);
-      toast.error('Failed to load model settings');
+      toast.error('Không tải được cài đặt mô hình');
     }
   }, []);
 
@@ -114,37 +114,44 @@ export function SummaryModelSettings({ refetchTrigger }: SummaryModelSettingsPro
       const { emit } = await import('@tauri-apps/api/event');
       await emit('model-config-updated', config);
 
-      toast.success('Model settings saved successfully');
+      toast.success('Đã lưu cài đặt mô hình');
     } catch (error) {
       console.error('Error saving model config:', error);
-      toast.error('Failed to save model settings');
+      toast.error('Không lưu được cài đặt mô hình');
     }
   };
 
   return (
-    <div className='flex flex-col gap-4'>
-      <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
-        <div className="flex items-center justify-between">
+    <div className="flex flex-col gap-4">
+      {/* Auto summary toggle */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-50">
+          <h3 className="text-base font-semibold text-gray-900">Tóm tắt tự động</h3>
+          <p className="text-sm text-gray-500 mt-1">Tự động tạo tóm tắt sau khi kết thúc cuộc họp.</p>
+        </div>
+        <div className="flex items-center justify-between px-5 py-4">
           <div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">Auto Summary</h3>
-            <p className="text-sm text-gray-600">Auto Generating summary after meeting completion(Stopping)</p>
+            <p className="text-base font-medium text-gray-800">Bật tóm tắt tự động</p>
+            <p className="text-sm text-gray-500 mt-0.5">Tạo tóm tắt ngay khi dừng ghi âm</p>
           </div>
           <Switch checked={isAutoSummary} onCheckedChange={toggleIsAutoSummary} />
         </div>
       </div>
 
-      <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
-        <h3 className="text-lg font-semibold mb-4">Summary Model Configuration</h3>
-        <p className="text-sm text-gray-600 mb-6">
-          Configure the AI model used for generating meeting summaries.
-        </p>
-
-        <ModelSettingsModal
-          modelConfig={modelConfig}
-          setModelConfig={setModelConfig}
-          onSave={handleSaveModelConfig}
-          skipInitialFetch={true}
-        />
+      {/* Model config */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-50">
+          <h3 className="text-base font-semibold text-gray-900">Cấu hình mô hình tóm tắt</h3>
+          <p className="text-sm text-gray-500 mt-1">Chọn mô hình AI dùng để tạo tóm tắt cuộc họp.</p>
+        </div>
+        <div className="px-5 py-5">
+          <ModelSettingsModal
+            modelConfig={modelConfig}
+            setModelConfig={setModelConfig}
+            onSave={handleSaveModelConfig}
+            skipInitialFetch={true}
+          />
+        </div>
       </div>
     </div>
   );

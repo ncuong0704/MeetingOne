@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+﻿use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Notification {
@@ -119,14 +119,14 @@ impl Notification {
             None => "Recording has started. Please inform others in the meeting that you are recording.".to_string(),
         };
 
-        Notification::new("Meetily", body, NotificationType::RecordingStarted)
+        Notification::new("ACT MeetingOne", body, NotificationType::RecordingStarted)
             .with_priority(NotificationPriority::High)
             .with_timeout(NotificationTimeout::Seconds(5))
     }
 
     pub fn recording_stopped() -> Self {
         Notification::new(
-            "Meetily",
+            "ACT MeetingOne",
             "Recording has been stopped and saved",
             NotificationType::RecordingStopped
         )
@@ -136,7 +136,7 @@ impl Notification {
 
     pub fn recording_paused() -> Self {
         Notification::new(
-            "Meetily",
+            "ACT MeetingOne",
             "Recording has been paused",
             NotificationType::RecordingPaused
         )
@@ -146,7 +146,7 @@ impl Notification {
 
     pub fn recording_resumed() -> Self {
         Notification::new(
-            "Meetily",
+            "MeetingOne",
             "Recording has been resumed",
             NotificationType::RecordingResumed
         )
@@ -160,7 +160,7 @@ impl Notification {
             None => "Transcription has been completed".to_string(),
         };
 
-        Notification::new("Meetily", body, NotificationType::TranscriptionComplete)
+        Notification::new("ACT MeetingOne", body, NotificationType::TranscriptionComplete)
             .with_priority(NotificationPriority::Normal)
             .with_timeout(NotificationTimeout::Seconds(5))
     }
@@ -171,7 +171,7 @@ impl Notification {
             None => format!("Meeting starts in {} minutes", minutes_until),
         };
 
-        Notification::new("Meetily", body, NotificationType::MeetingReminder(minutes_until))
+        Notification::new("MeetingOne", body, NotificationType::MeetingReminder(minutes_until))
             .with_priority(NotificationPriority::High)
             .with_timeout(NotificationTimeout::Seconds(10))
     }
@@ -179,7 +179,7 @@ impl Notification {
     pub fn system_error(error: impl Into<String>) -> Self {
         let error_string = error.into();
         Notification::new(
-            "Meetily Error",
+            "ACT MeetingOne — lỗi",
             error_string.clone(),
             NotificationType::SystemError(error_string)
         )
@@ -189,7 +189,7 @@ impl Notification {
 
     pub fn test_notification() -> Self {
         Notification::new(
-            "Meetily",
+            "ACT MeetingOne",
             "This is a test notification to verify the system is working correctly",
             NotificationType::Test
         )

@@ -4,12 +4,14 @@ import { Transcript, TranscriptSegmentData } from '@/types';
 import { TranscriptView } from '@/components/TranscriptView';
 import { VirtualizedTranscriptView } from '@/components/VirtualizedTranscriptView';
 import { TranscriptButtonGroup } from './TranscriptButtonGroup';
-import { useMemo } from 'react';
+import { AudioPlayer } from './AudioPlayer';
+import { useMemo, useState, useCallback } from 'react';
+import { Headphones } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
+import { toast } from 'sonner';
 
 interface TranscriptPanelProps {
   transcripts: Transcript[];
-  customPrompt: string;
-  onPromptChange: (value: string) => void;
   onCopyTranscript: () => void;
   onOpenMeetingFolder: () => Promise<void>;
   isRecording: boolean;
@@ -32,8 +34,6 @@ interface TranscriptPanelProps {
 
 export function TranscriptPanel({
   transcripts,
-  customPrompt,
-  onPromptChange,
   onCopyTranscript,
   onOpenMeetingFolder,
   isRecording,
@@ -64,24 +64,66 @@ export function TranscriptPanel({
     }));
   }, [transcripts, usePagination, segments]);
 
+  const segmentCount = usePagination ? (totalCount ?? convertedSegments.length) : (transcripts?.length || 0);
+
+  const [showAudioPlayer, setShowAudioPlayer] = useState(false);
+
+  const handleSegmentEdit = useCallback(async (segmentId: string, newText: string) => {
+    await invoke('api_update_transcript_text', { transcriptId: segmentId, newText });
+    toast.success('Đã cập nhật bản ghi', { duration: 1500 });
+  }, []);
+
   return (
-    <div className="hidden md:flex md:w-1/4 lg:w-1/3 min-w-0 border-r border-gray-200 bg-white flex-col relative shrink-0">
-      {/* Title area */}
-      <div className="p-4 border-b border-gray-200">
-        <TranscriptButtonGroup
-          transcriptCount={usePagination ? (totalCount ?? convertedSegments.length) : (transcripts?.length || 0)}
-          onCopyTranscript={onCopyTranscript}
-          onOpenMeetingFolder={onOpenMeetingFolder}
-          meetingId={meetingId}
-          meetingFolderPath={meetingFolderPath}
-          onRefetchTranscripts={onRefetchTranscripts}
-        />
+    <div className="relative hidden h-full min-h-0 w-full min-w-0 flex-col bg-white md:flex">
+      {/* Header */}
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-gray-100 px-4 py-3 min-w-0">
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-sm font-semibold text-gray-800">Bản ghi</span>
+          {segmentCount > 0 && (
+            <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">
+              {segmentCount}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Audio player toggle — shown when meeting has a recording folder */}
+          {meetingFolderPath && (
+            <button
+              onClick={() => setShowAudioPlayer(v => !v)}
+              title={showAudioPlayer ? 'Ẩn trình phát audio' : 'Phát audio ghi âm'}
+              className={`flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
+                showAudioPlayer
+                  ? 'border-[rgba(22,71,142,0.35)] bg-[rgba(22,71,142,0.12)] text-[#16478e]'
+                  : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-700'
+              }`}
+            >
+              <Headphones className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {/* [&_span]:hidden forces icon-only buttons regardless of viewport width */}
+          <div className="[&_span]:hidden">
+            <TranscriptButtonGroup
+              transcriptCount={segmentCount}
+              onCopyTranscript={onCopyTranscript}
+              onOpenMeetingFolder={onOpenMeetingFolder}
+              meetingId={meetingId}
+              meetingFolderPath={meetingFolderPath}
+              onRefetchTranscripts={onRefetchTranscripts}
+            />
+          </div>
+        </div>
       </div>
 
-      {/* Transcript content - use virtualized view for better performance */}
-      <div className="flex-1 overflow-hidden pb-4">
+      {/* Audio player — shown when toggled */}
+      {showAudioPlayer && meetingFolderPath && (
+        <AudioPlayer meetingFolderPath={meetingFolderPath} />
+      )}
+
+      {/* Transcript content */}
+      <div className="min-h-0 flex-1 overflow-hidden">
         <VirtualizedTranscriptView
           segments={convertedSegments}
+          onSegmentEdit={handleSegmentEdit}
           isRecording={isRecording}
           isPaused={false}
           isProcessing={false}
@@ -96,18 +138,6 @@ export function TranscriptPanel({
           onLoadMore={onLoadMore}
         />
       </div>
-
-      {/* Custom prompt input at bottom of transcript section */}
-      {!isRecording && convertedSegments.length > 0 && (
-        <div className="p-1 border-t border-gray-200">
-          <textarea
-            placeholder="Add context for AI summary. For example people involved, meeting overview, objective etc..."
-            className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white shadow-sm min-h-[80px] resize-y"
-            value={customPrompt}
-            onChange={(e) => onPromptChange(e.target.value)}
-          />
-        </div>
-      )}
     </div>
   );
 }

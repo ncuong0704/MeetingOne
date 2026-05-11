@@ -1,44 +1,44 @@
 {
-      "name": "Client / Sales Meeting",
-      "description": "Capture client goals, deliverables, and next steps.",
-      "sections": [
-        {
-          "title": "Meeting Metadata",
-          "instruction": "Date, time, location/modality, account manager",
-          "format": "string"
-        },
-        {
-          "title": "Attendees",
-          "instruction": "Client and vendor attendees with roles",
-          "format": "list"
-        },
-        {
-          "title": "Client Goals & Success Criteria",
-          "instruction": "What the client wants to achieve and how success will be measured",
-          "format": "paragraph"
-        },
-        {
-          "title": "Agreed Deliverables",
-          "instruction": "Deliverables, owners, and due dates",
-          "format": "list",
-          "item_format": "| **Deliverable** | **Owner** | **Due Date** |\n| --- | --- | --- |"
-        },
-        {
-          "title": "Commercial Terms Discussed",
-          "instruction": "Pricing, SLAs, payment terms or contract items discussed",
-          "format": "paragraph"
-        },
-        {
-          "title": "Risks & Concerns",
-          "instruction": "Client concerns, blockers, or escalation items",
-          "format": "list",
-          "item_format": "| **Concern** | **Impact** | **Owner** |\n| --- | --- | --- |"
-        },
-        {
-          "title": "Next Steps",
-          "instruction": "Actions, owners, and due dates",
-          "format": "list",
-          "item_format": "| **Owner** | **Action** | **Due Date** |\n| --- | --- | --- |"
-        }
-      ]
+  "name": "Cuộc họp khách hàng / Kinh doanh",
+  "description": "Ghi lại mục tiêu của khách hàng, sản phẩm bàn giao và các bước tiếp theo.",
+  "sections": [
+    {
+      "title": "Thông tin cuộc họp",
+      "instruction": "Ngày, giờ, địa điểm/hình thức, người quản lý tài khoản",
+      "format": "string"
+    },
+    {
+      "title": "Người tham dự",
+      "instruction": "Người tham dự từ phía khách hàng và nhà cung cấp kèm vai trò",
+      "format": "list"
+    },
+    {
+      "title": "Mục tiêu & Tiêu chí thành công của khách hàng",
+      "instruction": "Khách hàng muốn đạt được gì và cách đo lường thành công, bằng tiếng Việt",
+      "format": "paragraph"
+    },
+    {
+      "title": "Sản phẩm bàn giao đã thống nhất",
+      "instruction": "Sản phẩm bàn giao, người phụ trách và thời hạn, bằng tiếng Việt",
+      "format": "list",
+      "item_format": "| Sản phẩm bàn giao | Người phụ trách | Thời hạn |\n| --- | --- | --- |"
+    },
+    {
+      "title": "Điều khoản thương mại đã thảo luận",
+      "instruction": "Giá cả, SLA, điều khoản thanh toán hoặc các điều khoản hợp đồng được thảo luận, bằng tiếng Việt",
+      "format": "paragraph"
+    },
+    {
+      "title": "Rủi ro & Mối lo ngại",
+      "instruction": "Mối lo ngại của khách hàng, các trở ngại hoặc vấn đề cần leo thang, bằng tiếng Việt",
+      "format": "list",
+      "item_format": "| Mối lo ngại | Mức độ ảnh hưởng | Người phụ trách |\n| --- | --- | --- |"
+    },
+    {
+      "title": "Các bước tiếp theo",
+      "instruction": "Hành động, người phụ trách và thời hạn, bằng tiếng Việt",
+      "format": "list",
+      "item_format": "| Người phụ trách | Hành động | Thời hạn |\n| --- | --- | --- |"
     }
+  ]
+}

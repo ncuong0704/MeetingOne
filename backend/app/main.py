@@ -296,6 +296,26 @@ async def process_transcript_background(process_id: str, transcript: TranscriptR
             except Exception as e:
                 logger.error(f"Error processing chunk data for {process_id}: {e}. Chunk: {json_str[:100]}...")
 
+        # Deduplicate blocks trong mỗi section để tránh nội dung lặp do chunk overlap
+        def _deduplicate_blocks(blocks: list) -> list:
+            seen = set()
+            unique = []
+            for block in blocks:
+                key = block.get('content', '').strip().lower()[:100]
+                if key and key not in seen:
+                    seen.add(key)
+                    unique.append(block)
+                elif not key:
+                    unique.append(block)  # Giữ block rỗng để không mất cấu trúc
+            return unique
+
+        for key in final_summary:
+            if key == "MeetingNotes":
+                for section in final_summary[key]["sections"]:
+                    section["blocks"] = _deduplicate_blocks(section.get("blocks", []))
+            elif key != "MeetingName" and isinstance(final_summary[key], dict) and "blocks" in final_summary[key]:
+                final_summary[key]["blocks"] = _deduplicate_blocks(final_summary[key]["blocks"])
+
         # Update database with meeting name using meeting_id
         if final_summary["MeetingName"]:
             await processor.db.update_meeting_name(transcript.meeting_id, final_summary["MeetingName"])

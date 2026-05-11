@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { PartialBlock, Block } from "@blocknote/core";
 import "@blocknote/shadcn/style.css";
 import "@blocknote/core/fonts/inter.css";
+import { useVnMarkPreservation } from "@/hooks/useVnMarkPreservation";
 
 interface EditorProps {
   initialContent?: Block[];
@@ -22,6 +23,8 @@ export default function Editor({ initialContent, onChange, editable = true }: Ed
   const { useCreateBlockNote } = require("@blocknote/react");
   const { BlockNoteView } = require("@blocknote/shadcn");
 
+  const containerRef = useRef<HTMLDivElement>(null);
+
   const editor = useCreateBlockNote({
     initialContent: initialContent as PartialBlock[] | undefined,
   });
@@ -37,6 +40,9 @@ export default function Editor({ initialContent, onChange, editable = true }: Ed
       return '';
     }
   };
+
+  // Fix: Preserve bold/italic marks when typing Vietnamese diacritics (Unikey / IME)
+  useVnMarkPreservation(editor, containerRef);
 
   // Handle content changes
   useEffect(() => {
@@ -59,5 +65,9 @@ export default function Editor({ initialContent, onChange, editable = true }: Ed
     };
   }, [editor, onChange]);
 
-  return <BlockNoteView editor={editor} editable={editable} theme="light" />;
+  return (
+    <div ref={containerRef}>
+      <BlockNoteView editor={editor} editable={editable} theme="light" spellCheck={false} />
+    </div>
+  );
 }

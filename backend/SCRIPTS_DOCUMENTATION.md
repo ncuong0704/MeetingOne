@@ -1,4 +1,4 @@
-# Backend Scripts Documentation
+﻿# Backend Scripts Documentation
 
 This comprehensive document details all the `.cmd`, `.ps1`, and `.sh` scripts in the backend directory, their purposes, usage patterns, interactions, and available options.
 
@@ -479,8 +479,8 @@ start_whisper_server.cmd [MODEL_NAME]
 ```
 
 **Search Locations**:
-- HomeBrew installations: `/opt/homebrew/Cellar/meetily-backend/*/`
-- User directories: `~/.meetily/`, `~/Documents/meetily/`, `~/Desktop/`
+- HomeBrew installations: `/opt/homebrew/Cellar/MeetingOne-backend/*/`
+- User directories: `~/.MeetingOne/`, `~/Documents/MeetingOne/`, `~/Desktop/`
 - Current directory and data directory
 - Custom paths with validation
 

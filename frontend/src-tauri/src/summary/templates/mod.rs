@@ -1,4 +1,4 @@
-//! Meeting summary template management
+﻿//! Meeting summary template management
 //!
 //! This module provides a flexible template system for generating meeting summaries.
 //! It supports both built-in templates (embedded in the binary) and custom user templates
@@ -31,9 +31,9 @@
 //! # Custom Templates
 //!
 //! Users can add custom templates to:
-//! - macOS: `~/Library/Application Support/Meetily/templates/`
-//! - Windows: `%APPDATA%\Meetily\templates\`
-//! - Linux: `~/.config/Meetily/templates/`
+//! - macOS: `~/Library/Application Support/MeetingOne/templates/`
+//! - Windows: `%APPDATA%\MeetingOne\templates\`
+//! - Linux: `~/.config/MeetingOne/templates/`
 //!
 //! Custom templates must follow the JSON schema defined in `types::Template`.
 

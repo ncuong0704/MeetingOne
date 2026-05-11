@@ -6,6 +6,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 const REQUEST_TIMEOUT_DURATION: Duration = Duration::from_secs(300);
+const OLLAMA_DEFAULT_TEMPERATURE: f32 = 0.1;
+const OLLAMA_DEFAULT_TOP_P: f32 = 0.9;
+const OLLAMA_DEFAULT_NUM_CTX: u32 = 8192;
 
 // Generic structure for OpenAI-compatible API chat messages
 #[derive(Debug, Serialize)]
@@ -25,6 +28,37 @@ pub struct ChatRequest {
     pub temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub top_p: Option<f32>,
+}
+
+// Ollama /api/chat request structures (to support num_ctx via options)
+#[derive(Debug, Serialize)]
+pub struct OllamaChatRequest {
+    pub model: String,
+    pub messages: Vec<ChatMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub options: Option<OllamaChatOptions>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OllamaChatOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub num_ctx: Option<u32>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct OllamaChatResponse {
+    pub message: OllamaChatMessage,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct OllamaChatMessage {
+    pub content: String,
 }
 
 // Generic structure for OpenAI-compatible API chat responses
@@ -71,7 +105,6 @@ pub enum LLMProvider {
     Groq,
     Ollama,
     OpenRouter,
-    BuiltInAI,
     CustomOpenAI,
 }
 
@@ -84,7 +117,6 @@ impl LLMProvider {
             "groq" => Ok(Self::Groq),
             "ollama" => Ok(Self::Ollama),
             "openrouter" => Ok(Self::OpenRouter),
-            "builtin-ai" | "local-llama" | "localllama" => Ok(Self::BuiltInAI),
             "custom-openai" => Ok(Self::CustomOpenAI),
             _ => Err(format!("Unsupported LLM provider: {}", s)),
         }
@@ -105,7 +137,7 @@ impl LLMProvider {
 /// * `max_tokens` - Optional max tokens (for CustomOpenAI provider)
 /// * `temperature` - Optional temperature (for CustomOpenAI provider)
 /// * `top_p` - Optional top_p (for CustomOpenAI provider)
-/// * `app_data_dir` - Optional app data directory (for BuiltInAI provider)
+/// * `app_data_dir` - Unused, kept for API compatibility
 /// * `cancellation_token` - Optional token to cancel the request
 ///
 /// # Returns
@@ -132,22 +164,6 @@ pub async fn generate_summary(
         }
     }
 
-    // Handle BuiltInAI provider separately (uses local sidecar, no HTTP API)
-    if provider == &LLMProvider::BuiltInAI {
-        let app_data_dir = app_data_dir
-            .ok_or_else(|| "app_data_dir is required for BuiltInAI provider".to_string())?;
-
-        return crate::summary::summary_engine::generate_with_builtin(
-            app_data_dir,
-            model_name,
-            system_prompt,
-            user_prompt,
-            cancellation_token,
-        )
-        .await
-        .map_err(|e| e.to_string());
-    }
-
     let (api_url, mut headers) = match provider {
         LLMProvider::OpenAI => (
             "https://api.openai.com/v1/chat/completions".to_string(),
@@ -166,7 +182,7 @@ pub async fn generate_summary(
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| "http://localhost:11434".to_string());
             (
-                format!("{}/v1/chat/completions", host),
+                format!("{}/api/chat", host),
                 header::HeaderMap::new(),
             )
         }
@@ -194,14 +210,10 @@ pub async fn generate_summary(
             );
             ("https://api.anthropic.com/v1/messages".to_string(), header_map)
         }
-        LLMProvider::BuiltInAI => {
-            // This case is handled earlier with early returns
-            unreachable!("BuiltInAI is handled before this match statement")
-        }
     };
 
-    // Add authorization header for non-Claude providers
-    if provider != &LLMProvider::Claude {
+    // Add authorization header for non-Claude / non-Ollama providers
+    if provider != &LLMProvider::Claude && provider != &LLMProvider::Ollama {
         headers.insert(
             header::AUTHORIZATION,
             format!("Bearer {}", api_key)
@@ -217,10 +229,34 @@ pub async fn generate_summary(
     );
 
     // Build request body based on provider
-    let request_body = if provider != &LLMProvider::Claude {
-        // For CustomOpenAI, apply optional parameters if provided
-        let (max_tokens_val, temperature_val, top_p_val) = if provider == &LLMProvider::CustomOpenAI {
-            (max_tokens, temperature, top_p)
+    let request_body = if provider == &LLMProvider::Ollama {
+        // Use Ollama native /api/chat so we can pass num_ctx via options.
+        // Keep conservative defaults to reduce hallucination.
+        serde_json::json!(OllamaChatRequest {
+            model: model_name.to_string(),
+            messages: vec![
+                ChatMessage {
+                    role: "system".to_string(),
+                    content: system_prompt.to_string(),
+                },
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: user_prompt.to_string(),
+                },
+            ],
+            stream: Some(false),
+            options: Some(OllamaChatOptions {
+                temperature: Some(OLLAMA_DEFAULT_TEMPERATURE),
+                top_p: Some(OLLAMA_DEFAULT_TOP_P),
+                num_ctx: Some(OLLAMA_DEFAULT_NUM_CTX),
+            }),
+        })
+    } else if provider != &LLMProvider::Claude {
+        // For CustomOpenAI, apply optional parameters if provided.
+        // If not provided, use defaults commonly expected for OpenAI-compatible servers.
+        let (max_tokens_val, temperature_val, top_p_val) = if provider == &LLMProvider::CustomOpenAI
+        {
+            (max_tokens.or(Some(4096)), temperature.or(Some(0.2)), top_p.or(Some(0.9)))
         } else {
             (None, None, None)
         };
@@ -313,6 +349,16 @@ pub async fn generate_summary(
             .text
             .trim();
         Ok(content.to_string())
+    } else if provider == &LLMProvider::Ollama {
+        let chat_response = response
+            .json::<OllamaChatResponse>()
+            .await
+            .map_err(|e| format!("Failed to parse LLM response: {}", e))?;
+
+        info!("🐞 LLM Response received from Ollama");
+
+        let content = chat_response.message.content.trim();
+        Ok(content.to_string())
     } else {
         let chat_response = response
             .json::<ChatResponse>()
@@ -339,7 +385,6 @@ fn provider_name(provider: &LLMProvider) -> &str {
         LLMProvider::Claude => "Claude",
         LLMProvider::Groq => "Groq",
         LLMProvider::Ollama => "Ollama",
-        LLMProvider::BuiltInAI => "Built-in AI",
         LLMProvider::OpenRouter => "OpenRouter",
         LLMProvider::CustomOpenAI => "Custom OpenAI",
     }

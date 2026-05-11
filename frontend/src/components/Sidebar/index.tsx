@@ -15,7 +15,6 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { toast } from 'sonner';
 import { useRecordingState } from '@/contexts/RecordingStateContext';
 import { useImportDialog } from '@/contexts/ImportDialogContext';
-import { useConfig } from '@/contexts/ConfigContext';
 
 import {
   Dialog,
@@ -60,7 +59,6 @@ const Sidebar: React.FC = () => {
   // Get recording state from RecordingStateContext (single source of truth)
   const { isRecording } = useRecordingState();
   const { openImportDialog } = useImportDialog();
-  const { betaFeatures } = useConfig();
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['meetings']));
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [showModelSettings, setShowModelSettings] = useState(false);
@@ -72,8 +70,8 @@ const Sidebar: React.FC = () => {
     ollamaEndpoint: null
   });
   const [transcriptModelConfig, setTranscriptModelConfig] = useState<TranscriptModelProps>({
-    provider: 'parakeet',
-    model: 'parakeet-tdt-0.6b-v3-int8',
+    provider: 'zipformer',
+    model: 'zipformer-vi-30m',
   });
   const [settingsSaveSuccess, setSettingsSaveSuccess] = useState<boolean | null>(null);
 
@@ -337,18 +335,18 @@ const Sidebar: React.FC = () => {
       Analytics.trackMeetingDeleted(itemId);
 
       // Show success toast
-      toast.success("Meeting deleted successfully", {
-        description: "All associated data has been removed"
+      toast.success('Đã xóa cuộc họp', {
+        description: 'Toàn bộ dữ liệu liên quan đã được gỡ bỏ'
       });
 
       // If deleting the active meeting, navigate to home
       if (currentMeeting?.id === itemId) {
-        setCurrentMeeting({ id: 'intro-call', title: '+ New Call' });
+        setCurrentMeeting({ id: 'intro-call', title: '+ Cuộc họp mới' });
         router.push('/');
       }
     } catch (error) {
       console.error('Failed to delete meeting:', error);
-      toast.error("Failed to delete meeting", {
+      toast.error("Xóa cuộc họp thất bại", {
         description: error instanceof Error ? error.message : String(error)
       });
     }
@@ -379,7 +377,7 @@ const Sidebar: React.FC = () => {
 
     // Prevent empty titles
     if (!newTitle) {
-      toast.error("Meeting title cannot be empty");
+      toast.error("Tiêu đề cuộc họp không được để trống");
       return;
     }
 
@@ -403,14 +401,14 @@ const Sidebar: React.FC = () => {
       // Track the edit
       Analytics.trackButtonClick('edit_meeting_title', 'sidebar');
 
-      toast.success("Meeting title updated successfully");
+      toast.success("Đã cập nhật tiêu đề cuộc họp");
 
       // Close modal and reset state
       setEditModalState({ isOpen: false, meetingId: null, currentTitle: '' });
       setEditingTitle('');
     } catch (error) {
       console.error('Failed to update meeting title:', error);
-      toast.error("Failed to update meeting title", {
+      toast.error("Cập nhật tiêu đề thất bại", {
         description: error instanceof Error ? error.message : String(error)
       });
     }
@@ -467,7 +465,7 @@ const Sidebar: React.FC = () => {
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
-              <p>Home</p>
+              <p>Trang chủ</p>
             </TooltipContent>
           </Tooltip>
 
@@ -486,25 +484,23 @@ const Sidebar: React.FC = () => {
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
-              <p>{isRecording ? "Recording in progress..." : "Start Recording"}</p>
+              <p>{isRecording ? "Đang ghi âm..." : "Bắt đầu ghi âm"}</p>
             </TooltipContent>
           </Tooltip>
 
-          {betaFeatures.importAndRetranscribe && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => openImportDialog()}
-                  className="p-2 rounded-lg transition-colors duration-150 hover:bg-blue-100 bg-blue-50"
-                >
-                  <Upload className="w-5 h-5 text-blue-600" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                <p>Import Audio</p>
-              </TooltipContent>
-            </Tooltip>
-          )}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => openImportDialog()}
+                className="p-2 rounded-lg transition-colors duration-150 bg-[rgba(22,71,142,0.08)] hover:bg-[rgba(22,71,142,0.15)]"
+              >
+                <Upload className="w-5 h-5 text-[#16478e]" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              <p>Nhập file âm thanh</p>
+            </TooltipContent>
+          </Tooltip>
 
           <Tooltip>
             <TooltipTrigger asChild>
@@ -520,7 +516,7 @@ const Sidebar: React.FC = () => {
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
-              <p>Meeting Notes</p>
+              <p>Ghi chú cuộc họp</p>
             </TooltipContent>
           </Tooltip>
 
@@ -535,7 +531,7 @@ const Sidebar: React.FC = () => {
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
-              <p>Settings</p>
+              <p>Cài đặt</p>
             </TooltipContent>
           </Tooltip>
 
@@ -566,11 +562,14 @@ const Sidebar: React.FC = () => {
     return (
       <div key={item.id}>
         <div
-          className={`flex items-center transition-all duration-150 group ${item.type === 'folder' && depth === 0
-            ? 'p-3 text-lg font-semibold h-10 mx-3 mt-3 rounded-lg'
-            : `px-3 py-2 my-0.5 rounded-md text-sm ${isActive ? 'bg-blue-100 text-blue-700 font-medium' :
-              hasTranscriptMatch ? 'bg-yellow-50' : 'hover:bg-gray-50'
-            } cursor-pointer`
+          className={`flex items-center transition-colors duration-150 group ${item.type === 'folder' && depth === 0
+            ? 'px-4 pt-4 pb-1.5 text-[11px] font-semibold uppercase tracking-widest text-gray-400'
+            : `px-3 py-1.5 my-0.5 rounded-lg text-sm ${isActive
+                ? 'bg-[rgba(22,71,142,0.12)] text-[#16478e] font-medium ring-1 ring-[rgba(22,71,142,0.25)]'
+                : hasTranscriptMatch
+                  ? 'bg-amber-50 text-gray-800'
+                  : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
+              } cursor-pointer`
             }`}
           style={item.type === 'folder' && depth === 0 ? {} : { paddingLeft }}
           onClick={() => {
@@ -600,19 +599,19 @@ const Sidebar: React.FC = () => {
                 )}
               </div>
               {searchQuery && item.id === 'meetings' && isSearching && (
-                <span className="ml-2 text-xs text-blue-500 animate-pulse">Searching...</span>
+                <span className="ml-2 text-xs text-[#16478e] animate-pulse">Đang tìm...</span>
               )}
             </>
           ) : (
             <div className="flex flex-col w-full">
               <div className="flex items-center w-full">
                 {isMeetingItem ? (
-                  <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full mr-2 bg-gray-100">
-                    <File className="w-3.5 h-3.5 text-gray-600" />
+                  <div className={`flex-shrink-0 flex items-center justify-center w-5 h-5 rounded-md mr-2 ${isActive ? 'bg-[rgba(22,71,142,0.18)]' : 'bg-gray-100'}`}>
+                    <File className={`w-3 h-3 ${isActive ? 'text-[#16478e]' : 'text-gray-500'}`} />
                   </div>
                 ) : (
-                  <div className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full mr-2 bg-blue-100">
-                    <Plus className="w-3.5 h-3.5 text-blue-600" />
+                  <div className="flex-shrink-0 flex items-center justify-center w-5 h-5 rounded-md mr-2 bg-gray-900">
+                    <Plus className="w-3 h-3 text-white" />
                   </div>
                 )}
                 <span className="flex-1 break-words">{item.title}</span>
@@ -623,8 +622,8 @@ const Sidebar: React.FC = () => {
                         e.stopPropagation();
                         handleEditStart(item.id, item.title);
                       }}
-                      className="hover:text-blue-600 p-1 rounded-md hover:bg-blue-50 flex-shrink-0"
-                      aria-label="Edit meeting title"
+                      className="hover:text-[#16478e] p-1 rounded-md hover:bg-[rgba(22,71,142,0.08)] flex-shrink-0"
+                      aria-label="Sửa tiêu đề cuộc họp"
                     >
                       <Pencil className="w-4 h-4" />
                     </button>
@@ -633,8 +632,8 @@ const Sidebar: React.FC = () => {
                         e.stopPropagation();
                         setDeleteModalState({ isOpen: true, itemId: item.id });
                       }}
-                      className="hover:text-red-600 p-1 rounded-md hover:bg-red-50 flex-shrink-0"
-                      aria-label="Delete meeting"
+                      className="hover:text-[#e63027] p-1 rounded-md hover:bg-[rgba(230,48,39,0.08)] flex-shrink-0"
+                      aria-label="Xóa cuộc họp"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -642,10 +641,11 @@ const Sidebar: React.FC = () => {
                 )}
               </div>
 
-              {/* Show transcript match snippet if available */}
+              {/* Transcript match snippet */}
               {hasTranscriptMatch && (
-                <div className="mt-1 ml-8 text-xs text-gray-500 bg-yellow-50 p-1.5 rounded border border-yellow-100 line-clamp-2">
-                  <span className="font-medium text-yellow-600">Match:</span> {matchingResult.matchContext}
+                <div className="mt-1 ml-7 text-[11px] text-gray-500 bg-amber-50 px-2 py-1 rounded-md border border-amber-100 line-clamp-2">
+                  <span className="font-semibold text-amber-600">Tìm thấy: </span>
+                  {matchingResult.matchContext}
                 </div>
               )}
             </div>
@@ -689,14 +689,12 @@ const Sidebar: React.FC = () => {
           <div className="flex-1">
             {!isCollapsed && (
               <div className="p-3">
-                {/* <span className="text-lg text-center border rounded-full bg-blue-50 border-white font-semibold text-gray-700 mb-2 block items-center">
-                  <span>Meetily</span>
-                </span> */}
+                {/* Logo thương hiệu trong Logo.tsx (ACT MeetingOne) */}
                 <Logo isCollapsed={isCollapsed} />
 
                 <div className="relative mb-1">
                   <InputGroup >
-                    <InputGroupInput placeholder='Search meeting content...' value={searchQuery}
+                    <InputGroupInput placeholder='Tìm kiếm nội dung cuộc họp...' value={searchQuery}
                       onChange={(e) => handleSearchChange(e.target.value)}
                     />
                     <InputGroupAddon>
@@ -725,10 +723,12 @@ const Sidebar: React.FC = () => {
             {!isCollapsed && (
               <div
                 onClick={() => router.push('/')}
-                className="p-3  text-lg font-semibold items-center hover:bg-gray-100 h-10   flex mx-3 mt-3 rounded-lg cursor-pointer"
+                className={`flex items-center gap-2 mx-3 mt-2 px-3 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors duration-150 ${
+                  pathname === '/' ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                }`}
               >
-                <Home className="w-4 h-4 mr-2" />
-                <span>Home</span>
+                <Home className="w-4 h-4 shrink-0" />
+                <span>Trang chủ</span>
               </div>
             )}
           </div>
@@ -741,13 +741,13 @@ const Sidebar: React.FC = () => {
               <div className="flex-shrink-0">
                 {filteredSidebarItems.filter(item => item.type === 'folder').map(item => (
                   <div key={item.id}>
-                    <div
-                      className="flex items-center transition-all duration-150 p-3 text-lg font-semibold h-10 mx-3 mt-3 rounded-lg"
-                    >
-                      <NotebookPen className="w-4 h-4 mr-2 text-gray-600" />
-                      <span className="text-gray-700">{item.title}</span>
+                    <div className="flex items-center gap-1.5 px-4 pt-4 pb-1.5">
+                      <NotebookPen className="w-3 h-3 text-gray-400 shrink-0" />
+                      <span className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">
+                        {item.title}
+                      </span>
                       {searchQuery && item.id === 'meetings' && isSearching && (
-                        <span className="ml-2 text-xs text-blue-500 animate-pulse">Searching...</span>
+                        <span className="ml-1 text-[10px] text-blue-400 animate-pulse">Đang tìm...</span>
                       )}
                     </div>
                   </div>
@@ -772,47 +772,47 @@ const Sidebar: React.FC = () => {
 
         {/* Footer */}
         {!isCollapsed && (
-
-          <div className="flex-shrink-0 p-2 border-t border-gray-100">
+          <div className="flex-shrink-0 p-2.5 border-t border-gray-100 space-y-1">
+            {/* Primary: Recording */}
             <button
               onClick={handleRecordingToggle}
               disabled={isRecording}
-              className={`w-full flex items-center justify-center px-3 py-2 text-sm font-medium text-white ${isRecording ? 'bg-red-300 cursor-not-allowed' : 'bg-red-500 hover:bg-red-600'} rounded-lg transition-colors shadow-sm`}
+              className={`w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-white rounded-lg transition-colors ${
+                isRecording
+                  ? 'bg-[#e63027]/70 cursor-not-allowed'
+                  : 'bg-[#e63027] hover:bg-[#c72820]'
+              }`}
             >
               {isRecording ? (
-                <>
-                  <Square className="w-4 h-4 mr-2" />
-                  <span>Recording in progress...</span>
-                </>
+                <><Square className="w-3.5 h-3.5" fill="currentColor" /><span>Đang ghi âm...</span></>
               ) : (
-                <>
-                  <Mic className="w-4 h-4 mr-2" />
-                  <span>Start Recording</span>
-                </>
+                <><Mic className="w-3.5 h-3.5" /><span>Bắt đầu ghi âm</span></>
               )}
             </button>
 
-            {betaFeatures.importAndRetranscribe && (
-              <button
-                onClick={() => openImportDialog()}
-                className="w-full flex items-center justify-center px-3 py-2 mt-1 text-sm font-medium text-gray-700 bg-blue-100 hover:bg-blue-200 rounded-lg transition-colors shadow-sm"
-              >
-                <Upload className="w-4 h-4 mr-2" />
-                <span>Import Audio</span>
-              </button>
-            )}
+            {/* Import file */}
+            <button
+              onClick={() => openImportDialog()}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-[#16478e] border border-[#16478e] bg-transparent hover:bg-[rgba(22,71,142,0.08)] rounded-lg transition-colors"
+            >
+              <Upload className="w-3.5 h-3.5 shrink-0" />
+              <span>Nhập file âm thanh</span>
+            </button>
 
+            {/* Settings */}
             <button
               onClick={() => router.push('/settings')}
-              className="w-full flex items-center justify-center px-3 py-1.5 mt-1 mb-1 text-sm font-medium text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors shadow-sm"
+              className={`w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                pathname === '/settings'
+                  ? 'bg-gray-200 text-gray-800'
+                  : 'text-gray-700 bg-gray-100 hover:bg-gray-200'
+              }`}
             >
-              <Settings className="w-4 h-4 mr-2" />
-              <span>Settings</span>
+              <Settings className="w-3.5 h-3.5 shrink-0" />
+              <span>Cài đặt</span>
             </button>
+
             <Info isCollapsed={isCollapsed} />
-            <div className="w-full flex items-center justify-center px-3 py-1 text-xs text-gray-400">
-              v0.3.0
-            </div>
           </div>
         )}
       </div>
@@ -820,7 +820,7 @@ const Sidebar: React.FC = () => {
       {/* Confirmation Modal for Delete */}
       <ConfirmationModal
         isOpen={deleteModalState.isOpen}
-        text="Are you sure you want to delete this meeting? This action cannot be undone."
+        text="Bạn có chắc muốn xóa cuộc họp này không? Hành động này không thể hoàn tác."
         onConfirm={handleDeleteConfirm}
         onCancel={() => setDeleteModalState({ isOpen: false, itemId: null })}
       />
@@ -831,14 +831,14 @@ const Sidebar: React.FC = () => {
       }}>
         <DialogContent className="sm:max-w-[425px]">
           <VisuallyHidden>
-            <DialogTitle>Edit Meeting Title</DialogTitle>
+            <DialogTitle>Chỉnh sửa tiêu đề cuộc họp</DialogTitle>
           </VisuallyHidden>
           <div className="py-4">
-            <h3 className="text-lg font-semibold mb-4">Edit Meeting Title</h3>
+            <h3 className="text-lg font-semibold mb-4">Chỉnh sửa tiêu đề cuộc họp</h3>
             <div className="space-y-4">
               <div>
                 <label htmlFor="meeting-title" className="block text-sm font-medium text-gray-700 mb-2">
-                  Meeting Title
+                  Tiêu đề cuộc họp
                 </label>
                 <input
                   id="meeting-title"
@@ -853,7 +853,7 @@ const Sidebar: React.FC = () => {
                     }
                   }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Enter meeting title"
+                  placeholder="Nhập tiêu đề cuộc họp"
                   autoFocus
                 />
               </div>
@@ -864,13 +864,13 @@ const Sidebar: React.FC = () => {
               onClick={handleEditCancel}
               className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
             >
-              Cancel
+              Hủy
             </button>
             <button
               onClick={handleEditConfirm}
               className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors"
             >
-              Save
+              Lưu
             </button>
           </DialogFooter>
         </DialogContent>

@@ -42,7 +42,7 @@ export function LegacyDatabaseImport({ isOpen, onComplete }: LegacyDatabaseImpor
         setDetectedPath(dbPath);
         setImportState('idle');
       } else {
-        setErrorMessage('No database found at selected location. Please select the Meetily folder, backend folder, or the database file directly.');
+        setErrorMessage('Không tìm thấy cơ sở dữ liệu ở đường dẫn đã chọn. Hãy chọn thư mục ứng dụng cũ (MeetingOne), thư mục backend, hoặc file .db trực tiếp.');
         setDetectedPath(null);
         setImportState('error');
         setTimeout(() => setImportState('idle'), 3000);
@@ -66,7 +66,7 @@ export function LegacyDatabaseImport({ isOpen, onComplete }: LegacyDatabaseImpor
       });
 
       setImportState('success');
-      toast.success('Database imported successfully! Reloading...');
+      toast.success('Đã nhập cơ sở dữ liệu! Đang tải lại...');
 
       // Wait 1 second for user to see success, then reload window to refresh all data
       setTimeout(() => {
@@ -76,7 +76,7 @@ export function LegacyDatabaseImport({ isOpen, onComplete }: LegacyDatabaseImpor
       console.error('Error importing database:', error);
       setErrorMessage(String(error));
       setImportState('error');
-      toast.error(`Import failed: ${error}`);
+      toast.error(`Nhập thất bại: ${error}`);
       setTimeout(() => setImportState('idle'), 3000);
     }
   };
@@ -88,7 +88,7 @@ export function LegacyDatabaseImport({ isOpen, onComplete }: LegacyDatabaseImpor
       await invoke('initialize_fresh_database');
 
       setImportState('success');
-      toast.success('Database initialized successfully! Starting app...');
+      toast.success('Đã khởi tạo cơ sở dữ liệu! Đang khởi động ứng dụng...');
 
       // Wait 1 second for user to see success, then reload window to start fresh
       setTimeout(() => {
@@ -98,7 +98,7 @@ export function LegacyDatabaseImport({ isOpen, onComplete }: LegacyDatabaseImpor
       console.error('Error initializing database:', error);
       setErrorMessage(String(error));
       setImportState('error');
-      toast.error(`Initialization failed: ${error}`);
+      toast.error(`Khởi tạo thất bại: ${error}`);
       setTimeout(() => setImportState('idle'), 3000);
     }
   };
@@ -119,9 +119,9 @@ export function LegacyDatabaseImport({ isOpen, onComplete }: LegacyDatabaseImpor
     <Dialog open={isOpen} onOpenChange={() => {}}>
       <DialogContent className="sm:max-w-[600px]" onPointerDownOutside={(e) => e.preventDefault()}>
         <DialogHeader>
-          <DialogTitle className="text-2xl">Welcome to Meetily!</DialogTitle>
+          <DialogTitle className="text-2xl">Chào mừng đến ACT MeetingOne!</DialogTitle>
           <DialogDescription className="text-base pt-2">
-            Do you have data from a previous Meetily installation?
+            Bạn có dữ liệu từ bản cài đặt trước (MeetingOne hoặc backend Python)?
           </DialogDescription>
         </DialogHeader>
 
@@ -135,13 +135,13 @@ export function LegacyDatabaseImport({ isOpen, onComplete }: LegacyDatabaseImpor
           {/* Browse Section */}
           <div className="space-y-3">
             <p className="text-sm text-gray-600">
-              Select your previous Meetily folder, backend directory, or database file:
+              Chọn thư mục ứng dụng cũ, thư mục backend, hoặc file cơ sở dữ liệu:
             </p>
 
             <button
               onClick={handleBrowse}
               disabled={isLoading}
-              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-[#16478e] text-white rounded-lg hover:bg-[#1a55ab] disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
             >
               {importState === 'selecting' || importState === 'detecting' ? (
                 <>

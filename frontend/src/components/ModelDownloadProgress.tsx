@@ -1,5 +1,5 @@
 import React from 'react';
-import { ModelStatus } from '../lib/whisper';
+import { ModelStatus } from '../lib/zipformer';
 import { Button } from './ui/button';
 
 interface ModelDownloadProgressProps {
@@ -9,15 +9,15 @@ interface ModelDownloadProgressProps {
 }
 
 export function ModelDownloadProgress({ status, modelName, onCancel }: ModelDownloadProgressProps) {
-  if (typeof status !== 'object' || !('Downloading' in status)) {
+  if (typeof status !== 'object' || status.type !== 'Downloading') {
     return null;
   }
 
-  const progress = status.Downloading;
+  const progress = status.value as number;
   const isCompleted = progress >= 100;
 
   return (
-    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+    <div className="bg-[rgba(22,71,142,0.08)] border border-[rgba(22,71,142,0.2)] rounded-lg p-4">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center space-x-2">
           <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
@@ -28,9 +28,9 @@ export function ModelDownloadProgress({ status, modelName, onCancel }: ModelDown
       </div>
       
       <div className="relative">
-        <div className="w-full bg-blue-200 rounded-full h-2">
+        <div className="w-full bg-[rgba(22,71,142,0.15)] rounded-full h-2">
           <div 
-            className="bg-blue-600 h-2 rounded-full transition-all duration-300 ease-out"
+            className="bg-[#16478e] h-2 rounded-full transition-all duration-300 ease-out"
             style={{ width: `${Math.min(progress, 100)}%` }}
           />
         </div>

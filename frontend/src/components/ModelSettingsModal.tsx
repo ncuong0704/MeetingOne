@@ -3,7 +3,6 @@ import { useSidebar } from './Sidebar/SidebarProvider';
 import { invoke } from '@tauri-apps/api/core';
 import { Button } from '@/components/ui/button';
 import { useOllamaDownload } from '@/contexts/OllamaDownloadContext';
-import { BuiltInModelManager } from '@/components/BuiltInModelManager';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useConfig } from '@/contexts/ConfigContext';
@@ -17,7 +16,7 @@ import {
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Switch } from '@/components/ui/switch';
-import { Lock, Unlock, Eye, EyeOff, RefreshCw, CheckCircle2, XCircle, ChevronDown, ChevronUp, Download, ExternalLink, Check, ChevronsUpDown } from 'lucide-react';
+import { Lock, Unlock, Eye, EyeOff, RefreshCw, CheckCircle2, XCircle, ChevronDown, ChevronUp, Download, ExternalLink, Check, ChevronsUpDown, Star, Cpu } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Command,
@@ -31,7 +30,7 @@ import { cn, isOllamaNotInstalledError } from '@/lib/utils';
 import { toast } from 'sonner';
 
 export interface ModelConfig {
-  provider: 'ollama' | 'groq' | 'claude' | 'openai' | 'openrouter' | 'builtin-ai' | 'custom-openai';
+  provider: 'ollama' | 'groq' | 'claude' | 'openai' | 'openrouter' | 'custom-openai';
   model: string;
   whisperModel: string;
   apiKey?: string | null;
@@ -72,6 +71,25 @@ interface AnthropicModel {
 interface GroqModel {
   id: string;
   owned_by?: string;
+}
+
+interface CuratedOllamaModel {
+  tag: string;
+  family: string;
+  params_b: number;
+  size_gb: number;
+  quant: string;
+  score: number;
+  estimated_tps: number;
+  description: string;
+  is_best: boolean;
+  is_pulled: boolean;
+}
+
+interface CuratedOllamaRecommendation {
+  hardware: string;
+  max_size_gb: number;
+  models: CuratedOllamaModel[];
 }
 
 // Fallback models for when API fetch fails or no API key provided
@@ -153,6 +171,10 @@ export function ModelSettingsModal({
   const [isCustomOpenAIAdvancedOpen, setIsCustomOpenAIAdvancedOpen] = useState<boolean>(false);
   const [isTestingConnection, setIsTestingConnection] = useState<boolean>(false);
 
+  // Curated recommendations state (computed in Rust; no Node.js dependency)
+  const [curatedRecommendations, setCuratedRecommendations] = useState<CuratedOllamaRecommendation | null>(null);
+  const [isLoadingRecommendations, setIsLoadingRecommendations] = useState<boolean>(false);
+
   // Combobox state
   const [modelComboboxOpen, setModelComboboxOpen] = useState<boolean>(false);
 
@@ -167,8 +189,6 @@ export function ModelSettingsModal({
   // Use global download context instead of local state
   const { isDownloading, getProgress, downloadingModels } = useOllamaDownload();
 
-  // Built-in AI models state
-  const [builtinAiModels, setBuiltinAiModels] = useState<any[]>([]);
 
   // Cache models by endpoint to avoid refetching when reverting endpoint changes
   const modelsCache = useRef<Map<string, OllamaModel[]>>(new Map());
@@ -227,7 +247,6 @@ export function ModelSettingsModal({
     groq: groqModels.length > 0 ? groqModels : GROQ_FALLBACK_MODELS,
     openai: openaiModels.length > 0 ? openaiModels : OPENAI_FALLBACK_MODELS,
     openrouter: openRouterModels.map((m) => m.id),
-    'builtin-ai': builtinAiModels.map((m) => m.name),
     'custom-openai': customOpenAIModel ? [customOpenAIModel] : [], // User specifies model manually
   };
 
@@ -395,6 +414,7 @@ export function ModelSettingsModal({
         setHasAutoFetched(false);
         setModels([]);
         setError('');
+        setCuratedRecommendations(null);
       }
     }
   }, [ollamaEndpoint, lastFetchedEndpoint, modelConfig.provider]);
@@ -416,7 +436,7 @@ export function ModelSettingsModal({
 
     // Validate URL if provided
     if (trimmedEndpoint && !validateOllamaEndpoint(trimmedEndpoint)) {
-      const errorMsg = 'Invalid Ollama endpoint URL. Must start with http:// or https://';
+      const errorMsg = 'URL endpoint Ollama không hợp lệ. Phải bắt đầu bằng http:// hoặc https://';
       setError(errorMsg);
       if (!silent) {
         toast.error(errorMsg);
@@ -438,8 +458,11 @@ export function ModelSettingsModal({
 
       // Successfully fetched models, Ollama is installed
       setOllamaNotInstalled(false);
+
+      // Keep curated recommendations in sync with current endpoint + pulled status.
+      loadCuratedRecommendations().catch(() => { /* non-blocking */ });
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to load Ollama models';
+      const errorMsg = err instanceof Error ? err.message : 'Không tải được danh sách mô hình Ollama';
       setError(errorMsg);
 
       // Check if error indicates Ollama is not installed
@@ -472,6 +495,7 @@ export function ModelSettingsModal({
         !hasAutoFetched &&
         mounted) {
         await fetchOllamaModels(skipInitialFetch); // Silent if skipInitialFetch=true
+        loadCuratedRecommendations(); // Load curated recommendations (non-blocking)
         setHasAutoFetched(true);
       }
     };
@@ -482,6 +506,63 @@ export function ModelSettingsModal({
       mounted = false;
     };
   }, [modelConfig.provider]); // Only depend on provider, NOT endpoint
+
+  // Load curated model recommendations for Ollama.
+  // Always uses Rust-side curated catalogue + RAM-based recommendation (no Node.js dependency).
+  const loadCuratedRecommendations = async () => {
+    setIsLoadingRecommendations(true);
+    try {
+      const endpoint = ollamaEndpoint.trim() || null;
+      const options = await invoke<Array<{
+        name: string;
+        family: string;
+        size_gb: number;
+        description: string;
+        is_pulled: boolean;
+        is_recommended: boolean;
+      }>>('get_ollama_model_options', { endpoint });
+
+      const rec = await invoke<{ model: string; ram_gb: number; size_gb: number }>('get_ollama_model_recommendation');
+
+      setCuratedRecommendations({
+        hardware: `RAM ${rec.ram_gb} GB`,
+        max_size_gb: rec.size_gb,
+        models: options.map((m) => ({
+          tag: m.name,
+          family: m.family,
+          params_b: 0,
+          size_gb: m.size_gb,
+          quant: '',
+          score: 0,
+          estimated_tps: 0,
+          description: m.description,
+          is_best: m.is_recommended,
+          is_pulled: m.is_pulled,
+        })),
+      });
+    } finally {
+      setIsLoadingRecommendations(false);
+    }
+  };
+
+  // Pull a model from curated recommendations
+  const pullRecommendedModel = async (tag: string) => {
+    const endpoint = ollamaEndpoint.trim() || null;
+    try {
+      await invoke('pull_ollama_model', { modelName: tag, endpoint });
+      // Refresh both lists after pull
+      await fetchOllamaModels(true);
+      await loadCuratedRecommendations();
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      if (isOllamaNotInstalledError(errorMsg)) {
+        toast.error('Chưa cài Ollama', {
+          description: 'Vui lòng tải và cài Ollama trước.',
+          action: { label: 'Tải xuống', onClick: () => invoke('open_external_url', { url: 'https://ollama.com/download' }) }
+        });
+      }
+    }
+  };
 
   const loadOpenRouterModels = async () => {
     if (openRouterModels.length > 0) return; // Already loaded
@@ -494,30 +575,10 @@ export function ModelSettingsModal({
     } catch (err) {
       console.error('Error loading OpenRouter models:', err);
       setOpenRouterError(
-        err instanceof Error ? err.message : 'Failed to load OpenRouter models'
+        err instanceof Error ? err.message : 'Không tải được mô hình OpenRouter'
       );
     } finally {
       setIsLoadingOpenRouter(false);
-    }
-  };
-
-  const loadBuiltinAiModels = async () => {
-    if (builtinAiModels.length > 0) return; // Already loaded
-
-    try {
-      const data = (await invoke('builtin_ai_list_models')) as any[];
-      setBuiltinAiModels(data);
-
-      // Auto-select first available model if none selected
-      if (data.length > 0 && !modelConfig.model) {
-        const firstAvailable = data.find((m: any) => m.status?.type === 'available');
-        if (firstAvailable) {
-          setModelConfig((prev: ModelConfig) => ({ ...prev, model: firstAvailable.name }));
-        }
-      }
-    } catch (err) {
-      console.error('Error loading Built-in AI models:', err);
-      toast.error('Failed to load Built-in AI models');
     }
   };
 
@@ -610,7 +671,7 @@ export function ModelSettingsModal({
     if (cachedModel && providerModels.includes(cachedModel)) {
       setModelConfig((prev: ModelConfig) => ({ ...prev, model: cachedModel }));
     }
-  }, [models, openRouterModels, builtinAiModels, openaiModels, claudeModels, groqModels, modelConfig.provider]);
+  }, [models, openRouterModels, openaiModels, claudeModels, groqModels, modelConfig.provider]);
 
   const handleSave = async () => {
     // For custom-openai provider, save the custom config first
@@ -627,7 +688,7 @@ export function ModelSettingsModal({
         console.log('Custom OpenAI config saved successfully');
       } catch (err) {
         console.error('Failed to save custom OpenAI config:', err);
-        toast.error('Failed to save custom OpenAI configuration');
+        toast.error('Không lưu được cấu hình OpenAI tùy chỉnh');
         return;
       }
     }
@@ -669,7 +730,7 @@ export function ModelSettingsModal({
   // Test custom OpenAI connection
   const testCustomOpenAIConnection = async () => {
     if (!customOpenAIEndpoint.trim() || !customOpenAIModel.trim()) {
-      toast.error('Please enter endpoint URL and model name first');
+      toast.error('Vui lòng nhập URL endpoint và tên mô hình trước');
       return;
     }
 
@@ -680,7 +741,7 @@ export function ModelSettingsModal({
         apiKey: customOpenAIApiKey.trim() || null,
         model: customOpenAIModel.trim(),
       });
-      toast.success(result.message || 'Connection successful!');
+      toast.success(result.message || 'Kết nối thành công!');
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       toast.error(errorMsg);
@@ -702,8 +763,8 @@ export function ModelSettingsModal({
 
     // Prevent duplicate downloads (defense in depth - backend also checks)
     if (isDownloading(recommendedModel)) {
-      toast.info(`${recommendedModel} is already downloading`, {
-        description: `Progress: ${Math.round(getProgress(recommendedModel) || 0)}%`
+      toast.info(`${recommendedModel} đang được tải`, {
+        description: `Tiến độ: ${Math.round(getProgress(recommendedModel) || 0)}%`
       });
       return;
     }
@@ -724,16 +785,16 @@ export function ModelSettingsModal({
       // Note: Model is NOT auto-selected - user must explicitly choose it
       // This respects the database as the single source of truth
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to download model';
+      const errorMsg = err instanceof Error ? err.message : 'Tải mô hình thất bại';
       console.error('Error downloading model:', err);
 
       // Check if Ollama is not installed and show appropriate error
       if (isOllamaNotInstalledError(errorMsg)) {
-        toast.error('Ollama is not installed', {
-          description: 'Please download and install Ollama before downloading models.',
+        toast.error('Chưa cài Ollama', {
+          description: 'Vui lòng tải và cài Ollama trước khi tải mô hình.',
           duration: 7000,
           action: {
-            label: 'Download',
+            label: 'Tải xuống',
             onClick: () => invoke('open_external_url', { url: 'https://ollama.com/download' })
           }
         });
@@ -753,10 +814,10 @@ export function ModelSettingsModal({
         endpoint
       });
 
-      toast.success(`Model ${modelName} deleted`);
+      toast.success(`Đã xóa mô hình ${modelName}`);
       await fetchOllamaModels(true); // Refresh list
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Failed to delete model';
+      const errorMsg = err instanceof Error ? err.message : 'Xóa mô hình thất bại';
       toast.error(errorMsg);
       console.error('Error deleting model:', err);
     }
@@ -790,7 +851,7 @@ export function ModelSettingsModal({
 
     const query = searchQuery.toLowerCase();
     const isLoaded = modelConfig.model === model.name;
-    const loadedText = isLoaded ? 'loaded' : '';
+    const loadedText = isLoaded ? 'đã chọn' : '';
 
     return (
       model.name.toLowerCase().includes(query) ||
@@ -802,12 +863,12 @@ export function ModelSettingsModal({
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
-        <h3 className="text-lg font-semibold">Model Settings</h3>
+        <h3 className="text-lg font-semibold">Cài đặt mô hình</h3>
       </div>
 
       <div className="space-y-4">
         <div>
-          <Label>Summarization Model</Label>
+          <Label>Mô hình tóm tắt</Label>
           <div className="flex space-x-2 mt-1">
             <Select
               value={modelConfig.provider}
@@ -846,11 +907,6 @@ export function ModelSettingsModal({
                   loadOpenRouterModels();
                 }
 
-                // Load Built-in AI models when selected
-                if (provider === 'builtin-ai') {
-                  loadBuiltinAiModels();
-                }
-
                 // Load custom OpenAI config when selected
                 if (provider === 'custom-openai') {
                   invoke<any>('api_get_custom_openai_config').then((config) => {
@@ -869,12 +925,11 @@ export function ModelSettingsModal({
               }}
             >
               <SelectTrigger>
-                <SelectValue placeholder="Select provider" />
+                <SelectValue placeholder="Chọn nhà cung cấp" />
               </SelectTrigger>
               <SelectContent className="max-h-64 overflow-y-auto">
-                <SelectItem value="builtin-ai">Built-in AI (Offline, No API needed)</SelectItem>
                 <SelectItem value="claude">Claude</SelectItem>
-                <SelectItem value="custom-openai">Custom Server (OpenAI)</SelectItem>
+                <SelectItem value="custom-openai">Máy chủ tùy chỉnh (OpenAI)</SelectItem>
                 <SelectItem value="groq">Groq</SelectItem>
                 <SelectItem value="ollama">Ollama</SelectItem>
                 <SelectItem value="openai">OpenAI</SelectItem>
@@ -882,7 +937,7 @@ export function ModelSettingsModal({
               </SelectContent>
             </Select>
 
-            {modelConfig.provider !== 'builtin-ai' && modelConfig.provider !== 'custom-openai' && (
+            {modelConfig.provider !== 'custom-openai' && (
               <Popover open={modelComboboxOpen} onOpenChange={setModelComboboxOpen} modal={true}>
                 <PopoverTrigger asChild>
                   <Button
@@ -892,14 +947,14 @@ export function ModelSettingsModal({
                     className="flex-1 max-w-[200px] justify-between font-normal"
                   >
                     <span className="truncate">
-                      {modelConfig.model || "Select model..."}
+                      {modelConfig.model || 'Chọn mô hình…'}
                     </span>
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-[250px] p-0" align="start">
                   <Command>
-                    <CommandInput placeholder="Search models..." />
+                    <CommandInput placeholder="Tìm mô hình…" />
                     <CommandList className="max-h-[300px]">
                       {(modelConfig.provider === 'openrouter' && isLoadingOpenRouter) ||
                        (modelConfig.provider === 'openai' && isLoadingOpenAI) ||
@@ -907,11 +962,11 @@ export function ModelSettingsModal({
                        (modelConfig.provider === 'groq' && isLoadingGroq) ? (
                         <div className="py-6 text-center text-sm text-muted-foreground">
                           <RefreshCw className="mx-auto h-4 w-4 animate-spin mb-2" />
-                          Loading models...
+                          Đang tải mô hình...
                         </div>
                       ) : (
                         <>
-                          <CommandEmpty>No models found.</CommandEmpty>
+                          <CommandEmpty>Không có mô hình.</CommandEmpty>
                           <CommandGroup>
                             {modelOptions[modelConfig.provider]?.map((model) => (
                               <CommandItem
@@ -946,7 +1001,7 @@ export function ModelSettingsModal({
         {modelConfig.provider === 'custom-openai' && (
           <div className="space-y-4 border-t pt-4">
             <div>
-              <Label htmlFor="custom-endpoint">Endpoint URL *</Label>
+              <Label htmlFor="custom-endpoint">URL endpoint *</Label>
               <Input
                 id="custom-endpoint"
                 value={customOpenAIEndpoint}
@@ -955,32 +1010,32 @@ export function ModelSettingsModal({
                 className="mt-1"
               />
               <p className="text-xs text-muted-foreground mt-1">
-                Base URL of the OpenAI-compatible API
+                Địa chỉ gốc của API tương thích OpenAI
               </p>
             </div>
 
             <div>
-              <Label htmlFor="custom-model">Model Name *</Label>
+              <Label htmlFor="custom-model">Tên mô hình *</Label>
               <Input
                 id="custom-model"
                 value={customOpenAIModel}
                 onChange={(e) => setCustomOpenAIModel(e.target.value)}
-                placeholder="gpt-4, llama-3-70b, etc."
+                placeholder="ví dụ: gpt-4, llama-3-70b"
                 className="mt-1"
               />
               <p className="text-xs text-muted-foreground mt-1">
-                Model identifier to use for requests
+                Định danh mô hình dùng cho mỗi yêu cầu
               </p>
             </div>
 
             <div>
-              <Label htmlFor="custom-api-key">API Key (optional)</Label>
+              <Label htmlFor="custom-api-key">API Key (tuỳ chọn)</Label>
               <Input
                 id="custom-api-key"
                 type="password"
                 value={customOpenAIApiKey}
                 onChange={(e) => setCustomOpenAIApiKey(e.target.value)}
-                placeholder="Leave empty if not required"
+                placeholder="Để trống nếu không bắt buộc"
                 className="mt-1"
               />
             </div>
@@ -991,7 +1046,7 @@ export function ModelSettingsModal({
                 className="flex items-center justify-between cursor-pointer py-2"
                 onClick={() => setIsCustomOpenAIAdvancedOpen(!isCustomOpenAIAdvancedOpen)}
               >
-                <Label className="cursor-pointer">Advanced Options</Label>
+                <Label className="cursor-pointer">Tùy chọn nâng cao</Label>
                 {isCustomOpenAIAdvancedOpen ? (
                   <ChevronUp className="h-4 w-4 text-muted-foreground" />
                 ) : (
@@ -1002,18 +1057,18 @@ export function ModelSettingsModal({
               {isCustomOpenAIAdvancedOpen && (
                 <div className="space-y-3 pl-2 border-l-2 border-muted mt-2">
                   <div>
-                    <Label htmlFor="custom-max-tokens">Max Tokens</Label>
+                    <Label htmlFor="custom-max-tokens">Số token tối đa</Label>
                     <Input
                       id="custom-max-tokens"
                       type="number"
                       value={customMaxTokens}
                       onChange={(e) => setCustomMaxTokens(e.target.value)}
-                      placeholder="e.g., 4096"
+                      placeholder="ví dụ: 4096"
                       className="mt-1"
                     />
                   </div>
                   <div>
-                    <Label htmlFor="custom-temperature">Temperature (0.0-2.0)</Label>
+                    <Label htmlFor="custom-temperature">Nhiệt độ (0.0–2.0)</Label>
                     <Input
                       id="custom-temperature"
                       type="number"
@@ -1022,12 +1077,12 @@ export function ModelSettingsModal({
                       max="2"
                       value={customTemperature}
                       onChange={(e) => setCustomTemperature(e.target.value)}
-                      placeholder="e.g., 0.7"
+                      placeholder="ví dụ: 0.7"
                       className="mt-1"
                     />
                   </div>
                   <div>
-                    <Label htmlFor="custom-top-p">Top P (0.0-1.0)</Label>
+                    <Label htmlFor="custom-top-p">Top P (0.0–1.0)</Label>
                     <Input
                       id="custom-top-p"
                       type="number"
@@ -1036,7 +1091,7 @@ export function ModelSettingsModal({
                       max="1"
                       value={customTopP}
                       onChange={(e) => setCustomTopP(e.target.value)}
-                      placeholder="e.g., 0.9"
+                      placeholder="ví dụ: 0.9"
                       className="mt-1"
                     />
                   </div>
@@ -1056,12 +1111,12 @@ export function ModelSettingsModal({
               {isTestingConnection ? (
                 <>
                   <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                  Testing Connection...
+                  Đang thử kết nối…
                 </>
               ) : (
                 <>
                   <CheckCircle2 className="mr-2 h-4 w-4" />
-                  Test Connection
+                  Thử kết nối
                 </>
               )}
             </Button>
@@ -1070,14 +1125,14 @@ export function ModelSettingsModal({
 
         {requiresApiKey && (
           <div>
-            <Label>API Key</Label>
+            <Label>Khóa API</Label>
             <div className="relative mt-1">
               <Input
                 type={showApiKey ? 'text' : 'password'}
                 value={apiKey || ''}
                 onChange={(e) => setApiKey(e.target.value)}
                 disabled={isApiKeyLocked}
-                placeholder="Enter your API key"
+                placeholder="Nhập khóa API"
                 className="pr-24"
               />
               {isApiKeyLocked && apiKey?.trim() && (
@@ -1094,7 +1149,7 @@ export function ModelSettingsModal({
                     size="icon"
                     onClick={() => setIsApiKeyLocked(!isApiKeyLocked)}
                     className={isLockButtonVibrating ? 'animate-vibrate text-red-500' : ''}
-                    title={isApiKeyLocked ? 'Unlock to edit' : 'Lock to prevent editing'}
+                    title={isApiKeyLocked ? 'Mở khóa để chỉnh sửa' : 'Khóa để tránh chỉnh nhầm'}
                   >
                     {isApiKeyLocked ? <Lock /> : <Unlock />}
                   </Button>
@@ -1112,261 +1167,185 @@ export function ModelSettingsModal({
           </div>
         )}
 
+        {/* Unified Ollama model section */}
         {modelConfig.provider === 'ollama' && (
-          <div>
-            <div
-              className="flex items-center justify-between cursor-pointer py-2"
-              onClick={() => setIsEndpointSectionCollapsed(!isEndpointSectionCollapsed)}
-            >
-              <Label className="cursor-pointer">Custom Endpoint (optional)</Label>
-              {isEndpointSectionCollapsed ? (
-                <ChevronDown className="h-4 w-4 text-muted-foreground" />
-              ) : (
-                <ChevronUp className="h-4 w-4 text-muted-foreground" />
-              )}
+          <div className="space-y-3">
+            {/* Section header */}
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-bold text-gray-900">Mô hình Ollama</h4>
             </div>
 
-            {!isEndpointSectionCollapsed && (
-              <>
-                <p className="text-sm text-muted-foreground mt-1 mb-2">
-                  Leave empty or enter a custom endpoint (e.g., http://x.yy.zz:11434)
-                </p>
-                <div className="flex gap-2 mt-1">
-                  <div className="relative flex-1">
-                    <Input
-                      type="url"
-                      value={ollamaEndpoint}
-                      onChange={(e) => {
-                        setOllamaEndpoint(e.target.value);
-                        // Clear models and errors when endpoint changes to avoid showing stale data
-                        if (e.target.value.trim() !== lastFetchedEndpoint.trim()) {
-                          setModels([]);
-                          setError(''); // Clear error state
-                        }
-                      }}
-                      placeholder="http://localhost:11434"
-                      className={cn(
-                        "pr-10",
-                        endpointValidationState === 'invalid' && "border-red-500"
-                      )}
-                    />
-                    {endpointValidationState === 'valid' && (
-                      <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-green-500" />
-                    )}
-                    {endpointValidationState === 'invalid' && (
-                      <XCircle className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-red-500" />
-                    )}
-                  </div>
-                  <Button
-                    type="button"
-                    size={'sm'}
-                    onClick={() => fetchOllamaModels()}
-                    disabled={isLoadingOllama}
-                    variant="outline"
-                    className="whitespace-nowrap"
-                  >
-                    {isLoadingOllama ? (
-                      <>
-                        <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                        Fetching...
-                      </>
-                    ) : (
-                      <>
-                        <RefreshCw className="mr-2 h-4 w-4" />
-                        Fetch Models
-                      </>
-                    )}
-                  </Button>
-                </div>
-                {ollamaEndpointChanged && !error && (
-                  <Alert className="mt-3 border-yellow-500 bg-yellow-50">
-                    <AlertDescription className="text-yellow-800">
-                      Endpoint changed. Please click "Fetch Models" to load models from the new endpoint before saving.
-                    </AlertDescription>
-                  </Alert>
-                )}
-              </>
-            )}
-          </div>
-        )}
-
-        {modelConfig.provider === 'ollama' && (
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <h4 className="text-sm font-bold">Available Ollama Models</h4>
-              {lastFetchedEndpoint && models.length > 0 && (
-                <div className="flex items-center gap-2 text-sm">
-                  <span className="text-muted-foreground">Using:</span>
-                  <code className="px-2 py-1 bg-muted rounded text-xs">
-                    {lastFetchedEndpoint || 'http://localhost:11434'}
-                  </code>
-                </div>
-              )}
-            </div>
-            {models.length > 0 && (
-              <div className="mb-4">
-                <Input
-                  placeholder="Search models..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full"
-                />
+            {/* Hardware badge */}
+            {curatedRecommendations && (
+              <div className="flex items-center gap-1.5 text-[10px] text-gray-500 bg-gray-50 rounded-md px-2.5 py-1.5">
+                <Cpu className="w-3 h-3 flex-shrink-0" />
+                <span>{curatedRecommendations.hardware} · gợi ý ~{curatedRecommendations.max_size_gb} GB</span>
               </div>
             )}
-            {isLoadingOllama ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <RefreshCw className="mx-auto h-8 w-8 animate-spin mb-2" />
-                Loading models...
-              </div>
-            ) : models.length === 0 ? (
-              <div className="space-y-3">
-                {ollamaNotInstalled ? (
-                  /* Show Ollama download link when not installed */
-                  <div className="space-y-4">
-                    <Alert className="border-orange-500 bg-orange-50">
-                      <AlertDescription className="text-orange-800">
-                        Ollama is not installed or not running. Please download and install Ollama to use local models.
-                      </AlertDescription>
-                    </Alert>
-                    <Button
-                      variant="default"
-                      size="sm"
-                      onClick={() => invoke('open_external_url', { url: 'https://ollama.com/download' })}
-                      className="w-full bg-blue-600 hover:bg-blue-700"
-                    >
-                      <ExternalLink className="mr-2 h-4 w-4" />
-                      Download Ollama
-                    </Button>
-                    <div className="text-sm text-muted-foreground text-center">
-                      After installing Ollama, restart this application and click "Fetch Models" to continue.
-                    </div>
-                  </div>
-                ) : (
-                  /* Show model download option when Ollama is installed but no models */
-                  <>
-                    <Alert className="mb-4">
-                      <AlertDescription>
-                        {ollamaEndpointChanged
-                          ? 'Endpoint changed. Click "Fetch Models" to load models from the new endpoint.'
-                          : 'No models found. Download a recommended model or click "Fetch Models" to load available Ollama models.'}
-                      </AlertDescription>
-                    </Alert>
-                    {!ollamaEndpointChanged && (
-                      <div className="space-y-3">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={downloadRecommendedModel}
-                          disabled={isDownloading('gemma3:1b')}
-                          className="w-full"
-                        >
-                          {isDownloading('gemma3:1b') ? (
-                            <>
-                              <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                              Downloading gemma3:1b...
-                            </>
-                          ) : (
-                            <>
-                              <Download className="mr-2 h-4 w-4" />
-                              Download gemma3:1b (Recommended, ~800MB)
-                            </>
-                          )}
-                        </Button>
 
-                        {/* Show progress for gemma3:1b download */}
-                        {isDownloading('gemma3:1b') && getProgress('gemma3:1b') !== undefined && (
-                          <div className="bg-white rounded-md border p-3">
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="text-sm font-medium text-blue-600">Downloading gemma3:1b</span>
-                              <span className="text-sm font-semibold text-blue-600">
-                                {Math.round(getProgress('gemma3:1b')!)}%
-                              </span>
+            {/* Ollama not installed */}
+            {ollamaNotInstalled && (
+              <div className="space-y-2">
+                <Alert className="border-orange-300 bg-orange-50">
+                  <AlertDescription className="text-orange-800 text-xs">
+                    Chưa cài Ollama hoặc Ollama chưa chạy. Vui lòng tải và cài Ollama để dùng mô hình cục bộ.
+                  </AlertDescription>
+                </Alert>
+                <button
+                  onClick={() => invoke('open_external_url', { url: 'https://ollama.com/download' })}
+                  className="w-full h-8 bg-gray-900 hover:bg-gray-700 text-white text-xs font-medium rounded-md flex items-center justify-center gap-1.5"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  Tải Ollama tại ollama.com/download
+                </button>
+              </div>
+            )}
+
+            {/* Endpoint changed warning */}
+            {ollamaEndpointChanged && !ollamaNotInstalled && (
+              <Alert className="border-yellow-400 bg-yellow-50">
+                <AlertDescription className="text-yellow-800 text-xs">
+                  Endpoint đã đổi. Nhấn «Tải danh sách mô hình» ở trên để làm mới.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {/* Loading spinner */}
+            {isLoadingOllama && (
+              <div className="text-center py-6 text-gray-400">
+                <RefreshCw className="mx-auto h-6 w-6 animate-spin mb-2" />
+                <p className="text-xs">Đang tải danh sách mô hình...</p>
+              </div>
+            )}
+
+            {/* Installed models */}
+            {!isLoadingOllama && !ollamaNotInstalled && !ollamaEndpointChanged && models.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-gray-500 mb-1.5">Đã cài trên máy</p>
+                <div className="space-y-1">
+                  {filteredModels.map((model) => {
+                    const isSelected = modelConfig.model === model.name;
+                    const modelIsDownloading = isDownloading(model.name);
+                    const progress = getProgress(model.name);
+                    const curated = curatedRecommendations?.models.find((m) => m.tag === model.name);
+                    return (
+                      <div
+                        key={model.id}
+                        onClick={() => { if (!modelIsDownloading) setModelConfig((prev: ModelConfig) => ({ ...prev, model: model.name })); }}
+                        className={cn(
+                          'flex items-center justify-between p-2.5 rounded-lg border cursor-pointer transition-colors',
+                          isSelected
+                            ? 'border-[#16478e] bg-[rgba(22,71,142,0.06)]'
+                            : 'border-gray-200 hover:border-gray-300'
+                        )}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className={cn(
+                            'w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center flex-shrink-0',
+                            isSelected ? 'border-[#16478e] bg-[#16478e]' : 'border-gray-300'
+                          )}>
+                            {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-xs font-medium text-gray-900 truncate">{model.name}</span>
+                              {isSelected && (
+                                <span className="text-[10px] px-1.5 py-0.5 bg-[#16478e] text-white rounded-full flex-shrink-0">Đang dùng</span>
+                              )}
+                              <span className="text-[10px] px-1.5 py-0.5 bg-green-100 text-green-700 rounded-full flex-shrink-0">Đã tải</span>
                             </div>
-                            <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full transition-all duration-300"
-                                style={{ width: `${getProgress('gemma3:1b')}%` }}
-                              />
+                            <p className="text-[10px] text-gray-500">
+                              {curated ? `${curated.size_gb} GB · ${curated.description}` : model.size}
+                            </p>
+                          </div>
+                        </div>
+                        {modelIsDownloading && progress !== undefined && (
+                          <div className="ml-2 w-24 flex-shrink-0">
+                            <div className="w-full h-1.5 bg-[rgba(22,71,142,0.15)] rounded-full overflow-hidden">
+                              <div className="h-full bg-[#16478e] rounded-full transition-all duration-300" style={{ width: `${progress}%` }} />
                             </div>
+                            <p className="text-right text-[10px] text-blue-600">{Math.round(progress)}%</p>
                           </div>
                         )}
                       </div>
-                    )}
-                  </>
-                )}
+                    );
+                  })}
+                </div>
               </div>
-            ) : !ollamaEndpointChanged && (
-              <ScrollArea className="max-h-[calc(100vh-450px)] overflow-y-auto pr-4">
-                {filteredModels.length === 0 ? (
-                  <Alert>
-                    <AlertDescription>
-                      No models found matching "{searchQuery}". Try a different search term.
-                    </AlertDescription>
-                  </Alert>
-                ) : (
-                  <div className="grid gap-4">
-                    {filteredModels.map((model) => {
-                      const progress = getProgress(model.name);
-                      const modelIsDownloading = isDownloading(model.name);
+            )}
 
+            {/* Recommended models (uninstalled) based on curated catalogue */}
+            {!ollamaNotInstalled && !ollamaEndpointChanged && curatedRecommendations && (() => {
+              const unpulled = curatedRecommendations.models.filter(m => !m.is_pulled);
+              if (unpulled.length === 0) return null;
+              return (
+                <div>
+                  <p className="text-xs font-medium text-gray-500 mb-1.5">
+                    {models.length > 0 ? 'Đề xuất phù hợp với máy (chưa tải)' : 'Đề xuất phù hợp với máy'}
+                  </p>
+                  <div className="space-y-1 max-h-[170px] overflow-y-auto">
+                    {unpulled.map(m => {
+                      const isPullingThis = isDownloading(m.tag);
+                      const progress = getProgress(m.tag);
                       return (
                         <div
-                          key={model.id}
+                          key={m.tag}
                           className={cn(
-                            'bg-card p-2 m-0 rounded-md border transition-colors',
-                            modelConfig.model === model.name
-                              ? 'ring-1 ring-blue-500 border-blue-500 background-blue-100'
-                              : 'hover:bg-muted/50',
-                            !modelIsDownloading && 'cursor-pointer'
+                            'p-2.5 rounded-lg border transition-colors',
+                            isPullingThis ? 'border-[rgba(22,71,142,0.4)] bg-[rgba(22,71,142,0.06)]' : 'bg-gray-50 border-gray-200 hover:border-gray-300'
                           )}
-                          onClick={() => {
-                            if (!modelIsDownloading) {
-                              setModelConfig((prev: ModelConfig) => ({ ...prev, model: model.name }))
-                            }
-                          }}
                         >
-                          <div>
-                            <b className="font-bold">{model.name}&nbsp;</b>
-                            <span className="text-muted-foreground">with a size of </span>
-                            <span className="font-mono font-bold text-sm">{model.size}</span>
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-xs font-medium text-gray-900">{m.tag}</span>
+                                {m.is_best && <Star className="w-3 h-3 text-amber-400 fill-amber-400 flex-shrink-0" />}
+                                <span className="text-[10px] text-gray-400">{m.family}</span>
+                              </div>
+                              <p className="text-[10px] text-gray-500">
+                                {m.size_gb} GB
+                                {m.quant ? ` · ${m.quant}` : ''}
+                                {m.estimated_tps ? ` · ~${Math.round(m.estimated_tps)} tok/s` : ''}
+                                {m.score ? ` · Điểm: ${m.score}/100` : ''}
+                                {m.description ? ` · ${m.description}` : ''}
+                              </p>
+                            </div>
+                            {isPullingThis ? (
+                              <RefreshCw className="w-4 h-4 text-blue-600 animate-spin flex-shrink-0" />
+                            ) : (
+                              <button
+                                onClick={() => pullRecommendedModel(m.tag)}
+                                disabled={downloadingModels.size > 0}
+                                className="flex items-center gap-1 px-2.5 h-7 bg-gray-900 hover:bg-gray-700 disabled:opacity-40 text-white text-xs rounded-md transition-colors flex-shrink-0"
+                              >
+                                <Download className="w-3 h-3" />
+                                Tải
+                              </button>
+                            )}
                           </div>
-
-                          {/* Progress bar for downloading models */}
-                          {modelIsDownloading && progress !== undefined && (
-                            <div className="mt-3 pt-3 border-t border-gray-200">
-                              <div className="flex items-center justify-between mb-2">
-                                <span className="text-sm font-medium text-blue-600">Downloading...</span>
-                                <span className="text-sm font-semibold text-blue-600">{Math.round(progress)}%</span>
+                          {isPullingThis && progress !== undefined && (
+                            <div className="mt-2 space-y-0.5">
+                              <div className="w-full h-1.5 bg-[rgba(22,71,142,0.15)] rounded-full overflow-hidden">
+                                <div className="h-full bg-[#16478e] rounded-full transition-all duration-300" style={{ width: `${progress}%` }} />
                               </div>
-                              <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                                <div
-                                  className="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full transition-all duration-300"
-                                  style={{ width: `${progress}%` }}
-                                />
-                              </div>
+                              <p className="text-right text-[10px] text-blue-600">{Math.round(progress)}%</p>
                             </div>
                           )}
                         </div>
                       );
                     })}
                   </div>
-                )}
-              </ScrollArea>
+                </div>
+              );
+            })()}
+
+            {/* No models at all */}
+            {!isLoadingOllama && !ollamaNotInstalled && !ollamaEndpointChanged && models.length === 0 && !curatedRecommendations && (
+              <p className="text-xs text-gray-400 text-center py-4">Chưa có model nào. Nhấn «Làm mới» để kiểm tra.</p>
             )}
           </div>
         )}
 
-        {/* Built-in AI Models Section */}
-        {modelConfig.provider === 'builtin-ai' && (
-          <div className="mt-6">
-            <BuiltInModelManager
-              selectedModel={modelConfig.model}
-              onModelSelect={(model) =>
-                setModelConfig((prev: ModelConfig) => ({ ...prev, model }))
-              }
-            />
-          </div>
-        )}
       </div>
 
       {/* Auto-generate summaries toggle */}
@@ -1391,13 +1370,13 @@ export function ModelSettingsModal({
       <div className="mt-6 flex justify-end">
         <Button
           className={cn(
-            'px-4 text-sm font-medium text-white rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500',
-            isDoneDisabled ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
+            'px-4 text-sm font-medium text-white rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#16478e]',
+            isDoneDisabled ? 'bg-gray-400 cursor-not-allowed' : 'bg-[#16478e] hover:bg-[#1a55ab]'
           )}
           onClick={handleSave}
           disabled={isDoneDisabled}
         >
-          Save
+          Lưu
         </Button>
       </div>
     </div>

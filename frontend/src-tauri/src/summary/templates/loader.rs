@@ -19,12 +19,12 @@ pub fn set_bundled_templates_dir(path: PathBuf) {
 /// Get the user's custom templates directory path
 ///
 /// Returns the platform-specific application data directory for custom templates:
-/// - macOS: ~/Library/Application Support/Meetily/templates/
-/// - Windows: %APPDATA%\Meetily\templates\
-/// - Linux: ~/.config/Meetily/templates/
+/// - macOS: ~/Library/Application Support/MeetingOne/templates/
+/// - Windows: %APPDATA%\MeetingOne\templates\
+/// - Linux: ~/.config/MeetingOne/templates/
 fn get_custom_templates_dir() -> Option<PathBuf> {
     let mut path = dirs::data_dir()?;
-    path.push("Meetily");
+    path.push("MeetingOne");
     path.push("templates");
     Some(path)
 }
@@ -95,6 +95,11 @@ fn load_custom_template(template_id: &str) -> Option<String> {
 pub fn get_template(template_id: &str) -> Result<Template, String> {
     info!("Loading template: {}", template_id);
 
+    // Template removed from the project; ignore stale bundled/custom copies.
+    if template_id == "psychatric_session" {
+        return Err("Template 'psychatric_session' has been removed".to_string());
+    }
+
     // Try custom template first, then bundled, then built-in
     let json_content = if let Some(custom_content) = load_custom_template(template_id) {
         debug!("Using custom template for '{}'", template_id);
@@ -155,6 +160,9 @@ pub fn list_template_ids() -> Vec<String> {
                             if let Some(filename) = entry.file_name().to_str() {
                                 if filename.ends_with(".json") {
                                     let id = filename.trim_end_matches(".json").to_string();
+                                    if id == "psychatric_session" {
+                                        continue;
+                                    }
                                     if !ids.contains(&id) {
                                         ids.push(id);
                                     }
@@ -179,6 +187,9 @@ pub fn list_template_ids() -> Vec<String> {
                         if let Some(filename) = entry.file_name().to_str() {
                             if filename.ends_with(".json") {
                                 let id = filename.trim_end_matches(".json").to_string();
+                                if id == "psychatric_session" {
+                                    continue;
+                                }
                                 if !ids.contains(&id) {
                                     ids.push(id);
                                 }
@@ -227,7 +238,7 @@ mod tests {
         assert!(template.is_ok());
 
         let template = template.unwrap();
-        assert_eq!(template.name, "Daily Standup");
+        assert_eq!(template.name, "Họp nhanh hàng ngày");
         assert!(!template.sections.is_empty());
     }
 
@@ -242,6 +253,7 @@ mod tests {
         let ids = list_template_ids();
         assert!(ids.contains(&"daily_standup".to_string()));
         assert!(ids.contains(&"standard_meeting".to_string()));
+        assert!(ids.contains(&"theo_mau_act".to_string()));
     }
 
     #[test]

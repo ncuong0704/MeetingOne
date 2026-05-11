@@ -1,4 +1,4 @@
-# Multi-platform Docker build script for Whisper Server and Meeting App
+﻿# Multi-platform Docker build script for Whisper Server and Meeting App
 # Supports both CPU-only and GPU-enabled builds across multiple architectures
 #
 # WARNING: AUDIO PROCESSING WARNING:
@@ -39,7 +39,7 @@ $ErrorActionPreference = 'Stop'
 # Configuration
 $ScriptDir = $PSScriptRoot
 $WhisperProjectName = 'whisper-server'
-$AppProjectName = 'meetily-backend'
+$AppProjectName = 'MeetingOne-backend'
 
 # Platform detection for cross-platform compatibility
 $DetectedOS = [System.Environment]::OSVersion.Platform
@@ -389,7 +389,7 @@ function Build-Image {
                     Write-Info "Tagging as generic: $genericTag"
                     docker tag $fullTag $genericTag
                     
-                    # For meetily-backend, also tag as 'latest'
+                    # For MeetingOne-backend, also tag as 'latest'
                     if ($BuildType -eq 'app') {
                         $latestTag = if ($Registry) { 
                             "$Registry/$projectName`:latest" 

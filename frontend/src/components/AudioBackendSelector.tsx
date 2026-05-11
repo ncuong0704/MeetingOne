@@ -45,7 +45,7 @@ export function AudioBackendSelector({
         }
       } catch (err) {
         console.error('Failed to load audio backends:', err);
-        setError('Failed to load backend options');
+        setError('Không tải được tùy chọn backend âm thanh');
       } finally {
         setLoading(false);
       }
@@ -69,7 +69,7 @@ export function AudioBackendSelector({
       console.log(`Audio backend changed to: ${backendId}`);
     } catch (err) {
       console.error('Failed to set audio backend:', err);
-      setError('Failed to change backend. Please try again.');
+      setError('Không đổi được backend. Vui lòng thử lại.');
     }
   };
 
@@ -92,7 +92,7 @@ export function AudioBackendSelector({
     <div className="space-y-2">
       <div className="flex items-center gap-2">
         <label className="text-sm font-medium text-gray-700">
-          System Audio Backend
+          Backend âm thanh hệ thống
         </label>
         <div className="relative">
           <button
@@ -105,7 +105,7 @@ export function AudioBackendSelector({
           </button>
           {showTooltip && (
             <div className="absolute z-10 left-6 top-0 w-64 p-3 text-xs bg-gray-900 text-white rounded-lg shadow-lg">
-              <p className="font-semibold mb-1">Audio Capture Methods:</p>
+              <p className="font-semibold mb-1">Cách thu âm hệ thống:</p>
               <ul className="space-y-1">
                 {backends.map((backend) => (
                   <li key={backend.id}>
@@ -114,7 +114,7 @@ export function AudioBackendSelector({
                 ))}
               </ul>
               <p className="mt-2 text-gray-300">
-                Try different backends to find which works best for your system.
+                Thử các backend khác nhau để chọn phương án phù hợp với máy bạn.
               </p>
             </div>
           )}
@@ -138,7 +138,7 @@ export function AudioBackendSelector({
               key={backend.id}
               className={`flex items-start p-3 border rounded-lg transition-all ${
                 currentBackend === backend.id
-                  ? 'border-blue-500 bg-blue-50'
+                  ? 'border-[#16478e] bg-[rgba(22,71,142,0.08)]'
                   : 'border-gray-300 hover:border-gray-400 bg-white'
               } ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
             >
@@ -149,7 +149,7 @@ export function AudioBackendSelector({
                 checked={currentBackend === backend.id}
                 onChange={() => handleBackendChange(backend.id)}
                 disabled={isDisabled}
-                className="mt-1 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                className="mt-1 h-4 w-4 text-[#16478e] focus:ring-[#16478e] border-gray-300"
               />
               <div className="ml-3 flex-1">
                 <div className="flex items-center justify-between">
@@ -157,13 +157,13 @@ export function AudioBackendSelector({
                     {backend.name}
                   </span>
                   {currentBackend === backend.id && (
-                    <span className="text-xs font-medium text-blue-600 bg-blue-100 px-2 py-0.5 rounded">
-                      Active
+                    <span className="text-xs font-medium text-[#16478e] bg-[rgba(22,71,142,0.1)] px-2 py-0.5 rounded">
+                      Đang dùng
                     </span>
                   )}
                   {isCoreAudio && (
                     <span className="text-xs font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
-                      Disabled
+                      Đã tắt
                     </span>
                   )}
                 </div>
@@ -175,9 +175,9 @@ export function AudioBackendSelector({
       </div>
 
       <div className="text-xs text-gray-500 space-y-1">
-        <p>• Backend selection only affects system audio capture</p>
-        <p>• Microphone always uses the default method</p>
-        <p>• Changes apply to new recording sessions</p>
+        <p>• Chọn backend chỉ ảnh hưởng thu âm thanh hệ thống</p>
+        <p>• Micro luôn dùng phương thức mặc định của hệ điều hành</p>
+        <p>• Thay đổi có hiệu lực với các phiên ghi âm mới</p>
       </div>
     </div>
   );

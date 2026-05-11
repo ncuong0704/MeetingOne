@@ -1,51 +1,51 @@
 {
-  "name": "Project Sync / Status Update",
-  "description": "Weekly or bi-weekly project status meeting focusing on milestones and risks.",
+  "name": "Cập nhật tiến độ dự án",
+  "description": "Cuộc họp cập nhật trạng thái dự án hàng tuần hoặc hai tuần, tập trung vào các mốc và rủi ro.",
   "sections": [
     {
-      "title": "Meeting Date & Time",
-      "instruction": "Date, start/end time, facilitator name",
+      "title": "Thời gian họp",
+      "instruction": "Ngày, giờ bắt đầu/kết thúc, người chủ trì",
       "format": "string"
     },
     {
-      "title": "Attendees",
-      "instruction": "List attendees and their roles",
+      "title": "Người tham dự",
+      "instruction": "Danh sách người tham dự và vai trò của họ",
       "format": "list"
     },
     {
-      "title": "Milestones & Status",
-      "instruction": "Current milestones with status and estimated completion date",
+      "title": "Các mốc & Trạng thái",
+      "instruction": "Các mốc hiện tại với trạng thái và ngày dự kiến hoàn thành, bằng tiếng Việt",
       "format": "list",
-      "item_format": "| **Milestone** | **Status** | **ETA** |\n| --- | --- | --- |"
+      "item_format": "| Mốc | Trạng thái | Dự kiến |\n| --- | --- | --- |"
     },
     {
-      "title": "Progress Summary",
-      "instruction": "Short paragraph summarizing progress since last sync meeting",
+      "title": "Tóm tắt tiến độ",
+      "instruction": "Đoạn ngắn tóm tắt tiến độ từ lần họp trước đến nay, bằng tiếng Việt",
       "format": "paragraph"
     },
     {
-      "title": "Top Risks & Mitigations",
-      "instruction": "List top risks with impact level, mitigation plan, and owner",
+      "title": "Rủi ro & Biện pháp",
+      "instruction": "Danh sách rủi ro hàng đầu với mức độ ảnh hưởng, kế hoạch giảm thiểu và người phụ trách, bằng tiếng Việt",
       "format": "list",
-      "item_format": "| **Risk** | **Impact** | **Mitigation** | **Owner** |\n| --- | --- | --- | --- |"
+      "item_format": "| Rủi ro | Mức độ | Biện pháp | Người phụ trách |\n| --- | --- | --- | --- |"
     },
     {
-      "title": "Key Decisions",
-      "instruction": "Decisions made in this meeting with rationale and timestamp",
+      "title": "Quyết định chính",
+      "instruction": "Các quyết định được đưa ra trong cuộc họp kèm lý do và thời điểm, bằng tiếng Việt",
       "format": "list",
-      "item_format": "| **Decision** | **Rationale** | **Timestamp** |\n| --- | --- | --- |"
+      "item_format": "| Quyết định | Lý do | Thời gian |\n| --- | --- | --- |"
     },
     {
-      "title": "Action Items",
-      "instruction": "Tasks with owners, due dates, priority, and status",
+      "title": "Công việc cần thực hiện",
+      "instruction": "Các nhiệm vụ kèm người phụ trách, thời hạn, độ ưu tiên và trạng thái, bằng tiếng Việt",
       "format": "list",
-      "item_format": "| **Owner** | **Task** | **Due Date** | **Priority** | **Status** |\n| --- | --- | --- | --- | --- |"
+      "item_format": "| Người phụ trách | Nhiệm vụ | Thời hạn | Ưu tiên | Trạng thái |\n| --- | --- | --- | --- | --- |"
     },
     {
-      "title": "Related Documents",
-      "instruction": "Links to relevant documents, tickets, or designs discussed",
+      "title": "Tài liệu liên quan",
+      "instruction": "Các tài liệu, ticket hoặc thiết kế được đề cập, bằng tiếng Việt",
       "format": "list",
-      "item_format": "| **Document Title** | **URL** | **Type** |\n| --- | --- | --- |"
+      "item_format": "| Tên tài liệu | URL | Loại |\n| --- | --- | --- |"
     }
   ]
 }

@@ -61,7 +61,7 @@ export function PermissionWarning({
             <div className="flex items-center gap-2">
               {!hasMicrophone && <Mic className="h-4 w-4" />}
               {!hasSystemAudio && <Speaker className="h-4 w-4" />}
-              {!hasMicrophone && !hasSystemAudio ? 'Permissions Required' : !hasMicrophone ? 'Microphone Permission Required' : 'System Audio Permission Required'}
+              {!hasMicrophone && !hasSystemAudio ? 'Cần cấp quyền' : !hasMicrophone ? 'Cần quyền micro' : 'Cần quyền âm thanh hệ thống'}
             </div>
           </AlertTitle>
           {/* Action Buttons */}
@@ -72,7 +72,7 @@ export function PermissionWarning({
                 className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-md transition-colors"
               >
                 <Mic className="h-4 w-4" />
-                Open Microphone Settings
+                Mở cài đặt micro
               </button>
             )}
             {isMacOS && !hasSystemAudio && (
@@ -81,7 +81,7 @@ export function PermissionWarning({
                 className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors"
               >
                 <Speaker className="h-4 w-4" />
-                Open Screen Recording Settings
+                Mở cài đặt ghi màn hình
               </button>
             )}
             <button
@@ -98,14 +98,14 @@ export function PermissionWarning({
             {!hasMicrophone && (
               <>
                 <p className="mb-3">
-                  Meetily needs access to your microphone to record meetings. No microphone devices were detected.
+                  ACT MeetingOne cần quyền micro để ghi cuộc họp. Hiện không phát hiện thiết bị micro.
                 </p>
                 <div className="space-y-2 text-sm mb-4">
-                  <p className="font-medium">Please check:</p>
+                  <p className="font-medium">Vui lòng kiểm tra:</p>
                   <ul className="list-disc list-inside ml-2 space-y-1">
-                    <li>Your microphone is connected and powered on</li>
-                    <li>Microphone permission is granted in System Settings</li>
-                    <li>No other app is exclusively using the microphone</li>
+                    <li>Micro đã kết nối và bật nguồn</li>
+                    <li>Đã cấp quyền micro trong Cài đặt hệ thống</li>
+                    <li>Không có ứng dụng khác độc chiếm micro</li>
                   </ul>
                 </div>
               </>
@@ -116,16 +116,16 @@ export function PermissionWarning({
               <>
                 <p className="mb-3">
                   {hasMicrophone
-                    ? 'System audio capture is not available. You can still record with your microphone, but computer audio won\'t be captured.'
-                    : 'System audio capture is also not available.'}
+                    ? 'Không thu được âm thanh hệ thống. Bạn vẫn có thể ghi bằng micro, nhưng âm thanh từ máy sẽ không được ghi.'
+                    : 'Âm thanh hệ thống cũng không khả dụng.'}
                 </p>
                 {isMacOS && (
                   <div className="space-y-2 text-sm mb-4">
-                    <p className="font-medium">To enable system audio on macOS:</p>
+                    <p className="font-medium">Để bật âm thanh hệ thống trên macOS:</p>
                     <ul className="list-disc list-inside ml-2 space-y-1">
-                      <li>Install a virtual audio device (e.g., BlackHole 2ch)</li>
-                      <li>Grant Screen Recording permission to Meetily</li>
-                      <li>Configure your audio routing in Audio MIDI Setup</li>
+                      <li>Cài thiết bị âm thanh ảo (ví dụ BlackHole 2ch)</li>
+                      <li>Cấp quyền Ghi màn hình cho ACT MeetingOne</li>
+                      <li>Cấu hình định tuyến âm thanh trong Audio MIDI Setup</li>
                     </ul>
                   </div>
                 )}

@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 
 # Multi-platform Docker build script for Whisper Server and Meeting App
 # Supports both CPU-only and GPU-enabled builds across multiple architectures
@@ -14,7 +14,7 @@ set -e
 # Configuration
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 WHISPER_PROJECT_NAME="whisper-server"
-APP_PROJECT_NAME="meetily-backend"
+APP_PROJECT_NAME="MeetingOne-backend"
 REGISTRY=${REGISTRY:-""}
 PUSH=${PUSH:-false}
 # Default to current platform for local builds, multi-platform for registry pushes

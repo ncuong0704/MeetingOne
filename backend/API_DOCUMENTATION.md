@@ -1,4 +1,4 @@
-# Meetily API Documentation
+﻿# MeetingOne API Documentation
 
 ## Prerequisites
 

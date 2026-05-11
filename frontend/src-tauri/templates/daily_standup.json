@@ -1,38 +1,38 @@
 {
-  "name": "Daily Standup",
-  "description": "Time-boxed daily updates for engineering/product teams.",
+  "name": "Họp nhanh hàng ngày",
+  "description": "Cập nhật nhanh hàng ngày cho các nhóm kỹ thuật/sản phẩm.",
   "sections": [
     {
-      "title": "Date",
+      "title": "Ngày",
       "instruction": "YYYY-MM-DD",
       "format": "string"
     },
     {
-      "title": "Attendees",
-      "instruction": "List of participants present",
+      "title": "Người tham dự",
+      "instruction": "Danh sách những người có mặt trong cuộc họp",
       "format": "list"
     },
     {
-      "title": "Yesterday",
-      "instruction": "What I completed yesterday (short bullets)",
+      "title": "Hôm qua",
+      "instruction": "Công việc đã hoàn thành hôm qua (gạch đầu dòng ngắn gọn, bằng tiếng Việt)",
       "format": "list",
-      "example_item_format": "| **Owner** | **Completed Work** |\n| --- | --- |"
+      "example_item_format": "| Người thực hiện | Công việc đã hoàn thành |\n| --- | --- |"
     },
     {
-      "title": "Today",
-      "instruction": "Planned work for today (short bullets)",
+      "title": "Hôm nay",
+      "instruction": "Công việc dự kiến hôm nay (gạch đầu dòng ngắn gọn, bằng tiếng Việt)",
       "format": "list",
-      "example_item_format": "| **Owner** | **Planned Work** |\n| --- | --- |"
+      "example_item_format": "| Người thực hiện | Công việc dự kiến |\n| --- | --- |"
     },
     {
-      "title": "Blockers",
-      "instruction": "Any impediments and owner if known",
+      "title": "Vướng mắc",
+      "instruction": "Các trở ngại và người chịu trách nhiệm nếu có, bằng tiếng Việt",
       "format": "list",
-      "item_format": "| **Owner** | **Blocker** | Impact |\n| --- | --- | --- |"
+      "item_format": "| Người phụ trách | Vướng mắc | Mức độ ảnh hưởng |\n| --- | --- | --- |"
     },
     {
-      "title": "Notes",
-      "instruction": "Optional quick notes or announcements",
+      "title": "Ghi chú",
+      "instruction": "Ghi chú hoặc thông báo nhanh (nếu có), bằng tiếng Việt",
       "format": "paragraph"
     }
   ]

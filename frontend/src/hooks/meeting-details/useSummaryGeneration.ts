@@ -6,7 +6,6 @@ import { invoke as invokeTauri } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import Analytics from '@/lib/analytics';
 import { isOllamaNotInstalledError } from '@/lib/utils';
-import { BuiltInModelInfo } from '@/lib/builtin-ai';
 
 type SummaryStatus = 'idle' | 'processing' | 'summarizing' | 'regenerating' | 'completed' | 'error';
 
@@ -43,15 +42,15 @@ export function useSummaryGeneration({
   const getSummaryStatusMessage = useCallback((status: SummaryStatus) => {
     switch (status) {
       case 'processing':
-        return 'Processing transcript...';
+        return 'Đang xử lý bản ghi...';
       case 'summarizing':
-        return 'Generating summary...';
+        return 'Đang tạo tóm tắt...';
       case 'regenerating':
-        return 'Regenerating summary...';
+        return 'Đang tạo lại tóm tắt...';
       case 'completed':
-        return 'Summary completed';
+        return 'Đã hoàn thành tóm tắt';
       case 'error':
-        return 'Error generating summary';
+        return 'Lỗi khi tạo tóm tắt';
       default:
         return '';
     }
@@ -72,7 +71,7 @@ export function useSummaryGeneration({
 
     try {
       if (!transcriptText.trim()) {
-        throw new Error('No transcript text available. Please add some text first.');
+        throw new Error('Chưa có nội dung bản ghi. Vui lòng thêm nội dung trước.');
       }
 
       if (!isRegeneration) {
@@ -98,8 +97,8 @@ export function useSummaryGeneration({
       }
 
       // Show toast notification for generation start
-      toast.info(`${isRegeneration ? 'Regenerating' : 'Generating'} summary...`, {
-        description: `Using ${modelConfig.provider}/${modelConfig.model}`,
+      toast.info(`${isRegeneration ? 'Đang tạo lại' : 'Đang tạo'} tóm tắt...`, {
+        description: `Đang dùng ${modelConfig.provider}/${modelConfig.model}`,
         duration: 3000,
       });
 
@@ -151,7 +150,7 @@ export function useSummaryGeneration({
         // Handle errors
         if (pollingResult.status === 'error' || pollingResult.status === 'failed') {
           console.error('Backend returned error:', pollingResult.error);
-          const errorMessage = pollingResult.error || `Summary ${isRegeneration ? 'regeneration' : 'generation'} failed`;
+          const errorMessage = pollingResult.error || `${isRegeneration ? 'Tạo lại tóm tắt' : 'Tạo tóm tắt'} thất bại`;
 
           // If this was a regeneration, try to restore previous summary from database
           if (isRegeneration) {
@@ -167,8 +166,8 @@ export function useSummaryGeneration({
                 setSummaryError(null);
 
                 // Show error toast with restoration message
-                toast.error(`Failed to regenerate summary`, {
-                  description: `${errorMessage}. Your previous summary has been restored.`,
+                toast.error('Không tạo lại được tóm tắt', {
+                  description: `${errorMessage}. Đã khôi phục bản tóm tắt trước đó.`,
                 });
 
                 await Analytics.trackSummaryGenerationCompleted(
@@ -195,9 +194,9 @@ export function useSummaryGeneration({
             errorMessage.toLowerCase().includes('model') && errorMessage.toLowerCase().includes('required');
 
           // Show error toast
-          toast.error(`Failed to ${isRegeneration ? 'regenerate' : 'generate'} summary`, {
+          toast.error(`${isRegeneration ? 'Không tạo lại được' : 'Không tạo được'} tóm tắt`, {
             description: errorMessage.includes('Connection refused')
-              ? 'Could not connect to LLM service. Please ensure Ollama or your configured LLM provider is running.'
+              ? 'Không kết nối được dịch vụ LLM. Hãy đảm bảo Ollama hoặc nhà cung cấp LLM đã cấu hình đang chạy.'
               : errorMessage,
           });
 
@@ -234,8 +233,8 @@ export function useSummaryGeneration({
             setSummaryStatus('completed');
 
             // Show success toast
-            toast.success('Summary generated successfully!', {
-              description: 'Your meeting summary is ready',
+            toast.success('Đã tạo tóm tắt thành công!', {
+              description: 'Tóm tắt cuộc họp đã sẵn sàng',
               duration: 4000,
             });
 
@@ -257,7 +256,7 @@ export function useSummaryGeneration({
 
           if (allEmpty) {
             console.error('Summary completed but all sections empty');
-            setSummaryError('Summary generation completed but returned empty content.');
+            setSummaryError('Tóm tắt đã hoàn thành nhưng không có nội dung.');
             setSummaryStatus('error');
 
             await Analytics.trackSummaryGenerationCompleted(
@@ -308,8 +307,8 @@ export function useSummaryGeneration({
           setSummaryStatus('completed');
 
           // Show success toast
-          toast.success('Summary generated successfully!', {
-            description: 'Your meeting summary is ready',
+          toast.success('Đã tạo tóm tắt thành công!', {
+            description: 'Tóm tắt cuộc họp đã sẵn sàng',
             duration: 4000,
           });
 
@@ -331,7 +330,7 @@ export function useSummaryGeneration({
       setSummaryStatus('error');
       // Note: We don't clear the summary here because the backend has already restored from backup
 
-      toast.error(`Failed to ${isRegeneration ? 'regenerate' : 'generate'} summary`, {
+      toast.error(`${isRegeneration ? 'Không tạo lại được' : 'Không tạo được'} tóm tắt`, {
         description: errorMessage,
       });
 
@@ -384,7 +383,7 @@ export function useSummaryGeneration({
       return allData.transcripts;
     } catch (error) {
       console.error('❌ Error fetching all transcripts:', error);
-      toast.error('Failed to fetch transcripts for summary generation');
+      toast.error('Không tải được bản ghi để tạo tóm tắt');
       return [];
     }
   }, []);
@@ -394,7 +393,7 @@ export function useSummaryGeneration({
     // Check if model config is still loading
     if (isModelConfigLoading) {
       console.log('⏳ Model configuration is still loading, please wait...');
-      toast.info('Loading model configuration, please wait...');
+      toast.info('Đang tải cấu hình mô hình, vui lòng đợi...');
       return;
     }
 
@@ -403,7 +402,7 @@ export function useSummaryGeneration({
     const allTranscripts = await fetchAllTranscripts(meeting.id);
 
     if (!allTranscripts.length) {
-      const error_msg = 'No transcripts available for summary';
+      const error_msg = 'Không có bản ghi để tóm tắt';
       console.log(error_msg);
       toast.error(error_msg);
       return;
@@ -425,7 +424,7 @@ export function useSummaryGeneration({
 
         if (!models || models.length === 0) {
           toast.error(
-            'No Ollama models found. Please download gemma3:1b from Model Settings.',
+            'Không tìm thấy mô hình Ollama. Vui lòng tải gemma3:1b trong Cài đặt mô hình.',
             { duration: 5000 }
           );
           return;
@@ -437,12 +436,12 @@ export function useSummaryGeneration({
         if (isOllamaNotInstalledError(errorMessage)) {
           // Ollama is not installed - show specific message with download link
           toast.error(
-            'Ollama is not installed',
+            'Chưa cài Ollama',
             {
-              description: 'Please download and install Ollama to use local models.',
+              description: 'Vui lòng tải và cài Ollama để dùng mô hình cục bộ.',
               duration: 7000,
               action: {
-                label: 'Download',
+                label: 'Tải xuống',
                 onClick: () => invokeTauri('open_external_url', { url: 'https://ollama.com/download' })
               }
             }
@@ -450,97 +449,10 @@ export function useSummaryGeneration({
         } else {
           // Other error - generic message
           toast.error(
-            'Failed to check Ollama models. Please ensure Ollama is running and download a model from Settings.',
+            'Không kiểm tra được mô hình Ollama. Đảm bảo Ollama đang chạy và đã tải mô hình trong Cài đặt.',
             { duration: 5000 }
           );
         }
-        return;
-      }
-    }
-
-    // Check if built-in AI provider has models available
-    if (modelConfig.provider === 'builtin-ai') {
-      try {
-        const selectedModel = modelConfig.model;
-
-        if (!selectedModel) {
-          toast.error('No built-in AI model selected', {
-            description: 'Please select a model in settings',
-            duration: 5000,
-          });
-          if (onOpenModelSettings) {
-            onOpenModelSettings();
-          }
-          return;
-        }
-
-        // Check model readiness with filesystem refresh
-        const isReady = await invokeTauri<boolean>('builtin_ai_is_model_ready', {
-          modelName: selectedModel,
-          refresh: true,
-        });
-
-        if (!isReady) {
-          // Get detailed model status
-          const modelInfo = await invokeTauri<BuiltInModelInfo | null>('builtin_ai_get_model_info', {
-            modelName: selectedModel,
-          });
-
-          if (modelInfo) {
-            const status = modelInfo.status;
-
-            if (status.type === 'downloading') {
-              toast.info('Model download in progress', {
-                description: `${selectedModel} is downloading (${status.progress}%). Please wait until download completes.`,
-                duration: 5000,
-              });
-              return;
-            }
-
-            if (status.type === 'not_downloaded') {
-              toast.error('Built-in AI model not downloaded', {
-                description: `${selectedModel} needs to be downloaded. Please download it in model settings.`,
-                duration: 7000,
-              });
-              if (onOpenModelSettings) {
-                onOpenModelSettings();
-              }
-              return;
-            }
-
-            if (status.type === 'corrupted' || status.type === 'error') {
-              const errorDesc = status.type === 'error'
-                ? status.Error || 'The model file has an error'
-                : 'The model file is corrupted';
-              toast.error('Built-in AI model not available', {
-                description: `${errorDesc}. Please check model settings.`,
-                duration: 7000,
-              });
-              if (onOpenModelSettings) {
-                onOpenModelSettings();
-              }
-              return;
-            }
-          }
-
-          // Fallback if we couldn't get model info
-          toast.error('Built-in AI model not ready', {
-            description: 'Please ensure the model is downloaded in settings',
-            duration: 5000,
-          });
-          if (onOpenModelSettings) {
-            onOpenModelSettings();
-          }
-          return;
-        }
-
-        // Model is ready, continue to backend call
-      } catch (error) {
-        console.error('Error validating built-in AI model:', error);
-        toast.error('Failed to validate built-in AI model', {
-          description: error instanceof Error ? error.message : String(error),
-          duration: 5000,
-        });
         return;
       }
     }
@@ -600,8 +512,8 @@ export function useSummaryGeneration({
     setSummaryError(null);
 
     // Show toast notification
-    toast.info('Summary generation stopped', {
-      description: 'You can generate a new summary anytime',
+    toast.info('Đã dừng tạo tóm tắt', {
+      description: 'Bạn có thể tạo tóm tắt mới bất cứ lúc nào',
       duration: 3000,
     });
   }, [meeting.id, stopSummaryPolling]);

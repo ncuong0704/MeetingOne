@@ -24,7 +24,7 @@ export function ConfirmationModal({ onConfirm, onCancel, text, isOpen }: Confirm
           </button>
           <button
             onClick={onConfirm}
-            className="px-4 py-2 bg-red-600 text-white hover:bg-red-700 rounded-md transition-colors"
+            className="px-4 py-2 bg-[#e63027] text-white hover:bg-[#c72820] rounded-md transition-colors"
           >
             Delete
           </button>

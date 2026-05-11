@@ -1,157 +1,92 @@
-import React, { useState, useEffect } from "react";
-import { invoke } from '@tauri-apps/api/core';
-import { getVersion } from '@tauri-apps/api/app';
+import React from "react";
 import Image from 'next/image';
-import AnalyticsConsentSwitch from "./AnalyticsConsentSwitch";
-import { UpdateDialog } from "./UpdateDialog";
-import { updateService, UpdateInfo } from '@/services/updateService';
-import { Button } from './ui/button';
-import { Loader2, CheckCircle2 } from 'lucide-react';
-import { toast } from 'sonner';
+import { BRAND_NAME, BRAND_LOGO_PATH } from '@/constants/brand';
+import { Lock, Cpu, Banknote, Globe, Github, Shield } from 'lucide-react';
 
+const features = [
+  {
+    icon: Lock,
+    title: 'Ưu tiên quyền riêng tư',
+    desc: 'Dữ liệu và quy trình xử lý AI giữ trong phạm vi của bạn — không phụ thuộc đám mây.',
+    color: 'text-blue-600',
+    bg: 'bg-blue-50',
+  },
+  {
+    icon: Cpu,
+    title: 'Linh hoạt mô hình',
+    desc: 'Dùng mô hình mã nguồn mở cục bộ hay API bên ngoài đều được — không bị khóa nhà cung cấp.',
+    color: 'text-violet-600',
+    bg: 'bg-violet-50',
+  },
+  {
+    icon: Banknote,
+    title: 'Tiết kiệm chi phí',
+    desc: 'Giảm chi phí bằng cách chạy mô hình cục bộ hoặc chỉ trả cho các lần gọi bạn chọn.',
+    color: 'text-emerald-600',
+    bg: 'bg-emerald-50',
+  },
+  {
+    icon: Globe,
+    title: 'Làm việc mọi nơi',
+    desc: 'Google Meet, Zoom, Teams — trực tuyến hay ngoại tuyến đều hoạt động.',
+    color: 'text-orange-600',
+    bg: 'bg-orange-50',
+  },
+];
 
 export function About() {
-    const [currentVersion, setCurrentVersion] = useState<string>('0.3.0');
-    const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
-    const [isChecking, setIsChecking] = useState(false);
-    const [showUpdateDialog, setShowUpdateDialog] = useState(false);
+  return (
+    <div className="flex flex-col h-[80vh] overflow-y-auto bg-gray-50">
 
-    useEffect(() => {
-        // Get current version on mount
-        getVersion().then(setCurrentVersion).catch(console.error);
-    }, []);
+      {/* ── Hero ──────────────────────────────────────────────────────── */}
+      <div className="bg-white border-b border-gray-100 px-6 pb-8 text-center space-y-4">
+        <Image
+          src={BRAND_LOGO_PATH}
+          alt={BRAND_NAME}
+          width={100}
+          height={100}
+          className="mx-auto object-contain"
+        />
 
-    const handleContactClick = async () => {
-        try {
-            await invoke('open_external_url', { url: 'https://meetily.zackriya.com/#about' });
-        } catch (error) {
-            console.error('Failed to open link:', error);
-        }
-    };
-
-    const handleCheckForUpdates = async () => {
-        setIsChecking(true);
-        try {
-            const info = await updateService.checkForUpdates(true);
-            setUpdateInfo(info);
-            if (info.available) {
-                setShowUpdateDialog(true);
-            } else {
-                toast.success('You are running the latest version');
-            }
-        } catch (error: any) {
-            console.error('Failed to check for updates:', error);
-            toast.error('Failed to check for updates: ' + (error.message || 'Unknown error'));
-        } finally {
-            setIsChecking(false);
-        }
-    };
-
-    return (
-        <div className="p-4 space-y-4 h-[80vh] overflow-y-auto">
-            {/* Compact Header */}
-            <div className="text-center">
-                <div className="mb-3">
-                    <Image
-                        src="icon_128x128.png"
-                        alt="Meetily Logo"
-                        width={64}
-                        height={64}
-                        className="mx-auto"
-                    />
-                </div>
-                {/* <h1 className="text-xl font-bold text-gray-900">Meetily</h1> */}
-                <span className="text-sm text-gray-500"> v{currentVersion}</span>
-                <p className="text-medium text-gray-600 mt-1">
-                    Real-time notes and summaries that never leave your machine.
-                </p>
-                <div className="mt-3">
-                    <Button
-                        onClick={handleCheckForUpdates}
-                        disabled={isChecking}
-                        variant="outline"
-                        size="sm"
-                        className="text-xs"
-                    >
-                        {isChecking ? (
-                            <>
-                                <Loader2 className="h-3 w-3 mr-2 animate-spin" />
-                                Checking...
-                            </>
-                        ) : (
-                            <>
-                                <CheckCircle2 className="h-3 w-3 mr-2" />
-                                Check for Updates
-                            </>
-                        )}
-                    </Button>
-                    {updateInfo?.available && (
-                        <div className="mt-2 text-xs text-blue-600">
-                            Update available: v{updateInfo.version}
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            {/* Features Grid - Compact */}
-            <div className="space-y-3">
-                <h2 className="text-base font-semibold text-gray-800">What makes Meetily different</h2>
-                <div className="grid grid-cols-2 gap-2">
-                    <div className="bg-gray-50 rounded p-3 hover:bg-gray-100 transition-colors">
-                        <h3 className="font-bold text-sm text-gray-900 mb-1">Privacy-first</h3>
-                        <p className="text-xs text-gray-600 leading-relaxed">Your data & AI processing workflow can now stay within your premise. No cloud, no leaks.</p>
-                    </div>
-                    <div className="bg-gray-50 rounded p-3 hover:bg-gray-100 transition-colors">
-                        <h3 className="font-bold text-sm text-gray-900 mb-1">Use Any Model</h3>
-                        <p className="text-xs text-gray-600 leading-relaxed">Prefer local open-source model? Great. Want to plug in an external API? Also fine. No lock-in.</p>
-                    </div>
-                    <div className="bg-gray-50 rounded p-3 hover:bg-gray-100 transition-colors">
-                        <h3 className="font-bold text-sm text-gray-900 mb-1">Cost-Smart</h3>
-                        <p className="text-xs text-gray-600 leading-relaxed">Avoid pay-per-minute bills by running models locally (or pay only for the calls you choose).</p>
-                    </div>
-                    <div className="bg-gray-50 rounded p-3 hover:bg-gray-100 transition-colors">
-                        <h3 className="font-bold text-sm text-gray-900 mb-1">Works everywhere</h3>
-                        <p className="text-xs text-gray-600 leading-relaxed">Google Meet, Zoom, Teams-online or offline.</p>
-                    </div>
-                </div>
-            </div>
-
-            {/* Coming Soon - Compact */}
-            <div className="bg-blue-50 rounded p-3">
-                <p className="text-s text-blue-800">
-                    <span className="font-bold">Coming soon:</span> A library of on-device AI agents-automating follow-ups, action tracking, and more.
-                </p>
-            </div>
-
-            {/* CTA Section - Compact */}
-            <div className="text-center space-y-2">
-                <h3 className="text-medium font-semibold text-gray-800">Ready to push your business further?</h3>
-                <p className="text-s text-gray-600">
-                    If you're planning to build privacy-first custom AI agents or a fully tailored product for your <span className="font-bold">business</span>, we can help you build it.
-                </p>
-                <button
-                    onClick={handleContactClick}
-                    className="inline-flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded transition-colors duration-200 shadow-sm hover:shadow-md"
-                >
-                    Chat with the Zackriya team
-                </button>
-            </div>
-
-            {/* Footer - Compact */}
-            <div className="pt-2 border-t border-gray-200 text-center">
-                <p className="text-xs text-gray-400">
-                    Built by Zackriya Solutions
-                </p>
-            </div>
-            <AnalyticsConsentSwitch />
-
-            {/* Update Dialog */}
-            <UpdateDialog
-                open={showUpdateDialog}
-                onOpenChange={setShowUpdateDialog}
-                updateInfo={updateInfo}
-            />
+        <div className="space-y-1">
+          <h1 className="text-2xl font-bold text-gray-900">{BRAND_NAME}</h1>
+          <p className="text-sm text-gray-500 max-w-sm mx-auto leading-relaxed">
+            Ghi chú và tóm tắt thời gian thực — dữ liệu không rời khỏi máy của bạn.
+          </p>
         </div>
 
-    )
+        {/* Badges */}
+        <div className="flex items-center justify-center gap-2 flex-wrap">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-600">
+            <Shield className="w-3 h-3" />
+            Ưu tiên quyền riêng tư
+          </span>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-600">
+            <Cpu className="w-3 h-3" />
+            Sẵn sàng ngoại tuyến
+          </span>
+        </div>
+      </div>
+
+      {/* ── Features ──────────────────────────────────────────────────── */}
+      <div className="px-5 py-5 space-y-2.5">
+        <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 px-1">Tính năng nổi bật</p>
+        <div className="grid grid-cols-2 gap-2.5">
+          {features.map(({ icon: Icon, title, desc, color, bg }) => (
+            <div
+              key={title}
+              className="bg-white rounded-xl border border-gray-100 p-3.5 shadow-sm hover:shadow-md hover:border-gray-200 transition-all"
+            >
+              <div className={`w-7 h-7 rounded-lg ${bg} flex items-center justify-center mb-2.5`}>
+                <Icon className={`w-3.5 h-3.5 ${color}`} />
+              </div>
+              <h3 className="text-xs font-semibold text-gray-800 mb-1 leading-snug">{title}</h3>
+              <p className="text-[11px] text-gray-500 leading-relaxed">{desc}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+    </div>
+  );
 }
