@@ -5,7 +5,18 @@ import dynamic from 'next/dynamic';
 import { Summary, SummaryDataResponse, SummaryFormat, BlockNoteBlock } from '@/types';
 import { AISummary } from './index';
 import { Block } from '@blocknote/core';
-import { useCreateBlockNote } from '@blocknote/react';
+import {
+  useCreateBlockNote,
+  FormattingToolbar,
+  FormattingToolbarController,
+  BlockTypeSelect,
+  BasicTextStyleButton,
+  ColorStyleButton,
+  CreateLinkButton,
+  NestBlockButton,
+  UnnestBlockButton,
+  TextAlignButton,
+} from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/shadcn';
 import "@blocknote/shadcn/style.css";
 import { useVnMarkPreservation } from '@/hooks/useVnMarkPreservation';
@@ -32,7 +43,13 @@ export interface BlockNoteSummaryViewRef {
   saveSummary: () => Promise<void>;
   getMarkdown: () => Promise<string>;
   getHTML: () => Promise<string>;
+  /** Trả về blocks hiện tại (ưu tiên edits chưa save, fallback về data gốc) */
+  getBlocks: () => Block[];
   getEditorElement: () => HTMLElement | null;
+  /** Xuất nội dung hiện tại thành bytes DOCX qua BlockNote native exporter */
+  exportToDocxBytes: () => Promise<Uint8Array>;
+  /** Xuất nội dung hiện tại thành bytes PDF qua BlockNote native exporter */
+  exportToPdfBytes: () => Promise<Uint8Array>;
   isDirty: boolean;
 }
 
@@ -85,6 +102,11 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
   const containerRef = useRef<HTMLDivElement>(null);
   const markdownEditorRef = useRef<HTMLDivElement>(null);
 
+  // Stable key to force Editor remount khi summary_json thay đổi (tránh stale initialContent)
+  const editorKey = format === 'blocknote' && data?.summary_json
+    ? (data.summary_json as Block[]).map((b: any) => b.id).join(',')
+    : 'empty';
+
   // Create BlockNote editor for markdown parsing
   const editor = useCreateBlockNote({
     initialContent: undefined
@@ -115,13 +137,20 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
     }
   }, [format, data?.markdown, editor]);
 
+  // Reset state khi summary mới được load (ví dụ sau khi regenerate)
+  useEffect(() => {
+    isContentLoaded.current = false;
+    setIsDirty(false);
+    setCurrentBlocks([]);
+  }, [editorKey]);
+
   // Set content loaded flag for blocknote format
   useEffect(() => {
     if (format === 'blocknote' && data?.summary_json) {
       // Delay to ensure editor has finished rendering
       setTimeout(() => {
         isContentLoaded.current = true;
-      }, 100);
+      }, 150);
     }
   }, [format, data?.summary_json]);
 
@@ -185,12 +214,16 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
         // For blocknote format - use currentBlocks state
         if (format === 'blocknote') {
           console.log('📝 BlockNote format, currentBlocks:', currentBlocks.length);
-          if (currentBlocks.length > 0 && editor) {
-            const markdown = await editor.blocksToMarkdownLossy(currentBlocks);
+          // Ưu tiên: blocks đang được edit
+          const blocksToUse = currentBlocks.length > 0
+            ? currentBlocks
+            : (data?.summary_json as Block[] | undefined);
+          if (blocksToUse && blocksToUse.length > 0 && editor) {
+            const markdown = await editor.blocksToMarkdownLossy(blocksToUse);
             console.log('📝 Generated markdown from blocks, length:', markdown.length);
             return markdown;
           }
-          // Fallback: if we have the original data with markdown
+          // Fallback cuối: nếu backend đã lưu sẵn markdown
           if (data?.markdown) {
             console.log('📝 Using fallback markdown from data');
             return data.markdown;
@@ -205,11 +238,64 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
         return '';
       }
     },
+    getBlocks: (): Block[] => {
+      if (format === 'markdown') return editor.document;
+      if (currentBlocks.length > 0) return currentBlocks;
+      return (data?.summary_json as Block[] | undefined) ?? [];
+    },
+    exportToDocxBytes: async (): Promise<Uint8Array> => {
+      const { DOCXExporter, docxDefaultSchemaMappings } = await import('@blocknote/xl-docx-exporter');
+      const { Packer } = await import('docx');
+
+      // Lấy blocks hiện tại theo format
+      let blocks: Block[];
+      if (format === 'markdown') {
+        blocks = editor.document;
+      } else if (currentBlocks.length > 0) {
+        blocks = currentBlocks;
+      } else {
+        blocks = (data?.summary_json as Block[] | undefined) ?? [];
+      }
+
+      if (!blocks.length) throw new Error('Không có nội dung để xuất');
+
+      const exporter = new DOCXExporter(editor.schema, docxDefaultSchemaMappings);
+      const docxDoc = await exporter.toDocxJsDocument(blocks as any);
+      return new Uint8Array(await Packer.toArrayBuffer(docxDoc));
+    },
+    exportToPdfBytes: async (): Promise<Uint8Array> => {
+      const { PDFExporter, pdfDefaultSchemaMappings } = await import('@blocknote/xl-pdf-exporter');
+      const ReactPDF = await import('@react-pdf/renderer');
+
+      // Lấy blocks hiện tại theo format
+      let blocks: Block[];
+      if (format === 'markdown') {
+        blocks = editor.document;
+      } else if (currentBlocks.length > 0) {
+        blocks = currentBlocks;
+      } else {
+        blocks = (data?.summary_json as Block[] | undefined) ?? [];
+      }
+
+      if (!blocks.length) throw new Error('Không có nội dung để xuất');
+
+      const exporter = new PDFExporter(editor.schema, pdfDefaultSchemaMappings);
+      const pdfDocument = await exporter.toReactPDFDocument(blocks as any);
+      const blob = await ReactPDF.pdf(pdfDocument).toBlob();
+      return new Uint8Array(await blob.arrayBuffer());
+    },
     getHTML: async () => {
       try {
         if (!editor) return '';
-        const blocks = format === 'markdown' ? editor.document : currentBlocks;
-        if (!blocks?.length) return '';
+        let blocks: Block[];
+        if (format === 'markdown') {
+          blocks = editor.document;
+        } else if (currentBlocks.length > 0) {
+          blocks = currentBlocks;
+        } else {
+          blocks = (data?.summary_json as Block[] | undefined) ?? [];
+        }
+        if (!blocks.length) return '';
         return await editor.blocksToHTMLLossy(blocks);
       } catch (err) {
         console.error('❌ Failed to generate HTML:', err);
@@ -242,6 +328,7 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
       <div ref={containerRef} className="flex flex-col w-full">
         <div className="w-full">
           <Editor
+            key={editorKey}
             initialContent={data.summary_json}
             onChange={(blocks) => {
               console.log('📝 Editor blocks changed:', blocks.length);
@@ -270,7 +357,27 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
             }}
             theme="light"
             spellCheck={false}
-          />
+            formattingToolbar={false}
+          >
+            <FormattingToolbarController
+              formattingToolbar={() => (
+                <FormattingToolbar>
+                  <BlockTypeSelect key="blockTypeSelect" />
+                  <BasicTextStyleButton basicTextStyle="bold" key="boldStyleButton" />
+                  <BasicTextStyleButton basicTextStyle="italic" key="italicStyleButton" />
+                  <BasicTextStyleButton basicTextStyle="underline" key="underlineStyleButton" />
+                  <BasicTextStyleButton basicTextStyle="strike" key="strikeStyleButton" />
+                  <ColorStyleButton key="colorStyleButton" />
+                  <TextAlignButton textAlignment="left" key="textAlignLeftButton" />
+                  <TextAlignButton textAlignment="center" key="textAlignCenterButton" />
+                  <TextAlignButton textAlignment="right" key="textAlignRightButton" />
+                  <NestBlockButton key="nestBlockButton" />
+                  <UnnestBlockButton key="unnestBlockButton" />
+                  <CreateLinkButton key="createLinkButton" />
+                </FormattingToolbar>
+              )}
+            />
+          </BlockNoteView>
         </div>
       </div>
     );

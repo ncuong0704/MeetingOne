@@ -1396,6 +1396,39 @@ pub struct ExportSummaryResponse {
     pub message: String,
 }
 
+/// Ghi bytes vào `path`. Nếu file bị lock (OS error 32 / ERROR_SHARING_VIOLATION),
+/// tự động tạo tên file thay thế có timestamp rồi thử lại.
+fn write_bytes_with_fallback(
+    path: &std::path::Path,
+    bytes: &[u8],
+    ext: &str,
+) -> Result<std::path::PathBuf, String> {
+    match fs::write(path, bytes) {
+        Ok(()) => Ok(path.to_path_buf()),
+        Err(e) if e.raw_os_error() == Some(32) => {
+            // Windows ERROR_SHARING_VIOLATION — file đang mở bởi app khác (ví dụ Word)
+            log_warn!(
+                "File bị lock bởi process khác, thử tên file thay thế: {}",
+                path.display()
+            );
+            let stem = path
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            let dir = path.parent().unwrap_or(std::path::Path::new("."));
+            let timestamp = chrono::Local::now().format("%H%M%S").to_string();
+            let new_name = format!("{}_{}.{}", stem, timestamp, ext);
+            let new_path = dir.join(&new_name);
+            log_info!("Ghi vào file thay thế: {}", new_path.display());
+            fs::write(&new_path, bytes)
+                .map_err(|e2| format!("Không thể ghi file: {}", e2))?;
+            Ok(new_path)
+        }
+        Err(e) => Err(format!("Không thể ghi file: {}", e)),
+    }
+}
+
 fn prepare_export_destination<R: Runtime>(
     app: AppHandle<R>,
     meeting_title: &str,
@@ -1469,7 +1502,7 @@ pub async fn api_save_export_file<R: Runtime>(
     use base64::Engine;
 
     let ext = extension.trim().to_lowercase();
-    if ext != "docx" {
+    if ext != "docx" && ext != "pdf" {
         return Err("Định dạng file không được hỗ trợ".to_string());
     }
 
@@ -1486,11 +1519,11 @@ pub async fn api_save_export_file<R: Runtime>(
         .decode(file_data_base64.as_bytes())
         .map_err(|e| format!("Không thể giải mã dữ liệu file: {}", e))?;
 
-    fs::write(&path, bytes).map_err(|e| format!("Không thể ghi file: {}", e))?;
+    let final_path = write_bytes_with_fallback(&path, &bytes, &ext)?;
 
     Ok(ExportSummaryResponse {
         status: "success".to_string(),
-        path: Some(path.to_string_lossy().to_string()),
+        path: Some(final_path.to_string_lossy().to_string()),
         message: format!("Xuất {} thành công", ext.to_uppercase()),
     })
 }

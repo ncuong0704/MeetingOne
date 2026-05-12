@@ -116,37 +116,23 @@ export default function PageContent({
     }
   };
 
-  const resolveSummaryMarkdownForExport = async (): Promise<string> => {
-    try {
-      const markdownFromEditor = await meetingData.blockNoteSummaryRef.current?.getMarkdown?.();
-      if (markdownFromEditor && markdownFromEditor.trim()) {
-        return markdownFromEditor;
-      }
-    } catch (error) {
-      console.warn('Failed to extract markdown from editor, fallback to saved markdown:', error);
-    }
-
-    const fallbackMarkdown =
-      typeof (meetingData.aiSummary as any)?.markdown === 'string'
-        ? (meetingData.aiSummary as any).markdown
-        : '';
-    return fallbackMarkdown || '';
-  };
-
   const handleExportSummaryDocx = async () => {
     try {
-      const markdown = await resolveSummaryMarkdownForExport();
-      if (!markdown.trim()) {
+      if (!meetingData.blockNoteSummaryRef.current?.exportToDocxBytes) {
         toast.error('Không có nội dung tóm tắt để xuất');
         return;
       }
-      const { exportMarkdownToDocxBytes, uint8ToBase64 } = await import('@/lib/exportUtils');
-      const bytes = await exportMarkdownToDocxBytes(markdown);
+
+      const bytes = await meetingData.blockNoteSummaryRef.current.exportToDocxBytes();
+
+      const { uint8ToBase64 } = await import('@/lib/exportUtils');
       const base64 = uint8ToBase64(bytes);
+
       const result = await invoke<{ status: string; message: string; path?: string }>(
         'api_save_export_file',
         { meetingTitle: meetingData.meetingTitle, extension: 'docx', fileDataBase64: base64 }
       );
+
       if (result.status === 'cancelled') {
         toast.info('Đã hủy lưu file DOCX');
       } else {
@@ -156,9 +142,37 @@ export default function PageContent({
       }
     } catch (error) {
       console.error('Failed to export summary DOCX:', error);
-      toast.error('Xuất DOCX thất bại', {
-        description: String(error),
-      });
+      toast.error('Xuất DOCX thất bại', { description: String(error) });
+    }
+  };
+
+  const handleExportSummaryPdf = async () => {
+    try {
+      if (!meetingData.blockNoteSummaryRef.current?.exportToPdfBytes) {
+        toast.error('Không có nội dung tóm tắt để xuất');
+        return;
+      }
+
+      const bytes = await meetingData.blockNoteSummaryRef.current.exportToPdfBytes();
+
+      const { uint8ToBase64 } = await import('@/lib/exportUtils');
+      const base64 = uint8ToBase64(bytes);
+
+      const result = await invoke<{ status: string; message: string; path?: string }>(
+        'api_save_export_file',
+        { meetingTitle: meetingData.meetingTitle, extension: 'pdf', fileDataBase64: base64 }
+      );
+
+      if (result.status === 'cancelled') {
+        toast.info('Đã hủy lưu file PDF');
+      } else {
+        toast.success('Xuất PDF thành công', {
+          description: result.path ? `Đã lưu tại: ${result.path}` : undefined,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to export summary PDF:', error);
+      toast.error('Xuất PDF thất bại', { description: String(error) });
     }
   };
 
@@ -351,7 +365,7 @@ export default function PageContent({
             className="flex min-h-0 h-full min-w-0 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white"
             style={
               layoutMode === 'split'
-                ? { flexBasis: `${100 - leftPct}%`, flexGrow: 1, flexShrink: 1 }
+                ? { flexBasis: `${100 - leftPct}%`, flexGrow: 1, flexShrink: 1, width: `300px` }
                 : { flexBasis: '100%', flexGrow: 1 }
             }
           >
@@ -366,9 +380,9 @@ export default function PageContent({
               summaryRef={meetingData.blockNoteSummaryRef}
               isSaving={meetingData.isSaving}
               onSaveAll={meetingData.saveAllChanges}
-              onCopySummary={copyOperations.handleCopySummary}
               onOpenFolder={meetingOperations.handleOpenMeetingFolder}
               onExportDocx={handleExportSummaryDocx}
+              onExportPdf={handleExportSummaryPdf}
               aiSummary={meetingData.aiSummary}
               summaryStatus={summaryGeneration.summaryStatus}
               transcripts={meetingData.transcripts}

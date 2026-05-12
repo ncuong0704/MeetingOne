@@ -1,3 +1,6 @@
+import type { MarkdownBlock } from "./markdownBlockParser";
+import { parseMarkdownBlocks } from "./markdownBlockParser";
+
 /**
  * Write both text/html and text/plain to clipboard so that:
  *   - Paste into Word / Google Docs → uses HTML (preserves formatting)
@@ -129,6 +132,100 @@ export function markdownToWordHtml(markdown: string): string {
   }
 
   return parts.join('\n');
+}
+
+/** Inline borders / padding aligned with DOCX table styling */
+const TABLE_WRAP = `border-collapse:collapse;width:100%;margin:8pt 0;`;
+const CELL_BORDER = `border:1pt solid #CCCCCC;`;
+const TH_CELL = `${CELL_BORDER}padding:4pt 6pt;background:#E8E8E8;font-weight:bold;${BASE_STYLE}`;
+const TD_CELL = `${CELL_BORDER}padding:4pt 6pt;background:#FFFFFF;${BASE_STYLE}`;
+
+function stripHeadingInlineMarkers(text: string): string {
+  return text.replace(/\*+([^*]+)\*+/g, "$1").replace(/`([^`]+)`/g, "$1");
+}
+
+/**
+ * Renders structured blocks (same parser as DOCX export) as inline-styled HTML for Word paste.
+ */
+export function markdownBlocksToWordHtml(blocks: MarkdownBlock[]): string {
+  const parts: string[] = [];
+  let i = 0;
+
+  while (i < blocks.length) {
+    const b = blocks[i];
+
+    if (b.type === "bullet") {
+      const items: string[] = [];
+      while (i < blocks.length && blocks[i].type === "bullet") {
+        items.push(`<li style="${STYLES.li}">${inlineMarkdown((blocks[i] as Extract<MarkdownBlock, { type: "bullet" }>).text)}</li>`);
+        i++;
+      }
+      parts.push(`<ul style="${STYLES.ul}">${items.join("")}</ul>`);
+      continue;
+    }
+
+    if (b.type === "numbered") {
+      const items: string[] = [];
+      while (i < blocks.length && blocks[i].type === "numbered") {
+        items.push(`<li style="${STYLES.li}">${inlineMarkdown((blocks[i] as Extract<MarkdownBlock, { type: "numbered" }>).text)}</li>`);
+        i++;
+      }
+      parts.push(`<ol style="${STYLES.ol}">${items.join("")}</ol>`);
+      continue;
+    }
+
+    if (b.type === "heading") {
+      const raw = stripHeadingInlineMarkers(b.text);
+      const tag = b.level === 1 ? "h1" : b.level === 2 ? "h2" : "h3";
+      const style = b.level === 1 ? STYLES.h1 : b.level === 2 ? STYLES.h2 : STYLES.h3;
+      parts.push(`<${tag} style="${style}">${inlineMarkdown(raw)}</${tag}>`);
+      i++;
+      continue;
+    }
+
+    if (b.type === "paragraph") {
+      const inner = b.lines
+        .map((line) => inlineMarkdown(line))
+        .join("<br />");
+      parts.push(`<p style="${STYLES.p}">${inner}</p>`);
+      i++;
+      continue;
+    }
+
+    if (b.type === "table") {
+      const maxCols = Math.max(...b.rows.map((r) => r.length), 0);
+      const rowsHtml = b.rows
+        .map((row, rowIdx) => {
+          const cells = Array.from({ length: maxCols }, (_, colIdx) => {
+            const cell = row[colIdx] ?? "";
+            const isHeader = rowIdx === 0;
+            const tag = isHeader ? "th" : "td";
+            const cellStyle = isHeader ? TH_CELL : TD_CELL;
+            const content = isHeader
+              ? `<strong style="${STYLES.strong}">${inlineMarkdown(cell)}</strong>`
+              : inlineMarkdown(cell);
+            return `<${tag} style="${cellStyle}" valign="top">${content}</${tag}>`;
+          });
+          return `<tr>${cells.join("")}</tr>`;
+        })
+        .join("");
+      parts.push(`<table style="${TABLE_WRAP}" cellspacing="0" cellpadding="0">${rowsHtml}</table>`);
+      parts.push(`<p style="${STYLES.p};margin:2pt 0 8pt;">&nbsp;</p>`);
+      i++;
+      continue;
+    }
+
+    i++;
+  }
+
+  return parts.join("\n");
+}
+
+/**
+ * Markdown → Word clipboard body (tables with borders, same block model as DOCX export).
+ */
+export function markdownToWordHtmlFromParser(markdown: string): string {
+  return markdownBlocksToWordHtml(parseMarkdownBlocks(markdown));
 }
 
 /**

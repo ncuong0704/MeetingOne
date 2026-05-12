@@ -50,6 +50,17 @@ export default function ZipFormerModelManager() {
   const refreshStatus = async () => {
     try {
       const s = await ZipFormerAPI.getModelStatus();
+      // After a fresh app start the engine resets to NotLoaded even if model files are
+      // already on disk. Try to auto-load them so the UI reflects the real state.
+      if (s.type === 'NotLoaded' || s.type === 'Downloading') {
+        try {
+          await ZipFormerAPI.validateModelReady();
+          setStatus({ type: 'Ready' });
+          return;
+        } catch {
+          // Files genuinely not present yet
+        }
+      }
       setStatus(s);
     } catch (e) {
       console.error('Failed to get ZipFormer status:', e);

@@ -24,9 +24,9 @@ interface SummaryPanelProps {
   summaryRef: RefObject<BlockNoteSummaryViewRef>;
   isSaving: boolean;
   onSaveAll: () => Promise<void>;
-  onCopySummary: () => Promise<void>;
   onOpenFolder: () => Promise<void>;
   onExportDocx: () => Promise<void>;
+  onExportPdf: () => Promise<void>;
   aiSummary: Summary | null;
   summaryStatus: 'idle' | 'processing' | 'summarizing' | 'regenerating' | 'completed' | 'error';
   transcripts: Transcript[];
@@ -91,9 +91,9 @@ export function SummaryPanel({
   summaryRef,
   isSaving,
   onSaveAll,
-  onCopySummary,
   onOpenFolder,
   onExportDocx,
+  onExportPdf,
   aiSummary,
   summaryStatus,
   transcripts,
@@ -161,10 +161,9 @@ export function SummaryPanel({
               isSaving={isSaving}
               isDirty={isTitleDirty || (summaryRef.current?.isDirty || false)}
               onSave={onSaveAll}
-              onCopy={onCopySummary}
-              onFind={() => {}}
               onOpenFolder={onOpenFolder}
               onExportDocx={onExportDocx}
+              onExportPdf={onExportPdf}
               hasSummary={!!aiSummary}
             />
           )}

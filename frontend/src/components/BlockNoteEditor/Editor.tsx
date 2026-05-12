@@ -1,6 +1,19 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import {
+  useCreateBlockNote,
+  FormattingToolbar,
+  FormattingToolbarController,
+  BlockTypeSelect,
+  BasicTextStyleButton,
+  ColorStyleButton,
+  CreateLinkButton,
+  NestBlockButton,
+  UnnestBlockButton,
+  TextAlignButton,
+} from "@blocknote/react";
+import { BlockNoteView } from "@blocknote/shadcn";
 import { PartialBlock, Block } from "@blocknote/core";
 import "@blocknote/shadcn/style.css";
 import "@blocknote/core/fonts/inter.css";
@@ -13,61 +26,63 @@ interface EditorProps {
 }
 
 export default function Editor({ initialContent, onChange, editable = true }: EditorProps) {
-  console.log('📝 EDITOR: Initializing BlockNote editor with blocks:', {
-    hasContent: !!initialContent,
-    blocksCount: initialContent?.length || 0,
-    editable
-  });
-
-  // Lazy import to avoid SSR issues
-  const { useCreateBlockNote } = require("@blocknote/react");
-  const { BlockNoteView } = require("@blocknote/shadcn");
-
   const containerRef = useRef<HTMLDivElement>(null);
 
   const editor = useCreateBlockNote({
     initialContent: initialContent as PartialBlock[] | undefined,
   });
 
-  console.log('📝 EDITOR: BlockNote editor created successfully');
-
-  // Expose blocksToMarkdown method
-  (editor as any).blocksToMarkdownLossy = async (blocks: Block[]) => {
-    try {
-      return await editor.blocksToMarkdownLossy(blocks);
-    } catch (error) {
-      console.error('❌ EDITOR: Failed to convert blocks to markdown:', error);
-      return '';
-    }
-  };
-
-  // Fix: Preserve bold/italic marks when typing Vietnamese diacritics (Unikey / IME)
   useVnMarkPreservation(editor, containerRef);
 
-  // Handle content changes
+  const onChangeRef = useRef(onChange);
   useEffect(() => {
-    if (!onChange) return;
+    onChangeRef.current = onChange;
+  });
 
+  useEffect(() => {
     const handleChange = () => {
-      console.log('📝 EDITOR: Content changed, notifying parent...', {
-        blocksCount: editor.document.length
-      });
-      onChange(editor.document);
+      onChangeRef.current?.(editor.document);
     };
-
     const unsubscribe = editor.onChange(handleChange);
-
     return () => {
-      if (typeof unsubscribe === 'function') {
-        console.log('📝 EDITOR: Cleaning up onChange listener');
-        unsubscribe();
-      }
+      if (typeof unsubscribe === "function") unsubscribe();
     };
-  }, [editor, onChange]);
+  }, [editor]);
 
   return (
     <div ref={containerRef}>
-      <BlockNoteView editor={editor} editable={editable} theme="light" spellCheck={false} />
+      <BlockNoteView
+        editor={editor}
+        editable={editable}
+        theme="light"
+        spellCheck={false}
+        formattingToolbar={false}
+      >
+        <FormattingToolbarController
+          formattingToolbar={() => (
+            <FormattingToolbar>
+              <BlockTypeSelect key="blockTypeSelect" />
+
+              <BasicTextStyleButton basicTextStyle="bold" key="boldStyleButton" />
+              <BasicTextStyleButton basicTextStyle="italic" key="italicStyleButton" />
+              <BasicTextStyleButton basicTextStyle="underline" key="underlineStyleButton" />
+              <BasicTextStyleButton basicTextStyle="strike" key="strikeStyleButton" />
+
+              {/* Text & background color picker */}
+              <ColorStyleButton key="colorStyleButton" />
+
+              <TextAlignButton textAlignment="left" key="textAlignLeftButton" />
+              <TextAlignButton textAlignment="center" key="textAlignCenterButton" />
+              <TextAlignButton textAlignment="right" key="textAlignRightButton" />
+
+              <NestBlockButton key="nestBlockButton" />
+              <UnnestBlockButton key="unnestBlockButton" />
+
+              <CreateLinkButton key="createLinkButton" />
+            </FormattingToolbar>
+          )}
+        />
+      </BlockNoteView>
     </div>
   );
 }

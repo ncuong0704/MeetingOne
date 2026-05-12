@@ -860,6 +860,12 @@ export function ModelSettingsModal({
     );
   });
 
+  const providerModelsCount = modelOptions[modelConfig.provider]?.length ?? 0;
+  const hasModelsForProvider = providerModelsCount > 0;
+  const selectedModelLabel = hasModelsForProvider
+    ? (modelConfig.model || 'Chọn mô hình…')
+    : 'Chưa cài đặt';
+
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
@@ -945,9 +951,10 @@ export function ModelSettingsModal({
                     role="combobox"
                     aria-expanded={modelComboboxOpen}
                     className="flex-1 max-w-[200px] justify-between font-normal"
+                    disabled={!hasModelsForProvider}
                   >
                     <span className="truncate">
-                      {modelConfig.model || 'Chọn mô hình…'}
+                      {selectedModelLabel}
                     </span>
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
@@ -1218,6 +1225,14 @@ export function ModelSettingsModal({
               </div>
             )}
 
+            {/* No installed models notice */}
+            {!isLoadingOllama && !ollamaNotInstalled && !ollamaEndpointChanged && models.length === 0 && (
+              <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-amber-50 border border-amber-200">
+                <XCircle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                <p className="text-xs text-amber-800 font-medium">Chưa cài đặt model nào — hãy tải một model bên dưới để bắt đầu.</p>
+              </div>
+            )}
+
             {/* Installed models */}
             {!isLoadingOllama && !ollamaNotInstalled && !ollamaEndpointChanged && models.length > 0 && (
               <div>
@@ -1277,6 +1292,17 @@ export function ModelSettingsModal({
             {/* Recommended models (uninstalled) based on curated catalogue */}
             {!ollamaNotInstalled && !ollamaEndpointChanged && curatedRecommendations && (() => {
               const unpulled = curatedRecommendations.models.filter(m => !m.is_pulled);
+
+              // Machine too weak — no compatible models at all
+              if (curatedRecommendations.models.length === 0) {
+                return (
+                  <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-gray-50 border border-gray-200">
+                    <XCircle className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                    <p className="text-xs text-gray-500">Máy của bạn không có model tóm tắt nào phù hợp (RAM quá thấp). Bạn có thể dùng các nhà cung cấp đám mây như Claude, OpenAI hoặc Groq.</p>
+                  </div>
+                );
+              }
+
               if (unpulled.length === 0) return null;
               return (
                 <div>
@@ -1339,9 +1365,9 @@ export function ModelSettingsModal({
               );
             })()}
 
-            {/* No models at all */}
+            {/* Fallback when Ollama is reachable but curated list hasn't loaded yet */}
             {!isLoadingOllama && !ollamaNotInstalled && !ollamaEndpointChanged && models.length === 0 && !curatedRecommendations && (
-              <p className="text-xs text-gray-400 text-center py-4">Chưa có model nào. Nhấn «Làm mới» để kiểm tra.</p>
+              <p className="text-xs text-gray-400 text-center py-4">Chưa có model nào.</p>
             )}
           </div>
         )}

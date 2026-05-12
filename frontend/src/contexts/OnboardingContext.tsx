@@ -250,14 +250,15 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   const verifyModelStatus = async (savedStatus: OnboardingStatus) => {
     let parakeetDownloaded = false;
 
-    // Verify ZipFormer model exists on disk
+    // Verify ZipFormer model files exist on disk (validateModelReady checks files AND loads if present)
     try {
-      await invoke('zipformer_init');
-      parakeetDownloaded = await invoke<boolean>('zipformer_is_model_loaded');
-      console.log('[OnboardingContext] ZipFormer verified on disk:', parakeetDownloaded);
+      await invoke('zipformer_validate_model_ready');
+      parakeetDownloaded = true;
+      console.log('[OnboardingContext] ZipFormer model files verified on disk: true');
     } catch (error) {
-      console.warn('[OnboardingContext] Failed to verify ZipFormer:', error);
+      // Model files not present — genuinely not downloaded
       parakeetDownloaded = false;
+      console.log('[OnboardingContext] ZipFormer model files not found on disk:', error);
     }
 
     // Determine the correct step based on verified status

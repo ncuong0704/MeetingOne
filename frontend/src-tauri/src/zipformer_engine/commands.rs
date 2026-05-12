@@ -104,7 +104,11 @@ pub async fn zipformer_download_model<R: Runtime>(app: AppHandle<R>) -> Result<(
 
         match engine_clone.download_model(Some(cb)).await {
             Ok(()) => {
-                info!("ZipFormer model download complete");
+                info!("ZipFormer model download complete — loading model");
+                // Load the model immediately so model_status becomes Ready
+                if let Err(e) = engine_clone.load_model().await {
+                    error!("ZipFormer auto-load after download failed: {}", e);
+                }
                 let _ = app_clone.emit("zipformer-model-download-complete", ());
             }
             Err(e) => {

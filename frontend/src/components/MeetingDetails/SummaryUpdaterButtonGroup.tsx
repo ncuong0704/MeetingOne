@@ -2,17 +2,23 @@
 
 import { Button } from '@/components/ui/button';
 import { ButtonGroup } from '@/components/ui/button-group';
-import { Copy, Save, Loader2, FileDown } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Save, Loader2, Download, FileText, FileDown, ChevronDown } from 'lucide-react';
 import Analytics from '@/lib/analytics';
 
 interface SummaryUpdaterButtonGroupProps {
   isSaving: boolean;
   isDirty: boolean;
   onSave: () => Promise<void>;
-  onCopy: () => Promise<void>;
   onFind?: () => void;
   onOpenFolder: () => Promise<void>;
   onExportDocx: () => Promise<void>;
+  onExportPdf: () => Promise<void>;
   hasSummary: boolean;
 }
 
@@ -20,15 +26,14 @@ export function SummaryUpdaterButtonGroup({
   isSaving,
   isDirty,
   onSave,
-  onCopy,
-  onFind,
   onOpenFolder,
   onExportDocx,
-  hasSummary
+  onExportPdf,
+  hasSummary,
 }: SummaryUpdaterButtonGroupProps) {
   return (
     <ButtonGroup>
-      {/* Save button */}
+      {/* Save */}
       <Button
         variant="outline"
         size="sm"
@@ -45,64 +50,56 @@ export function SummaryUpdaterButtonGroup({
         {isSaving ? (
           <>
             <Loader2 className="animate-spin" />
-            <span className="hidden lg:inline">Đang lưu...</span>
+            <span>Đang lưu...</span>
           </>
         ) : (
           <>
             <Save />
-            <span className="hidden lg:inline">Lưu</span>
+            <span>Lưu</span>
           </>
         )}
       </Button>
 
-      {/* Copy button */}
-      <Button
-        variant="outline"
-        size="sm"
-        title="Sao chép"
-        onClick={() => {
-          Analytics.trackButtonClick('copy_summary', 'meeting_details');
-          onCopy();
-        }}
-        disabled={!hasSummary}
-        className="cursor-pointer"
-      >
-        <Copy />
-        <span className="hidden lg:inline">Sao chép</span>
-      </Button>
+      {/* Export dropdown: DOCX + PDF */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            title="Xuất file"
+            disabled={!hasSummary}
+            className="cursor-pointer gap-1"
+          >
+            <Download className="h-4 w-4" />
+            <span>Xuất</span>
+            <ChevronDown className="h-3 w-3 opacity-60" />
+          </Button>
+        </DropdownMenuTrigger>
 
-      <Button
-        variant="outline"
-        size="sm"
-        title="Xuất DOCX"
-        onClick={() => {
-          Analytics.trackButtonClick('export_summary_docx', 'meeting_details');
-          onExportDocx();
-        }}
-        disabled={!hasSummary}
-        className="cursor-pointer"
-      >
-        <FileDown />
-        <span className="hidden lg:inline">Xuất DOCX</span>
-      </Button>
+        <DropdownMenuContent align="end" className="min-w-[140px]">
+          <DropdownMenuItem
+            onClick={() => {
+              Analytics.trackButtonClick('export_summary_docx', 'meeting_details');
+              onExportDocx();
+            }}
+            className="gap-2 cursor-pointer"
+          >
+            <FileDown className="h-4 w-4 text-blue-600" />
+            <span>Xuất DOCX</span>
+          </DropdownMenuItem>
 
-      {/* Find button */}
-      {/* {onFind && (
-        <Button
-          variant="outline"
-          size="sm"
-          title="Find in Summary"
-          onClick={() => {
-            Analytics.trackButtonClick('find_in_summary', 'meeting_details');
-            onFind();
-          }}
-          disabled={!hasSummary}
-          className="cursor-pointer"
-        >
-          <Search />
-          <span className="hidden lg:inline">Find</span>
-        </Button>
-      )} */}
+          <DropdownMenuItem
+            onClick={() => {
+              Analytics.trackButtonClick('export_summary_pdf', 'meeting_details');
+              onExportPdf();
+            }}
+            className="gap-2 cursor-pointer"
+          >
+            <FileText className="h-4 w-4 text-red-500" />
+            <span>Xuất PDF</span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </ButtonGroup>
   );
 }
