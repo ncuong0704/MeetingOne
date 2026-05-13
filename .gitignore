@@ -64,8 +64,6 @@ next-env.d.ts
 # Editors & local tools
 .idea/
 .vscode/
-.cursor/
-.claude/
 *.suo
 *.ntvs*
 *.njsproj
