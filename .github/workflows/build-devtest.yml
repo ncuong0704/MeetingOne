@@ -52,7 +52,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -65,15 +65,15 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
         with:
           version: 8
           run_install: false
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '24'
 
       - name: Get pnpm store directory
         shell: bash
@@ -81,7 +81,7 @@ jobs:
           echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
 
       - name: Setup pnpm cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ env.STORE_PATH }}
           key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
@@ -157,7 +157,22 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
-          echo $APPLE_CERTIFICATE | base64 --decode > certificate.p12
+          # Decode base64 safely (BSD base64 uses -D; GNU uses --decode/-d)
+          if ! (printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12 2>/dev/null); then
+            printf '%s' "$APPLE_CERTIFICATE" | base64 -D > certificate.p12
+          fi
+
+          if [ ! -s certificate.p12 ]; then
+            echo "Decoded certificate.p12 is empty (APPLE_CERTIFICATE secret likely invalid)"
+            exit 1
+          fi
+
+          # Validate PKCS#12 structure before importing (no secret output)
+          openssl pkcs12 -in certificate.p12 -passin pass:"$APPLE_CERTIFICATE_PASSWORD" -noout >/dev/null 2>&1 || {
+            echo "certificate.p12 is not a valid PKCS#12 file or password is incorrect"
+            exit 1
+          }
+
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
