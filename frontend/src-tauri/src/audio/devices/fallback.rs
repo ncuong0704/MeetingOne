@@ -21,7 +21,15 @@
 use anyhow::Result;
 use log::info;
 
+#[cfg(target_os = "macos")]
+use log::warn;
+
+#[cfg(target_os = "macos")]
+use crate::audio::InputDeviceKind;
+
 use super::configuration::AudioDevice;
+#[cfg(target_os = "macos")]
+use super::find_builtin_input_device;
 use super::microphone::default_input_device;
 use super::speakers::default_output_device;
 
