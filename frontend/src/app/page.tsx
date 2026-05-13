@@ -235,7 +235,7 @@ export default function Home() {
                     <RecordingControls
                       isRecording={recordingState.isRecording}
                       onRecordingStop={(callApi = true) => handleRecordingStop(callApi)}
-                      onRecordingStart={handleRecordingStart}
+                      onRecordingStart={handleRecordingStart} // handleRecordingStart là hàm gọi khi bấm nút ghi âm
                       onTranscriptReceived={() => { }} // Not actually used by RecordingControls
                       onStopInitiated={() => setIsStopping(true)}
                       barHeights={barHeights}
@@ -246,8 +246,8 @@ export default function Home() {
                       isParentProcessing={isProcessingStop}
                       selectedDevices={selectedDevices}
                       meetingName={meetingTitle}
-                      hasMicrophoneAccess={hasMicrophoneAccess}
-                      micEnabled={micEnabled}
+                      hasMicrophoneAccess={hasMicrophoneAccess} //quyền micro
+                      micEnabled={micEnabled} //trạng thái micro
                       onMicToggle={async () => {
                         const nextMicEnabled = !micEnabled;
                         if (recordingState.isRecording) {
