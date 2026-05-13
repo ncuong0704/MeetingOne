@@ -21,6 +21,7 @@ import { TranscriptRecovery } from '@/components/TranscriptRecovery';
 import { indexedDBService } from '@/services/indexedDBService';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
+import { invoke } from '@tauri-apps/api/core';
 
 export default function Home() {
   // Local page state (not moved to contexts)
@@ -30,18 +31,18 @@ export default function Home() {
 
   // Use contexts for state management
   const { meetingTitle } = useTranscripts();
-  const { transcriptModelConfig, selectedDevices } = useConfig();
+  const { transcriptModelConfig, selectedDevices, micEnabled, setMicEnabled } = useConfig();
   const recordingState = useRecordingState();
 
   // Extract status from global state
   const { status, isStopping, isProcessing, isSaving } = recordingState;
 
   // Hooks
-  const { hasMicrophone } = usePermissionCheck();
+  const { hasMicrophoneAccess } = usePermissionCheck();
   const { setIsMeetingActive, isCollapsed: sidebarCollapsed, refetchMeetings } = useSidebar();
   const { modals, messages, showModal, hideModal } = useModalState(transcriptModelConfig);
   const { isRecordingDisabled, setIsRecordingDisabled } = useRecordingStateSync(isRecording, setIsRecordingState, setIsMeetingActive);
-  const { handleRecordingStart } = useRecordingStart(isRecording, setIsRecordingState, showModal);
+  const { handleRecordingStart } = useRecordingStart(isRecording, setIsRecordingState, showModal, hasMicrophoneAccess);
 
   // Get handleRecordingStop function and setIsStopping (state comes from global context)
   const { handleRecordingStop, setIsStopping } = useRecordingStop(
@@ -219,9 +220,8 @@ export default function Home() {
           showModal={showModal}
         />
 
-        {/* Recording controls - only show when permissions are granted or already recording and not showing status messages */}
-        {(hasMicrophone || isRecording) &&
-          status !== RecordingStatus.PROCESSING_TRANSCRIPTS &&
+        {/* Recording controls - always show unless processing/saving */}
+        {status !== RecordingStatus.PROCESSING_TRANSCRIPTS &&
           status !== RecordingStatus.SAVING && (
             <div className="fixed bottom-12 left-0 right-0 z-10">
               <div
@@ -246,6 +246,26 @@ export default function Home() {
                       isParentProcessing={isProcessingStop}
                       selectedDevices={selectedDevices}
                       meetingName={meetingTitle}
+                      hasMicrophoneAccess={hasMicrophoneAccess}
+                      micEnabled={micEnabled}
+                      onMicToggle={async () => {
+                        const nextMicEnabled = !micEnabled;
+                        if (recordingState.isRecording) {
+                          try {
+                            const muted = await invoke<boolean>('set_recording_microphone_muted', {
+                              muted: !nextMicEnabled,
+                            });
+                            setMicEnabled(!muted);
+                          } catch (error) {
+                            toast.error('Không thể đổi trạng thái micro khi đang ghi âm', {
+                              description: error instanceof Error ? error.message : String(error),
+                            });
+                          }
+                          return;
+                        }
+
+                        setMicEnabled(nextMicEnabled);
+                      }}
                     />
                   </div>
                 </div>

@@ -53,6 +53,10 @@ interface ConfigContextType {
   selectedDevices: SelectedDevices;
   setSelectedDevices: (devices: SelectedDevices) => void;
 
+  // Microphone toggle (enabled by default when permission available)
+  micEnabled: boolean;
+  setMicEnabled: (enabled: boolean) => void;
+
   // Language preference
   selectedLanguage: string;
   setSelectedLanguage: (lang: string) => void;
@@ -129,6 +133,9 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     micDevice: null,
     systemDevice: null
   });
+
+  // Microphone toggle state
+  const [micEnabled, setMicEnabled] = useState<boolean>(true);
 
   // Language preference state
   const [selectedLanguage, setSelectedLanguage] = useState<string>(() => {
@@ -451,6 +458,8 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     setTranscriptModelConfig,
     selectedDevices,
     setSelectedDevices,
+    micEnabled,
+    setMicEnabled,
     selectedLanguage,
     setSelectedLanguage: handleSetSelectedLanguage,
     showConfidenceIndicator,
@@ -471,6 +480,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     updateProviderApiKey,
     transcriptModelConfig,
     selectedDevices,
+    micEnabled,
     selectedLanguage,
     handleSetSelectedLanguage,
     showConfidenceIndicator,

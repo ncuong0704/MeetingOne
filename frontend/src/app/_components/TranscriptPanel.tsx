@@ -2,14 +2,16 @@ import { VirtualizedTranscriptView } from '@/components/VirtualizedTranscriptVie
 import { PermissionWarning } from '@/components/PermissionWarning';
 import { Button } from '@/components/ui/button';
 import { ButtonGroup } from '@/components/ui/button-group';
-import { Copy, GlobeIcon } from 'lucide-react';
+import { Copy } from 'lucide-react';
 import { useTranscripts } from '@/contexts/TranscriptContext';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useRecordingState } from '@/contexts/RecordingStateContext';
 import { usePermissionCheck } from '@/hooks/usePermissionCheck';
 import { ModalType } from '@/hooks/useModalState';
 import { useIsLinux } from '@/hooks/usePlatform';
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { toast } from 'sonner';
 
 /**
  * TranscriptPanel Component
@@ -31,7 +33,7 @@ export function TranscriptPanel({
   showModal
 }: TranscriptPanelProps) {
   // Contexts
-  const { transcripts, transcriptContainerRef, copyTranscript } = useTranscripts();
+  const { transcripts, transcriptContainerRef, copyTranscript, updateTranscriptBySequenceId } = useTranscripts();
   const { transcriptModelConfig } = useConfig();
   const { isRecording, isPaused } = useRecordingState();
   const { checkPermissions, isChecking, hasSystemAudio, hasMicrophone } = usePermissionCheck();
@@ -45,8 +47,29 @@ export function TranscriptPanel({
       endTime: t.audio_end_time,
       text: t.text,
       confidence: t.confidence,
+      sequenceId: t.sequence_id,
     })),
     [transcripts]
+  );
+
+  const handleSegmentEdit = useCallback(
+    async (_segmentId: string, newText: string, sequenceId?: number) => {
+      try {
+        if (isRecording && typeof sequenceId === 'number') {
+          await invoke('update_live_transcript_segment', { sequenceId, newText });
+          updateTranscriptBySequenceId(sequenceId, newText);
+          toast.success('Đã cập nhật bản ghi', { duration: 1500 });
+          return;
+        }
+        if (typeof sequenceId === 'number') {
+          updateTranscriptBySequenceId(sequenceId, newText);
+        }
+      } catch {
+        toast.error('Không lưu được chỉnh sửa bản ghi');
+        throw new Error('update_transcript_failed');
+      }
+    },
+    [isRecording, updateTranscriptBySequenceId]
   );
 
   return (
@@ -94,6 +117,7 @@ export function TranscriptPanel({
           <div className="w-2/3 max-w-[750px]">
             <VirtualizedTranscriptView
               segments={segments}
+              onSegmentEdit={handleSegmentEdit}
               isRecording={isRecording}
               isPaused={isPaused}
               isProcessing={isProcessingStop}

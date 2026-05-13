@@ -61,7 +61,6 @@ use tokio::sync::RwLock;
 
 static RECORDING_FLAG: AtomicBool = AtomicBool::new(false);
 
-
 #[derive(Debug, Deserialize)]
 struct RecordingArgs {
     save_path: String,
@@ -293,12 +292,19 @@ async fn trigger_microphone_permission() -> Result<bool, String> {
 }
 
 #[tauri::command]
+async fn check_microphone_access() -> bool {
+    tokio::task::spawn_blocking(|| audio::devices::check_microphone_access())
+        .await
+        .unwrap_or(false)
+}
+
+#[tauri::command]
 async fn start_recording_with_devices<R: Runtime>(
     app: AppHandle<R>,
     mic_device_name: Option<String>,
     system_device_name: Option<String>,
 ) -> Result<(), String> {
-    start_recording_with_devices_and_meeting(app, mic_device_name, system_device_name, None).await
+    start_recording_with_devices_and_meeting(app, mic_device_name, system_device_name, None, None).await
 }
 
 #[tauri::command]
@@ -307,9 +313,11 @@ async fn start_recording_with_devices_and_meeting<R: Runtime>(
     mic_device_name: Option<String>,
     system_device_name: Option<String>,
     meeting_name: Option<String>,
+    mic_enabled: Option<bool>,
 ) -> Result<(), String> {
-    log_info!("🚀 CALLED start_recording_with_devices_and_meeting - Mic: {:?}, System: {:?}, Meeting: {:?}",
-             mic_device_name, system_device_name, meeting_name);
+    let use_mic = mic_enabled.unwrap_or(true);
+    log_info!("🚀 CALLED start_recording_with_devices_and_meeting - Mic: {:?}, System: {:?}, Meeting: {:?}, mic_enabled: {}",
+             mic_device_name, system_device_name, meeting_name, use_mic);
 
     // Clone meeting_name for notification use later
     let meeting_name_for_notification = meeting_name.clone();
@@ -318,10 +326,10 @@ async fn start_recording_with_devices_and_meeting<R: Runtime>(
     let recording_result = match (mic_device_name.clone(), system_device_name.clone()) {
         (None, None) => {
             log_info!(
-                "No devices specified, starting with defaults and meeting: {:?}",
-                meeting_name
+                "No devices specified, starting with defaults and meeting: {:?}, mic_enabled: {}",
+                meeting_name, use_mic
             );
-            audio::recording_commands::start_recording_with_meeting_name(app.clone(), meeting_name)
+            audio::recording_commands::start_recording_with_meeting_name(app.clone(), meeting_name, use_mic)
                 .await
         }
         _ => {
@@ -495,6 +503,7 @@ pub fn run() {
             zipformer_engine::commands::zipformer_validate_model_ready,
             get_audio_devices,
             trigger_microphone_permission,
+            check_microphone_access,
             start_recording_with_devices,
             start_recording_with_devices_and_meeting,
             start_audio_level_monitoring,
@@ -504,10 +513,12 @@ pub fn run() {
             audio::recording_commands::pause_recording,
             audio::recording_commands::resume_recording,
             audio::recording_commands::is_recording_paused,
+            audio::recording_commands::set_recording_microphone_muted,
             audio::recording_commands::get_recording_state,
             audio::recording_commands::get_meeting_folder_path,
             // Reload sync commands (retrieve transcript history and meeting name)
             audio::recording_commands::get_transcript_history,
+            audio::recording_commands::update_live_transcript_segment,
             audio::recording_commands::get_recording_meeting_name,
             // Device monitoring commands (AirPods/Bluetooth disconnect/reconnect)
             audio::recording_commands::poll_audio_device_events,

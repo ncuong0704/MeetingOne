@@ -96,6 +96,7 @@ pub struct RecordingState {
     // Core recording state
     is_recording: AtomicBool,
     is_paused: AtomicBool,
+    microphone_muted: AtomicBool,
     is_reconnecting: AtomicBool,  // NEW: Attempting to reconnect to device
 
     // Audio devices
@@ -131,6 +132,7 @@ impl RecordingState {
         Arc::new(Self {
             is_recording: AtomicBool::new(false),
             is_paused: AtomicBool::new(false),
+            microphone_muted: AtomicBool::new(false),
             is_reconnecting: AtomicBool::new(false),
             microphone_device: Mutex::new(None),
             system_device: Mutex::new(None),
@@ -151,6 +153,7 @@ impl RecordingState {
     // Recording control
     pub fn start_recording(&self) -> Result<()> {
         self.is_recording.store(true, Ordering::SeqCst);
+        self.microphone_muted.store(false, Ordering::SeqCst);
         *self.recording_start.lock().unwrap() = Some(Instant::now());
         self.error_count.store(0, Ordering::SeqCst);
         self.recoverable_error_count.store(0, Ordering::SeqCst);
@@ -161,6 +164,7 @@ impl RecordingState {
     pub fn stop_recording(&self) {
         self.is_recording.store(false, Ordering::SeqCst);
         self.is_paused.store(false, Ordering::SeqCst);
+        self.microphone_muted.store(false, Ordering::SeqCst);
         // Clear pause tracking when stopping
         *self.pause_start.lock().unwrap() = None;
         // CRITICAL: Clear audio sender to close the pipeline channel
@@ -219,6 +223,15 @@ impl RecordingState {
         self.is_recording() && !self.is_paused()
     }
 
+    pub fn set_microphone_muted(&self, muted: bool) {
+        self.microphone_muted.store(muted, Ordering::SeqCst);
+        log::info!("Microphone live mute set to: {}", muted);
+    }
+
+    pub fn is_microphone_muted(&self) -> bool {
+        self.microphone_muted.load(Ordering::SeqCst)
+    }
+
     // Reconnection state management
     pub fn start_reconnecting(&self, device: Arc<AudioDevice>, device_type: DeviceType) {
         self.is_reconnecting.store(true, Ordering::SeqCst);
@@ -266,6 +279,10 @@ impl RecordingState {
         // Don't send audio chunks when paused
         if self.is_paused() {
             return Ok(()); // Silently discard chunks while paused
+        }
+
+        if self.is_microphone_muted() && matches!(&chunk.device_type, DeviceType::Microphone) {
+            return Ok(()); // Silently discard microphone chunks while muted
         }
 
         if let Some(sender) = self.audio_sender.lock().unwrap().as_ref() {
@@ -419,6 +436,7 @@ impl Default for RecordingState {
         Self {
             is_recording: AtomicBool::new(false),
             is_paused: AtomicBool::new(false),
+            microphone_muted: AtomicBool::new(false),
             is_reconnecting: AtomicBool::new(false),
             microphone_device: Mutex::new(None),
             system_device: Mutex::new(None),

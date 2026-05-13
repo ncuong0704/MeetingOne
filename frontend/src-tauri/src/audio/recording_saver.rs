@@ -22,6 +22,9 @@ pub struct TranscriptSegment {
     pub display_time: String,   // Formatted time for display like "[02:15]"
     pub confidence: f32,
     pub sequence_id: u64,
+    /// When true, STT updates must not replace `text` (user corrected this segment).
+    #[serde(default)]
+    pub user_edited: bool,
 }
 
 /// Meeting metadata structure
@@ -97,9 +100,26 @@ impl RecordingSaver {
         if let Ok(mut segments) = self.transcript_segments.lock() {
             // Check if segment with same sequence_id exists (update it)
             if let Some(existing) = segments.iter_mut().find(|s| s.sequence_id == segment.sequence_id) {
-                *existing = segment.clone();
-                info!("Updated transcript segment {} (seq: {}) - total segments: {}",
-                      segment.id, segment.sequence_id, segments.len());
+                if existing.user_edited {
+                    let user_text = existing.text.clone();
+                    *existing = segment.clone();
+                    existing.text = user_text;
+                    existing.user_edited = true;
+                    info!(
+                        "Updated transcript segment {} (seq: {}) preserving user-edited text - total: {}",
+                        segment.id,
+                        segment.sequence_id,
+                        segments.len()
+                    );
+                } else {
+                    *existing = segment.clone();
+                    info!(
+                        "Updated transcript segment {} (seq: {}) - total segments: {}",
+                        segment.id,
+                        segment.sequence_id,
+                        segments.len()
+                    );
+                }
             } else {
                 // New segment, add it
                 segments.push(segment.clone());
@@ -129,6 +149,7 @@ impl RecordingSaver {
             display_time: "[00:00]".to_string(),
             confidence: 1.0,
             sequence_id: 0,
+            user_edited: false,
         };
         self.add_transcript_segment(segment);
     }
@@ -470,6 +491,31 @@ impl RecordingSaver {
         } else {
             Vec::new()
         }
+    }
+
+    /// Apply a user text edit during recording; marks segment as user-edited and rewrites transcripts.json.
+    pub fn update_live_transcript_text(&self, sequence_id: u64, new_text: String) -> Result<(), String> {
+        let trimmed = new_text.trim().to_string();
+        if trimmed.is_empty() {
+            return Err("Nội dung không được để trống".to_string());
+        }
+        {
+            let mut segments = self
+                .transcript_segments
+                .lock()
+                .map_err(|_| "Khóa transcript bị lỗi".to_string())?;
+            let seg = segments
+                .iter_mut()
+                .find(|s| s.sequence_id == sequence_id)
+                .ok_or_else(|| format!("Không có đoạn sequence_id={}", sequence_id))?;
+            seg.text = trimmed;
+            seg.user_edited = true;
+        }
+        if let Some(folder) = &self.meeting_folder {
+            self.write_transcripts_json(folder)
+                .map_err(|e| format!("Ghi transcripts.json thất bại: {}", e))?;
+        }
+        Ok(())
     }
 
     /// Get meeting name (for reload sync)

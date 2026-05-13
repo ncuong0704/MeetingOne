@@ -61,6 +61,7 @@ export function TranscriptPanel({
       endTime: t.audio_end_time,
       text: t.text,
       confidence: t.confidence,
+      sequenceId: t.sequence_id,
     }));
   }, [transcripts, usePagination, segments]);
 
@@ -68,7 +69,7 @@ export function TranscriptPanel({
 
   const [showAudioPlayer, setShowAudioPlayer] = useState(false);
 
-  const handleSegmentEdit = useCallback(async (segmentId: string, newText: string) => {
+  const handleSegmentEdit = useCallback(async (segmentId: string, newText: string, _sequenceId?: number) => {
     await invoke('api_update_transcript_text', { transcriptId: segmentId, newText });
     toast.success('Đã cập nhật bản ghi', { duration: 1500 });
   }, []);

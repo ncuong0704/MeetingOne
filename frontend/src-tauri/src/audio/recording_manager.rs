@@ -180,12 +180,10 @@ impl RecordingManager {
             let microphone_device = microphone_device.map(Arc::new);
             let system_device = system_device.map(Arc::new);
 
-            // Ensure at least microphone is available
             if microphone_device.is_none() {
-                return Err(anyhow::anyhow!("❌ No microphone device available for recording"));
+                warn!("No microphone device available - recording with system audio only");
             }
 
-            // Start recording with selected devices and auto_save setting
             self.start_recording(microphone_device, system_device, auto_save).await
         }
 
@@ -216,9 +214,8 @@ impl RecordingManager {
                 }
             };
 
-            // Ensure at least microphone is available
             if microphone_device.is_none() {
-                return Err(anyhow::anyhow!("No microphone device available"));
+                warn!("No microphone device available - recording with system audio only");
             }
 
             self.start_recording(microphone_device, system_device, auto_save).await
@@ -381,6 +378,15 @@ impl RecordingManager {
         self.state.is_active()
     }
 
+    /// Mute or unmute microphone chunks while keeping the recording session alive.
+    pub fn set_microphone_muted(&self, muted: bool) {
+        self.state.set_microphone_muted(muted);
+    }
+
+    pub fn is_microphone_muted(&self) -> bool {
+        self.state.is_microphone_muted()
+    }
+
     /// Get recording statistics
     pub fn get_stats(&self) -> super::recording_state::RecordingStats {
         self.state.get_stats()
@@ -437,6 +443,12 @@ impl RecordingManager {
     /// Add a structured transcript segment to be saved later
     pub fn add_transcript_segment(&self, segment: super::recording_saver::TranscriptSegment) {
         self.recording_saver.add_transcript_segment(segment);
+    }
+
+    /// User edit during active recording (updates memory + transcripts.json).
+    pub fn update_live_transcript_text(&self, sequence_id: u64, new_text: String) -> Result<(), String> {
+        self.recording_saver
+            .update_live_transcript_text(sequence_id, new_text)
     }
 
     /// Add a transcript chunk to be saved later (legacy method)

@@ -3,7 +3,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { appDataDir } from '@tauri-apps/api/path';
 import { useCallback, useEffect, useState, useRef } from 'react';
-import { Play, Pause, Square, Mic, AlertCircle, X } from 'lucide-react';
+import { Play, Pause, Square, Mic, MicOff, AlertCircle, X } from 'lucide-react';
 import { ProcessRequest, SummaryResponse } from '@/types/summary';
 import { listen } from '@tauri-apps/api/event';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -26,6 +26,9 @@ interface RecordingControlsProps {
     systemDevice: string | null;
   };
   meetingName?: string;
+  hasMicrophoneAccess?: boolean;
+  micEnabled?: boolean;
+  onMicToggle?: () => void;
 }
 
 export const RecordingControls: React.FC<RecordingControlsProps> = ({
@@ -40,6 +43,9 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
   isParentProcessing,
   selectedDevices,
   meetingName,
+  hasMicrophoneAccess = false,
+  micEnabled = true,
+  onMicToggle,
 }) => {
   // Use global recording state context for pause state (syncs with tray operations)
   const recordingState = useRecordingState();
@@ -388,32 +394,79 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
               ) : (
                 <>
                   {!isRecording ? (
-                    // Start recording button
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          onClick={() => {
-                            Analytics.trackButtonClick('start_recording', 'recording_controls');
-                            handleStartRecording();
-                          }}
-                          disabled={isStarting || isProcessing || isRecordingDisabled || isValidatingModel}
-                          className={`w-12 h-12 flex items-center justify-center ${isStarting || isProcessing || isValidatingModel ? 'bg-gray-400' : 'bg-red-500 hover:bg-red-600'
-                            } rounded-full text-white transition-colors relative`}
-                        >
-                          {isValidatingModel ? (
-                            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                          ) : (
-                            <Mic size={20} />
-                          )}
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>Bắt đầu ghi âm</p>
-                      </TooltipContent>
-                    </Tooltip>
+                    // Start recording button + mic toggle
+                    <div className="flex items-center space-x-2">
+                      {hasMicrophoneAccess && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              onClick={() => onMicToggle?.()}
+                              className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors border-2 ${
+                                micEnabled
+                                  ? 'bg-blue-50 border-blue-300 text-blue-600 hover:bg-blue-100'
+                                  : 'bg-gray-100 border-gray-300 text-gray-400 hover:bg-gray-200'
+                              }`}
+                              aria-label={micEnabled ? 'Tắt microphone' : 'Bật microphone'}
+                            >
+                              {micEnabled ? <Mic size={14} /> : <MicOff size={14} />}
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>{micEnabled ? 'Tắt microphone (chỉ thu System Audio)' : 'Bật microphone (thu cả Mic + System)'}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            onClick={() => {
+                              Analytics.trackButtonClick('start_recording', 'recording_controls');
+                              handleStartRecording();
+                            }}
+                            disabled={isStarting || isProcessing || isRecordingDisabled || isValidatingModel}
+                            className={`w-12 h-12 flex items-center justify-center ${isStarting || isProcessing || isValidatingModel ? 'bg-gray-400' : 'bg-red-500 hover:bg-red-600'
+                              } rounded-full text-white transition-colors relative`}
+                          >
+                            {isValidatingModel ? (
+                              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                            ) : (
+                              <Mic size={20} />
+                            )}
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Bắt đầu ghi âm</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
                   ) : (
                     // Recording controls (pause/resume + stop)
                     <>
+                      {hasMicrophoneAccess && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onMicToggle?.();
+                              }}
+                              className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors border-2 ${
+                                micEnabled
+                                  ? 'bg-blue-50 border-blue-300 text-blue-600 hover:bg-blue-100'
+                                  : 'bg-gray-100 border-gray-300 text-gray-400 hover:bg-gray-200'
+                              }`}
+                              aria-label={micEnabled ? 'Tắt microphone' : 'Bật microphone'}
+                            >
+                              {micEnabled ? <Mic size={14} /> : <MicOff size={14} />}
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>{micEnabled ? 'Tắt microphone' : 'Bật microphone'}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <button

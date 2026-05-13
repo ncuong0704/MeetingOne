@@ -67,17 +67,19 @@ pub struct TranscriptionStatus {
 
 /// Start recording with default devices
 pub async fn start_recording<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
-    start_recording_with_meeting_name(app, None).await
+    start_recording_with_meeting_name(app, None, true).await
 }
 
 /// Start recording with default devices and optional meeting name
+/// `mic_enabled`: when false, microphone is skipped entirely (system audio only)
 pub async fn start_recording_with_meeting_name<R: Runtime>(
     app: AppHandle<R>,
     meeting_name: Option<String>,
+    mic_enabled: bool,
 ) -> Result<(), String> {
     info!(
-        "Starting recording with default devices, meeting: {:?}",
-        meeting_name
+        "Starting recording with default devices, meeting: {:?}, mic_enabled: {}",
+        meeting_name, mic_enabled
     );
 
     // Check if already recording
@@ -125,45 +127,48 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
         };
 
     // ============================================================================
-    // MICROPHONE DEVICE RESOLUTION: Preference → Default → Error
+    // MICROPHONE DEVICE RESOLUTION: Preference → Default → None (optional)
+    // Skipped entirely when mic_enabled = false (system-audio-only mode)
     // ============================================================================
-    let microphone_device = match preferred_mic_name {
-        Some(pref_name) => {
-            info!("🎤 Attempting to use preferred microphone: '{}'", pref_name);
-            match parse_audio_device(&pref_name) {
-                Ok(device) => {
-                    info!("✅ Using preferred microphone: '{}'", device.name);
-                    Some(Arc::new(device))
-                }
-                Err(e) => {
-                    warn!("⚠️ Preferred microphone '{}' not available: {}", pref_name, e);
-                    warn!("   Falling back to system default microphone...");
-                    match default_input_device() {
-                        Ok(device) => {
-                            info!("✅ Using default microphone: '{}'", device.name);
-                            Some(Arc::new(device))
-                        }
-                        Err(default_err) => {
-                            error!("❌ No microphone available (preferred and default both failed)");
-                            return Err(format!(
-                                "No microphone device available. Preferred device '{}' not found, and default microphone unavailable: {}",
-                                pref_name, default_err
-                            ));
+    let microphone_device = if !mic_enabled {
+        info!("🎤 Microphone disabled by user — skipping mic device resolution");
+        None
+    } else {
+        match preferred_mic_name {
+            Some(pref_name) => {
+                info!("🎤 Attempting to use preferred microphone: '{}'", pref_name);
+                match parse_audio_device(&pref_name) {
+                    Ok(device) => {
+                        info!("✅ Using preferred microphone: '{}'", device.name);
+                        Some(Arc::new(device))
+                    }
+                    Err(e) => {
+                        warn!("⚠️ Preferred microphone '{}' not available: {}", pref_name, e);
+                        warn!("   Falling back to system default microphone...");
+                        match default_input_device() {
+                            Ok(device) => {
+                                info!("✅ Using default microphone: '{}'", device.name);
+                                Some(Arc::new(device))
+                            }
+                            Err(default_err) => {
+                                warn!("⚠️ No microphone available — recording with system audio only: {}", default_err);
+                                None
+                            }
                         }
                     }
                 }
             }
-        }
-        None => {
-            info!("🎤 No microphone preference set, using system default");
-            match default_input_device() {
-                Ok(device) => {
-                    info!("✅ Using default microphone: '{}'", device.name);
-                    Some(Arc::new(device))
-                }
-                Err(e) => {
-                    error!("❌ No default microphone available");
-                    return Err(format!("No microphone device available: {}", e));
+            None => {
+                info!("🎤 No microphone preference set, using system default");
+                match default_input_device() {
+                    Ok(device) => {
+                        info!("✅ Using default microphone: '{}'", device.name);
+                        Some(Arc::new(device))
+                    }
+                    Err(e) => {
+                        warn!("⚠️ No default microphone available — recording with system audio only: {}", e);
+                        None
+                    }
                 }
             }
         }
@@ -272,6 +277,7 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
                     display_time: update.timestamp.clone(), // Use wall-clock timestamp for display
                     confidence: update.confidence,
                     sequence_id: update.sequence_id,
+                    user_edited: false,
                 };
 
                 // Save to recording manager
@@ -440,6 +446,7 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
                     display_time: update.timestamp.clone(), // Use wall-clock timestamp for display
                     confidence: update.confidence,
                     sequence_id: update.sequence_id,
+                    user_edited: false,
                 };
 
                 // Save to recording manager
@@ -932,6 +939,18 @@ pub async fn is_recording_paused() -> bool {
     }
 }
 
+/// Mute/unmute microphone audio during an active recording without stopping system audio.
+#[tauri::command]
+pub async fn set_recording_microphone_muted(muted: bool) -> Result<bool, String> {
+    let manager_guard = RECORDING_MANAGER.lock().unwrap();
+    if let Some(manager) = manager_guard.as_ref() {
+        manager.set_microphone_muted(muted);
+        Ok(manager.is_microphone_muted())
+    } else {
+        Err("Recording not active".to_string())
+    }
+}
+
 /// Get detailed recording state
 #[tauri::command]
 pub async fn get_recording_state() -> serde_json::Value {
@@ -984,6 +1003,21 @@ pub async fn get_transcript_history() -> Result<Vec<crate::audio::recording_save
     } else {
         Ok(Vec::new()) // No recording active, return empty
     }
+}
+
+/// Update transcript text for one segment during an active recording (persists to transcripts.json).
+#[tauri::command]
+pub async fn update_live_transcript_segment(
+    sequence_id: u64,
+    new_text: String,
+) -> Result<(), String> {
+    let manager_guard = RECORDING_MANAGER
+        .lock()
+        .map_err(|e| format!("Khóa recording manager: {}", e))?;
+    let manager = manager_guard
+        .as_ref()
+        .ok_or_else(|| "Không có phiên ghi âm đang hoạt động".to_string())?;
+    manager.update_live_transcript_text(sequence_id, new_text)
 }
 
 /// Get meeting name from current recording session

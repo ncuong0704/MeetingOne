@@ -82,5 +82,3 @@ target/
 frontend/src-tauri/binaries/
 Cargo.lock
 
-CLAUDE.md
-NOTES.md

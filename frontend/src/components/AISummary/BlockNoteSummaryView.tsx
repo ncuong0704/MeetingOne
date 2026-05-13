@@ -247,7 +247,6 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
       const { DOCXExporter, docxDefaultSchemaMappings } = await import('@blocknote/xl-docx-exporter');
       const { Packer } = await import('docx');
 
-      // Lấy blocks hiện tại theo format
       let blocks: Block[];
       if (format === 'markdown') {
         blocks = editor.document;

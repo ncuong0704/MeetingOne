@@ -15,7 +15,7 @@ export interface VirtualizedTranscriptViewProps {
     /** Transcript segments to display */
     segments: TranscriptSegmentData[];
     /** Called when user saves an edit to a segment. Return promise; component handles optimistic update. */
-    onSegmentEdit?: (segmentId: string, newText: string) => Promise<void>;
+    onSegmentEdit?: (segmentId: string, newText: string, sequenceId?: number) => Promise<void>;
     /** Whether recording is in progress */
     isRecording?: boolean;
     /** Whether recording is paused */
@@ -74,6 +74,7 @@ const TranscriptSegment = memo(function TranscriptSegment({
     confidence,
     isStreaming,
     showConfidence,
+    sequenceId,
     onEdit,
 }: {
     id: string;
@@ -82,7 +83,8 @@ const TranscriptSegment = memo(function TranscriptSegment({
     confidence?: number;
     isStreaming: boolean;
     showConfidence: boolean;
-    onEdit?: (segmentId: string, newText: string) => Promise<void>;
+    sequenceId?: number;
+    onEdit?: (segmentId: string, newText: string, sequenceId?: number) => Promise<void>;
 }) {
     const displayText = cleanStopWords(text) || (text.trim() === '' ? '[Im lặng]' : text);
     const [isEditing, setIsEditing] = useState(false);
@@ -116,7 +118,7 @@ const TranscriptSegment = memo(function TranscriptSegment({
         setOptimisticText(trimmed); // optimistic update
         setIsEditing(false);
         try {
-            await onEdit?.(id, trimmed);
+            await onEdit?.(id, trimmed, sequenceId);
         } catch {
             setOptimisticText(null); // rollback on error
         } finally {
@@ -404,7 +406,8 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                         confidence={segment.confidence}
                                         isStreaming={isStreaming}
                                         showConfidence={showConfidence}
-                                        onEdit={!isRecording ? onSegmentEdit : undefined}
+                                        sequenceId={segment.sequenceId}
+                                        onEdit={onSegmentEdit}
                                     />
                                 </div>
                             );
@@ -461,7 +464,8 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                         confidence={segment.confidence}
                                         isStreaming={isStreaming}
                                         showConfidence={showConfidence}
-                                        onEdit={!isRecording ? onSegmentEdit : undefined}
+                                        sequenceId={segment.sequenceId}
+                                        onEdit={onSegmentEdit}
                                     />
                                 </motion.div>
                             );

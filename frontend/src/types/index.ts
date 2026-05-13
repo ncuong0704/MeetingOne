@@ -107,4 +107,6 @@ export interface TranscriptSegmentData {
   endTime?: number; // audio_end_time in seconds
   text: string;
   confidence?: number;
+  /** Stable id from STT ordering; used for live recording edits (Rust sequence_id). */
+  sequenceId?: number;
 }

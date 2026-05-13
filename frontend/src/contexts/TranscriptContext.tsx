@@ -20,6 +20,7 @@ interface TranscriptContextType {
   clearTranscripts: () => void;
   currentMeetingId: string | null;
   markMeetingAsSaved: () => Promise<void>;
+  updateTranscriptBySequenceId: (sequenceId: number, newText: string) => void;
 }
 
 const TranscriptContext = createContext<TranscriptContextType | undefined>(undefined);
@@ -486,6 +487,12 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
     // Don't clear currentMeetingId here - it will be set by recording-started event
   }, []);
 
+  const updateTranscriptBySequenceId = useCallback((sequenceId: number, newText: string) => {
+    setTranscripts(prev =>
+      prev.map(t => (t.sequence_id === sequenceId ? { ...t, text: newText } : t))
+    );
+  }, []);
+
   // Mark current meeting as saved in IndexedDB
   const markMeetingAsSaved = useCallback(async () => {
     // Try context state first, fallback to sessionStorage
@@ -521,6 +528,7 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
     clearTranscripts,
     currentMeetingId,
     markMeetingAsSaved,
+    updateTranscriptBySequenceId,
   };
 
   return (

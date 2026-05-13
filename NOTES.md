@@ -1,0 +1,3 @@
+- window.__TAURI_INTERNALS__.invoke("reset_onboarding_status_cmd", {}).then(() => window.location.reload());
+- pnpm run tauri:dev:cpu 2>&1
+- pnpm run tauri:build:cpu

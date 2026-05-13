@@ -47,6 +47,33 @@ pub async fn list_audio_devices() -> Result<Vec<AudioDevice>> {
     .map_err(|e| anyhow!("Device enumeration thread panicked: {}", e))?
 }
 
+/// Check if microphone is accessible (permission granted) without blocking for long.
+/// Returns true if a microphone stream can be opened successfully.
+pub fn check_microphone_access() -> bool {
+    use cpal::traits::{DeviceTrait, HostTrait};
+    let host = cpal::default_host();
+
+    let device = match host.default_input_device() {
+        Some(d) => d,
+        None => return false,
+    };
+
+    let config = match device.default_input_config() {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+
+    // Try to build a stream — fails if Windows mic permission is denied
+    device
+        .build_input_stream(
+            &config.into(),
+            |_: &[f32], _: &cpal::InputCallbackInfo| {},
+            |_| {},
+            None,
+        )
+        .is_ok()
+}
+
 /// Trigger audio permission request on platforms that require it
 /// Returns Ok(true) if permission is granted, Ok(false) if denied, Err if something went wrong
 pub fn trigger_audio_permission() -> Result<bool> {

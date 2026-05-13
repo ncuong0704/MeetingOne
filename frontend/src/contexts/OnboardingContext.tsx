@@ -76,6 +76,9 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   });
   const [permissionsSkipped, setPermissionsSkipped] = useState(false);
 
+  /** Until true, skip debounced auto-save so we never persist default React state over disk. */
+  const [onboardingStatusHydrated, setOnboardingStatusHydrated] = useState(false);
+
   const saveTimeoutRef = useRef<NodeJS.Timeout>();
 
   // Load status on mount and initialize database
@@ -162,6 +165,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
 
   // Auto-save on state change (debounced)
   useEffect(() => {
+    if (!onboardingStatusHydrated) return;
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
 
     // Don't auto-save if completed (to avoid overwriting completion status)
@@ -175,7 +179,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
-  }, [currentStep, parakeetDownloaded, completed]);
+  }, [currentStep, parakeetDownloaded, completed, onboardingStatusHydrated]);
 
   // Listen to Parakeet download progress
   useEffect(() => {
@@ -243,6 +247,8 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
       }
     } catch (error) {
       console.error('[OnboardingContext] Failed to load onboarding status:', error);
+    } finally {
+      setOnboardingStatusHydrated(true);
     }
   };
 
