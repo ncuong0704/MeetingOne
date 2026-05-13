@@ -51,7 +51,7 @@ jobs:
     runs-on: ${{ inputs.platform }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
         with:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
@@ -78,15 +78,15 @@ jobs:
           fi
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v5
+        uses: pnpm/action-setup@v4
         with:
           version: 8
           run_install: false
 
       - name: Setup Node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '20'
 
       - name: Get pnpm store directory
         shell: bash
@@ -94,7 +94,7 @@ jobs:
           echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
 
       - name: Setup pnpm cache
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: ${{ env.STORE_PATH }}
           key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
@@ -433,55 +433,18 @@ jobs:
           cd frontend
           pnpm install
 
-      - name: Determine whether macOS signing is available
-        id: signing-check
-        if: contains(inputs.platform, 'macos')
-        shell: bash
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        run: |
-          enabled="false"
-          if [[ "${{ inputs.sign-binaries }}" == "true" ]]; then
-            if [[ -n "${APPLE_CERTIFICATE:-}" && -n "${APPLE_CERTIFICATE_PASSWORD:-}" && -n "${KEYCHAIN_PASSWORD:-}" ]]; then
-              enabled="true"
-            fi
-          fi
-          echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
-          if [[ "$enabled" == "true" ]]; then
-            echo "macOS signing: enabled"
-          else
-            echo "macOS signing: disabled (missing secrets or sign-binaries=false). Will build unsigned."
-          fi
-
       - name: rustup install target
         if: ${{ inputs.target != '' && !contains(inputs.target, 'unknown-linux-gnu') && !contains(inputs.target, 'pc-windows-msvc') }}
         run: rustup target add ${{ inputs.target }}
 
       - name: Import Apple Developer Certificate
-        if: contains(inputs.platform, 'macos') && steps.signing-check.outputs.enabled == 'true'
+        if: contains(inputs.platform, 'macos') && inputs.sign-binaries
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
-          # Decode base64 safely (BSD base64 uses -D; GNU uses --decode/-d)
-          if ! (printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12 2>/dev/null); then
-            printf '%s' "$APPLE_CERTIFICATE" | base64 -D > certificate.p12
-          fi
-
-          if [ ! -s certificate.p12 ]; then
-            echo "Decoded certificate.p12 is empty (APPLE_CERTIFICATE secret likely invalid)"
-            exit 1
-          fi
-
-          # Validate PKCS#12 structure before importing (no secret output)
-          openssl pkcs12 -in certificate.p12 -passin pass:"$APPLE_CERTIFICATE_PASSWORD" -noout >/dev/null 2>&1 || {
-            echo "certificate.p12 is not a valid PKCS#12 file or password is incorrect"
-            exit 1
-          }
-
+          echo $APPLE_CERTIFICATE | base64 --decode > certificate.p12
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
@@ -491,7 +454,7 @@ jobs:
           security find-identity -v -p codesigning build.keychain
 
       - name: Verify certificate
-        if: contains(inputs.platform, 'macos') && steps.signing-check.outputs.enabled == 'true'
+        if: contains(inputs.platform, 'macos') && inputs.sign-binaries
         run: |
           CERT_INFO=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application")
           CERT_ID=$(echo "$CERT_INFO" | awk -F'"' '{print $2}')
@@ -598,7 +561,7 @@ jobs:
           ls -la frontend/src-tauri/binaries/
 
       - name: Cache FFmpeg binary
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: frontend/src-tauri/binaries/ffmpeg-*
           key: ${{ runner.os }}-ffmpeg-${{ hashFiles('frontend/src-tauri/build.rs', 'frontend/src-tauri/build/ffmpeg.rs') }}    
@@ -608,13 +571,13 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_ID: ${{ steps.signing-check.outputs.enabled == 'true' && secrets.APPLE_ID || '' }}
-          APPLE_ID_PASSWORD: ${{ steps.signing-check.outputs.enabled == 'true' && secrets.APPLE_ID_PASSWORD || '' }}
-          APPLE_PASSWORD: ${{ steps.signing-check.outputs.enabled == 'true' && secrets.APPLE_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ steps.signing-check.outputs.enabled == 'true' && secrets.APPLE_TEAM_ID || '' }}
-          APPLE_CERTIFICATE: ${{ steps.signing-check.outputs.enabled == 'true' && secrets.APPLE_CERTIFICATE || '' }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ steps.signing-check.outputs.enabled == 'true' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
-          APPLE_SIGNING_IDENTITY: ${{ steps.signing-check.outputs.enabled == 'true' && env.CERT_ID || '' }}
+          APPLE_ID: ${{ inputs.sign-binaries && secrets.APPLE_ID || '' }}
+          APPLE_ID_PASSWORD: ${{ inputs.sign-binaries && secrets.APPLE_ID_PASSWORD || '' }}
+          APPLE_PASSWORD: ${{ inputs.sign-binaries && secrets.APPLE_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ inputs.sign-binaries && secrets.APPLE_TEAM_ID || '' }}
+          APPLE_CERTIFICATE: ${{ inputs.sign-binaries && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ inputs.sign-binaries && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ inputs.sign-binaries && env.CERT_ID || '' }}
           # Tauri updater signing (ALWAYS enabled for .sig files)
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}

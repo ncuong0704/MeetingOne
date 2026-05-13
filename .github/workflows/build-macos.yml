@@ -40,7 +40,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -67,15 +67,15 @@ jobs:
           fi
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v5
+        uses: pnpm/action-setup@v4
         with:
           version: 8
           run_install: false
 
       - name: Setup Node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '20'
 
       - name: Get pnpm store directory
         shell: bash
@@ -83,7 +83,7 @@ jobs:
           echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
 
       - name: Setup pnpm cache
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: ${{ env.STORE_PATH }}
           key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
@@ -106,53 +106,14 @@ jobs:
           cd frontend
           pnpm install
 
-      - name: Determine whether macOS signing is available
-        id: signing-check
-        shell: bash
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        run: |
-          enabled="false"
-
-          if [[ "${{ github.event.inputs.sign-build }}" == "true" ]]; then
-            if [[ -n "${APPLE_CERTIFICATE:-}" && -n "${APPLE_CERTIFICATE_PASSWORD:-}" && -n "${KEYCHAIN_PASSWORD:-}" ]]; then
-              enabled="true"
-            fi
-          fi
-
-          echo "enabled=$enabled" >> "$GITHUB_OUTPUT"
-
-          if [[ "$enabled" == "true" ]]; then
-            echo "macOS signing: enabled"
-          else
-            echo "macOS signing: disabled (missing secrets or sign-build=false). Will build unsigned."
-          fi
-
       - name: Import Apple Developer Certificate
-        if: ${{ steps.signing-check.outputs.enabled == 'true' }}
+        if: ${{ github.event.inputs.sign-build == 'true' }}
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
-          # Decode base64 safely (BSD base64 uses -D; GNU uses --decode/-d)
-          if ! (printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12 2>/dev/null); then
-            printf '%s' "$APPLE_CERTIFICATE" | base64 -D > certificate.p12
-          fi
-
-          if [ ! -s certificate.p12 ]; then
-            echo "Decoded certificate.p12 is empty (APPLE_CERTIFICATE secret likely invalid)"
-            exit 1
-          fi
-
-          # Validate PKCS#12 structure before importing (no secret output)
-          openssl pkcs12 -in certificate.p12 -passin pass:"$APPLE_CERTIFICATE_PASSWORD" -noout >/dev/null 2>&1 || {
-            echo "certificate.p12 is not a valid PKCS#12 file or password is incorrect"
-            exit 1
-          }
-
+          echo $APPLE_CERTIFICATE | base64 --decode > certificate.p12
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
@@ -162,7 +123,7 @@ jobs:
           security find-identity -v -p codesigning build.keychain
 
       - name: Verify certificate
-        if: ${{ steps.signing-check.outputs.enabled == 'true' }}
+        if: ${{ github.event.inputs.sign-build == 'true' }}
         run: |
           CERT_INFO=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application")
           CERT_ID=$(echo "$CERT_INFO" | awk -F'"' '{print $2}')
@@ -187,13 +148,13 @@ jobs:
           ls -la frontend/src-tauri/binaries/
 
       - name: Cache FFmpeg binary
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: frontend/src-tauri/binaries/ffmpeg-*
           key: ${{ runner.os }}-ffmpeg-${{ hashFiles('frontend/src-tauri/build.rs', 'frontend/src-tauri/build/ffmpeg.rs') }}
 
       - name: Build Tauri app (with code signing)
-        if: ${{ steps.signing-check.outputs.enabled == 'true' }}
+        if: ${{ github.event.inputs.sign-build == 'true' }}
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -218,7 +179,7 @@ jobs:
           args: --target aarch64-apple-darwin ${{ steps.build-profile.outputs.args }}
 
       - name: Build Tauri app (unsigned)
-        if: ${{ steps.signing-check.outputs.enabled != 'true' }}
+        if: ${{ github.event.inputs.sign-build != 'true' }}
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -240,7 +201,7 @@ jobs:
           find target/aarch64-apple-darwin/${{ steps.build-profile.outputs.profile }}/bundle -type f
 
       - name: Verify code signing (App Bundle)
-        if: ${{ steps.signing-check.outputs.enabled == 'true' }}
+        if: ${{ github.event.inputs.sign-build == 'true' }}
         run: |
           APP_PATH=$(find target/aarch64-apple-darwin/${{ steps.build-profile.outputs.profile }}/bundle/macos -name "*.app" | head -1)
           if [ -n "$APP_PATH" ]; then
@@ -259,7 +220,7 @@ jobs:
           fi
 
       - name: Verify code signing (DMG)
-        if: ${{ steps.signing-check.outputs.enabled == 'true' }}
+        if: ${{ github.event.inputs.sign-build == 'true' }}
         run: |
           DMG_PATH=$(find target/aarch64-apple-darwin/${{ steps.build-profile.outputs.profile }}/bundle/dmg -name "*.dmg" | head -1)
           if [ -n "$DMG_PATH" ]; then
