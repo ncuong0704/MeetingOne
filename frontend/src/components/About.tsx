@@ -182,7 +182,7 @@ export function About() {
         />
 
         <div className="space-y-1">
-          <h1 className="text-2xl font-bold text-gray-900">{BRAND_NAME} 123</h1>
+          <h1 className="text-2xl font-bold text-gray-900">{BRAND_NAME}</h1>
           <p className="text-sm text-gray-500 max-w-sm mx-auto leading-relaxed">
             Ghi chú và tóm tắt thời gian thực — dữ liệu không rời khỏi máy của bạn.
           </p>
