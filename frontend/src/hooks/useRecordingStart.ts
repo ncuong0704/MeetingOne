@@ -107,14 +107,22 @@ export function useRecordingStart(
       // Set STARTING status before initiating backend recording
       setStatus(RecordingStatus.STARTING, 'Đang khởi tạo ghi âm...');
 
-      // Start the actual backend recording
-      const shouldUseMicrophone = hasMicrophoneAccess && micEnabled;
-      console.log('Starting backend recording with meeting:', randomTitle, 'micEnabled:', shouldUseMicrophone);
+      // Backend `mic_enabled` must follow Config `micEnabled` only. Do not AND with
+      // `hasMicrophoneAccess` (one-shot mount check can be wrong after a session); Rust still resolves default mic.
+      const micDeviceArg = micEnabled ? (selectedDevices?.micDevice || null) : null;
+      console.log(
+        'Starting backend recording with meeting:',
+        randomTitle,
+        'micEnabled(pref):',
+        micEnabled,
+        'hasMicAccess:',
+        hasMicrophoneAccess
+      );
       await recordingService.startRecordingWithDevices(
-        shouldUseMicrophone ? (selectedDevices?.micDevice || null) : null,
+        micDeviceArg,
         selectedDevices?.systemDevice || null,
         randomTitle,
-        shouldUseMicrophone
+        micEnabled
       );
       console.log('Backend recording started successfully');
 
@@ -179,13 +187,20 @@ export function useRecordingStart(
             // Set STARTING status before initiating backend recording
             setStatus(RecordingStatus.STARTING, 'Đang khởi tạo ghi âm...');
 
-            const shouldUseMicrophone = hasMicrophoneAccess && micEnabled;
-            console.log('Auto-starting backend recording with meeting:', generatedMeetingTitle, 'micEnabled:', shouldUseMicrophone);
+            const micDeviceArg = micEnabled ? (selectedDevices?.micDevice || null) : null;
+            console.log(
+              'Auto-starting backend recording with meeting:',
+              generatedMeetingTitle,
+              'micEnabled(pref):',
+              micEnabled,
+              'hasMicAccess:',
+              hasMicrophoneAccess
+            );
             const result = await recordingService.startRecordingWithDevices(
-              shouldUseMicrophone ? (selectedDevices?.micDevice || null) : null,
+              micDeviceArg,
               selectedDevices?.systemDevice || null,
               generatedMeetingTitle,
-              shouldUseMicrophone
+              micEnabled
             );
             console.log('Auto-start backend recording result:', result);
 
@@ -270,13 +285,20 @@ export function useRecordingStart(
         // Set STARTING status before initiating backend recording
         setStatus(RecordingStatus.STARTING, 'Đang khởi tạo ghi âm...');
 
-        const shouldUseMicrophone = hasMicrophoneAccess && micEnabled;
-        console.log('Starting backend recording with meeting:', generatedMeetingTitle, 'micEnabled:', shouldUseMicrophone);
+        const micDeviceArg = micEnabled ? (selectedDevices?.micDevice || null) : null;
+        console.log(
+          'Starting backend recording with meeting:',
+          generatedMeetingTitle,
+          'micEnabled(pref):',
+          micEnabled,
+          'hasMicAccess:',
+          hasMicrophoneAccess
+        );
         const result = await recordingService.startRecordingWithDevices(
-          shouldUseMicrophone ? (selectedDevices?.micDevice || null) : null,
+          micDeviceArg,
           selectedDevices?.systemDevice || null,
           generatedMeetingTitle,
-          shouldUseMicrophone
+          micEnabled
         );
         console.log('Backend recording result:', result);
 

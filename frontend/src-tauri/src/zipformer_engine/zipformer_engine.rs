@@ -104,6 +104,7 @@ impl ZipFormerEngine {
             .map_err(|e| anyhow!("Failed to build HTTP client: {}", e))?;
 
         let mut bytes_downloaded: u64 = 0;
+        let mut last_stream_reported: u8 = 0;
 
         for (idx, filename) in MODEL_FILES.iter().enumerate() {
             let dest = dir.join(filename);
@@ -116,6 +117,7 @@ impl ZipFormerEngine {
                 *self.model_status.write().await = ModelStatus::Downloading(progress);
                 if let Some(ref cb) = progress_callback {
                     cb(progress);
+                    last_stream_reported = last_stream_reported.max(progress);
                 }
                 continue;
             }
@@ -141,14 +143,12 @@ impl ZipFormerEngine {
                 return Err(anyhow!("{}", err));
             }
 
-            let content_length = response.content_length().unwrap_or(0);
             let mut stream = response.bytes_stream();
             let mut file = tokio::fs::File::create(&tmp)
                 .await
                 .map_err(|e| anyhow!("Cannot create {}: {}", filename, e))?;
 
             let mut file_bytes: u64 = 0;
-            let mut last_reported = 0u8;
 
             while let Some(chunk) = stream.next().await {
                 let chunk =
@@ -158,16 +158,15 @@ impl ZipFormerEngine {
                     .map_err(|e| anyhow!("Write error for {}: {}", filename, e))?;
                 file_bytes += chunk.len() as u64;
 
-                if content_length > 0 {
-                    let file_progress = (file_bytes * 100 / content_length).min(100) as u8;
-                    let base = (idx as u64 * 100) / total_files as u64;
-                    let overall = (base + file_progress as u64 / total_files as u64).min(99) as u8;
-                    if overall > last_reported + 2 {
-                        last_reported = overall;
-                        *self.model_status.write().await = ModelStatus::Downloading(overall);
-                        if let Some(ref cb) = progress_callback {
-                            cb(overall);
-                        }
+                // Monotonic %: (completed bytes + current partial) / estimated total — not per-file slices,
+                // which would jump backward when switching files.
+                let cumulative = bytes_downloaded.saturating_add(file_bytes);
+                let overall = ((cumulative * 100) / total_bytes.max(1)).min(99) as u8;
+                if overall > last_stream_reported + 2 {
+                    last_stream_reported = overall;
+                    *self.model_status.write().await = ModelStatus::Downloading(overall);
+                    if let Some(ref cb) = progress_callback {
+                        cb(overall);
                     }
                 }
             }
@@ -186,6 +185,7 @@ impl ZipFormerEngine {
             *self.model_status.write().await = ModelStatus::Downloading(progress);
             if let Some(ref cb) = progress_callback {
                 cb(progress);
+                last_stream_reported = last_stream_reported.max(progress);
             }
             info!(
                 "Downloaded: {} ({:.2} MB)",

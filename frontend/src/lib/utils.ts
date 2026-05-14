@@ -19,6 +19,10 @@ export function isOllamaNotInstalledError(errorMessage: string): boolean {
   const patterns = [
     'cannot connect',
     'connection refused',
+    'failed to connect',
+    'no connection could be made',
+    'actively refused',
+    '10061', // Windows WSAECONNREFUSED
     'cli not found',
     'not in path',
     'ollama cli not found',
@@ -26,6 +30,7 @@ export function isOllamaNotInstalledError(errorMessage: string): boolean {
     'please check if the server is running',
     'please check if the ollama server is running',
     'econnrefused',
+    'timed out after 5 seconds',
   ];
 
   return patterns.some(pattern => lowerError.includes(pattern));

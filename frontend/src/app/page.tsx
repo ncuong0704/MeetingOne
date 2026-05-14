@@ -34,6 +34,10 @@ export default function Home() {
   const { transcriptModelConfig, selectedDevices, micEnabled, setMicEnabled } = useConfig();
   const recordingState = useRecordingState();
 
+  // Live mic UI during recording only — must NOT overwrite Config `micEnabled`, otherwise the next
+  // session calls start_recording with mic_enabled: false (system-audio-only) after an in-session mute.
+  const [sessionLiveMicEnabled, setSessionLiveMicEnabled] = useState<boolean | null>(null);
+
   // Extract status from global state
   const { status, isStopping, isProcessing, isSaving } = recordingState;
 
@@ -43,6 +47,12 @@ export default function Home() {
   const { modals, messages, showModal, hideModal } = useModalState(transcriptModelConfig);
   const { isRecordingDisabled, setIsRecordingDisabled } = useRecordingStateSync(isRecording, setIsRecordingState, setIsMeetingActive);
   const { handleRecordingStart } = useRecordingStart(isRecording, setIsRecordingState, showModal, hasMicrophoneAccess);
+
+  useEffect(() => {
+    if (!recordingState.isRecording) {
+      setSessionLiveMicEnabled(null);
+    }
+  }, [recordingState.isRecording]);
 
   // Get handleRecordingStop function and setIsStopping (state comes from global context)
   const { handleRecordingStop, setIsStopping } = useRecordingStop(
@@ -247,15 +257,16 @@ export default function Home() {
                       selectedDevices={selectedDevices}
                       meetingName={meetingTitle}
                       hasMicrophoneAccess={hasMicrophoneAccess} //quyền micro
-                      micEnabled={micEnabled} //trạng thái micro
+                      micEnabled={sessionLiveMicEnabled ?? micEnabled}
                       onMicToggle={async () => {
-                        const nextMicEnabled = !micEnabled;
+                        const micDisplay = sessionLiveMicEnabled ?? micEnabled;
+                        const nextMicEnabled = !micDisplay;
                         if (recordingState.isRecording) {
                           try {
                             const muted = await invoke<boolean>('set_recording_microphone_muted', {
                               muted: !nextMicEnabled,
                             });
-                            setMicEnabled(!muted);
+                            setSessionLiveMicEnabled(!muted);
                           } catch (error) {
                             toast.error('Không thể đổi trạng thái micro khi đang ghi âm', {
                               description: error instanceof Error ? error.message : String(error),

@@ -393,6 +393,8 @@ export function ModelSettingsModal({
       setModels([]); // Clear models list
       setError(''); // Clear any error state
       setOllamaNotInstalled(false); // Reset installation status
+      setCuratedRecommendations(null);
+      modelsCache.current.clear();
     }
   }, [modelConfig.provider]);
 
@@ -462,20 +464,41 @@ export function ModelSettingsModal({
       // Keep curated recommendations in sync with current endpoint + pulled status.
       loadCuratedRecommendations().catch(() => { /* non-blocking */ });
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : 'Không tải được danh sách mô hình Ollama';
-      setError(errorMsg);
+      const errorMsg =
+        typeof err === 'string'
+          ? err
+          : err instanceof Error
+            ? err.message
+            : String(err);
+      const isEmptyOllamaServer =
+        errorMsg.includes('No models found') || errorMsg.includes('NoModelsFound');
 
-      // Check if error indicates Ollama is not installed
-      if (isOllamaNotInstalledError(errorMsg)) {
-        setOllamaNotInstalled(true);
-      } else {
+      // Ollama reachable but no models pulled yet — same as onboarding bước 3 (get_ollama_models throws empty).
+      if (isEmptyOllamaServer) {
+        setModels([]);
+        setError('');
         setOllamaNotInstalled(false);
-      }
+        setLastFetchedEndpoint(trimmedEndpoint);
+        modelsCache.current.set(trimmedEndpoint, []);
+        loadCuratedRecommendations().catch(() => { /* non-blocking */ });
+      } else {
+        setModels([]);
+        setCuratedRecommendations(null);
+        modelsCache.current.delete(trimmedEndpoint);
+        setError(errorMsg);
 
-      if (!silent) {
-        toast.error(errorMsg);
+        // Check if error indicates Ollama is not installed
+        if (isOllamaNotInstalledError(errorMsg)) {
+          setOllamaNotInstalled(true);
+        } else {
+          setOllamaNotInstalled(false);
+        }
+
+        if (!silent) {
+          toast.error(errorMsg);
+        }
+        console.error('Error loading models:', err);
       }
-      console.error('Error loading models:', err);
     } finally {
       setIsLoadingOllama(false);
     }
@@ -494,8 +517,10 @@ export function ModelSettingsModal({
       if (modelConfig.provider === 'ollama' &&
         !hasAutoFetched &&
         mounted) {
+        // Curated list chỉ được tải bên trong fetchOllamaModels khi Ollama thực sự kết nối được
+        // (có model hoặc lỗi «No models found»). Không gọi loadCuratedRecommendations() sau await —
+        // nếu không, catalogue RAM vẫn hiển thị dù Ollama chưa cài / không chạy.
         await fetchOllamaModels(skipInitialFetch); // Silent if skipInitialFetch=true
-        loadCuratedRecommendations(); // Load curated recommendations (non-blocking)
         setHasAutoFetched(true);
       }
     };
@@ -1182,29 +1207,39 @@ export function ModelSettingsModal({
               <h4 className="text-sm font-bold text-gray-900">Mô hình Ollama</h4>
             </div>
 
-            {/* Hardware badge */}
-            {curatedRecommendations && (
+            {/* Hardware badge — ẩn khi chưa có Ollama (giống onboarding bước 3) */}
+            {curatedRecommendations && !ollamaNotInstalled && (
               <div className="flex items-center gap-1.5 text-[10px] text-gray-500 bg-gray-50 rounded-md px-2.5 py-1.5">
                 <Cpu className="w-3 h-3 flex-shrink-0" />
                 <span>{curatedRecommendations.hardware} · gợi ý ~{curatedRecommendations.max_size_gb} GB</span>
               </div>
             )}
 
-            {/* Ollama not installed */}
+            {/* Ollama chưa cài / không kết nối — cùng nội dung với onboarding bước 3 */}
             {ollamaNotInstalled && (
-              <div className="space-y-2">
-                <Alert className="border-orange-300 bg-orange-50">
-                  <AlertDescription className="text-orange-800 text-xs">
-                    Chưa cài Ollama hoặc Ollama chưa chạy. Vui lòng tải và cài Ollama để dùng mô hình cục bộ.
-                  </AlertDescription>
-                </Alert>
+              <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 space-y-2">
+                <p className="text-xs text-amber-900">
+                  Bạn có muốn tải và cài đặt Ollama ngay?
+                </p>
                 <button
+                  type="button"
                   onClick={() => invoke('open_external_url', { url: 'https://ollama.com/download' })}
-                  className="w-full h-8 bg-gray-900 hover:bg-gray-700 text-white text-xs font-medium rounded-md flex items-center justify-center gap-1.5"
+                  className="flex items-center gap-1.5 w-full h-8 justify-center bg-gray-900 hover:bg-gray-700 text-white text-xs font-medium rounded-lg transition-colors"
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
                   Tải Ollama tại ollama.com/download
                 </button>
+                <button
+                  type="button"
+                  onClick={() => fetchOllamaModels(false)}
+                  className="w-full h-8 border border-amber-200 bg-white hover:bg-amber-100/80 text-amber-900 text-xs font-medium rounded-lg transition-colors flex items-center justify-center gap-1.5"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Kiểm tra lại
+                </button>
+                <p className="text-[11px] text-center text-amber-800/90">
+                  Chưa có Ollama — bạn có thể chọn nhà cung cấp đám mây hoặc cài sau trong Cài đặt.
+                </p>
               </div>
             )}
 
