@@ -1,15 +1,17 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
 import { invoke } from '@tauri-apps/api/core';
+import type { Update } from '@tauri-apps/plugin-updater';
 import { BRAND_NAME, BRAND_LOGO_PATH } from '@/constants/brand';
 import {
   fetchLatestGitHubRelease,
   getGithubReleaseRepo,
+  getGithubUpdaterLatestJsonUrl,
   isRemoteVersionNewer,
 } from '@/lib/githubRelease';
-import { Lock, Cpu, Banknote, Globe, Github, Shield, RefreshCw } from 'lucide-react';
+import { Lock, Cpu, Banknote, Globe, Shield, RefreshCw } from 'lucide-react';
 import pkg from '../../package.json';
 
 const features = [
@@ -46,6 +48,8 @@ const features = [
 type CheckState =
   | { status: 'idle' }
   | { status: 'loading' }
+  | { status: 'updater_available'; version: string; notes?: string }
+  | { status: 'updater_downloading'; downloaded: number; total?: number }
   | { status: 'uptodate'; latestTag: string }
   | { status: 'available'; latestTag: string; releaseUrl: string }
   | { status: 'error'; message: string };
@@ -62,6 +66,7 @@ async function resolveAppVersion(): Promise<string> {
 export function About() {
   const [appVersion, setAppVersion] = useState<string>(pkg.version);
   const [check, setCheck] = useState<CheckState>({ status: 'idle' });
+  const pendingUpdateRef = useRef<Update | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -73,25 +78,76 @@ export function About() {
     };
   }, []);
 
+  const runGithubFallback = useCallback(async () => {
+    const repo = getGithubReleaseRepo();
+    const release = await fetchLatestGitHubRelease(repo);
+    if (isRemoteVersionNewer(release.tag_name, appVersion)) {
+      setCheck({
+        status: 'available',
+        latestTag: release.tag_name,
+        releaseUrl: release.html_url,
+      });
+    } else {
+      setCheck({ status: 'uptodate', latestTag: release.tag_name });
+    }
+  }, [appVersion]);
+
   const handleCheck = useCallback(async () => {
     setCheck({ status: 'loading' });
-    const repo = getGithubReleaseRepo();
+    pendingUpdateRef.current = null;
     try {
-      const release = await fetchLatestGitHubRelease(repo);
-      if (isRemoteVersionNewer(release.tag_name, appVersion)) {
+      const { check } = await import('@tauri-apps/plugin-updater');
+      const update = await check();
+      if (update) {
+        pendingUpdateRef.current = update;
         setCheck({
-          status: 'available',
-          latestTag: release.tag_name,
-          releaseUrl: release.html_url,
+          status: 'updater_available',
+          version: update.version,
+          notes: update.body,
         });
-      } else {
-        setCheck({ status: 'uptodate', latestTag: release.tag_name });
+        return;
       }
+    } catch {
+      // Dev (không phải Tauri), hoặc endpoint / chữ ký chưa cấu hình — thử GitHub API.
+    }
+
+    try {
+      await runGithubFallback();
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Không kiểm tra được cập nhật.';
       setCheck({ status: 'error', message });
     }
-  }, [appVersion]);
+  }, [runGithubFallback]);
+
+  const handleDownloadAndInstall = useCallback(async () => {
+    const update = pendingUpdateRef.current;
+    if (!update) return;
+
+    setCheck({ status: 'updater_downloading', downloaded: 0, total: undefined });
+    try {
+      let downloaded = 0;
+      let total: number | undefined;
+      await update.downloadAndInstall((event) => {
+        if (event.event === 'Started') {
+          total = event.data.contentLength;
+          setCheck({ status: 'updater_downloading', downloaded: 0, total });
+        } else if (event.event === 'Progress') {
+          downloaded += event.data.chunkLength;
+          setCheck((prev) =>
+            prev.status === 'updater_downloading'
+              ? { status: 'updater_downloading', downloaded, total: prev.total ?? total }
+              : prev
+          );
+        }
+      });
+      pendingUpdateRef.current = null;
+      const { relaunch } = await import('@tauri-apps/plugin-process');
+      await relaunch();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Cài đặt cập nhật thất bại.';
+      setCheck({ status: 'error', message });
+    }
+  }, []);
 
   const openRelease = useCallback(async (url: string) => {
     try {
@@ -100,6 +156,11 @@ export function About() {
       window.open(url, '_blank', 'noopener,noreferrer');
     }
   }, []);
+
+  const downloadPct =
+    check.status === 'updater_downloading' && check.total && check.total > 0
+      ? Math.min(100, Math.round((check.downloaded / check.total) * 100))
+      : null;
 
   return (
     <div className="flex flex-col h-[80vh] overflow-y-auto bg-gray-50">
@@ -115,7 +176,7 @@ export function About() {
         />
 
         <div className="space-y-1">
-          <h1 className="text-2xl font-bold text-gray-900">{BRAND_NAME} 123</h1>
+          <h1 className="text-2xl font-bold text-gray-900">{BRAND_NAME}</h1>
           <p className="text-sm text-gray-500 max-w-sm mx-auto leading-relaxed">
             Ghi chú và tóm tắt thời gian thực — dữ liệu không rời khỏi máy của bạn.
           </p>
@@ -134,7 +195,7 @@ export function About() {
         </div>
       </div>
 
-      {/* ── Phiên bản / GitHub ───────────────────────────────────────── */}
+      {/* ── Phiên bản / cập nhật ─────────────────────────────────────── */}
       <div className="px-5 pt-5">
         <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm space-y-3">
           <div className="flex items-center justify-between gap-2">
@@ -148,21 +209,50 @@ export function About() {
           <button
             type="button"
             onClick={handleCheck}
-            disabled={check.status === 'loading'}
+            disabled={check.status === 'loading' || check.status === 'updater_downloading'}
             className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-gray-900 px-3 py-2 text-xs font-medium text-white hover:bg-gray-800 disabled:opacity-60 disabled:pointer-events-none"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${check.status === 'loading' ? 'animate-spin' : ''}`} />
-            Kiểm tra cập nhật trên GitHub
+            Kiểm tra cập nhật
           </button>
+
+          {check.status === 'updater_available' && (
+            <div className="space-y-2">
+              <p className="text-xs text-amber-800">
+                Có bản mới <span className="font-semibold">{check.version}</span> (đang chạy {appVersion}).
+              </p>
+              {check.notes ? (
+                <p className="text-[11px] text-gray-600 leading-relaxed whitespace-pre-wrap max-h-24 overflow-y-auto">
+                  {check.notes}
+                </p>
+              ) : null}
+              <button
+                type="button"
+                onClick={handleDownloadAndInstall}
+                className="w-full rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900 hover:bg-amber-100"
+              >
+                Tải và cài đặt (khởi động lại)
+              </button>
+            </div>
+          )}
+
+          {check.status === 'updater_downloading' && (
+            <p className="text-xs text-gray-700">
+              Đang tải và cài đặt…
+              {downloadPct !== null ? ` ${downloadPct}%` : ''}
+            </p>
+          )}
+
           {check.status === 'uptodate' && (
             <p className="text-xs text-emerald-700">
-              Bạn đang dùng phiên bản mới nhất (release mới nhất: {check.latestTag}).
+              Bạn đang dùng phiên bản mới nhất (theo GitHub releases: {check.latestTag}).
             </p>
           )}
           {check.status === 'available' && (
             <div className="space-y-2">
               <p className="text-xs text-amber-800">
-                Có bản mới: <span className="font-semibold">{check.latestTag}</span> (đang chạy {appVersion}).
+                Trên GitHub có tag mới hơn: <span className="font-semibold">{check.latestTag}</span> (đang chạy{' '}
+                {appVersion}). Nếu không thấy nút tự cập nhật, hãy tải thủ công.
               </p>
               <button
                 type="button"
@@ -176,6 +266,14 @@ export function About() {
           {check.status === 'error' && (
             <p className="text-xs text-red-600 leading-relaxed">{check.message}</p>
           )}
+
+          <p className="text-[10px] text-gray-400 leading-relaxed border-t border-gray-100 pt-2">
+            Cập nhật tự động đọc <code className="text-gray-500">latest.json</code> tại{' '}
+            <span className="break-all">{getGithubUpdaterLatestJsonUrl()}</span>. Mỗi release cần ký bằng{' '}
+            <code className="text-gray-500">TAURI_SIGNING_PRIVATE_KEY</code> (hoặc{' '}
+            <code className="text-gray-500">TAURI_SIGNING_PRIVATE_KEY_PATH</code>) khi build; fork repo khác cần sửa
+            endpoint trong <code className="text-gray-500">tauri.conf.json</code>.
+          </p>
         </div>
       </div>
 

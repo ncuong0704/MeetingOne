@@ -9,7 +9,7 @@ Write-Host "========================================"
 Write-Host ""
 
 # Try to load .env file if not already in environment (CI/CD)
-if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
+if (-not $env:TAURI_SIGNING_PRIVATE_KEY -and -not $env:TAURI_SIGNING_PRIVATE_KEY_PATH) {
     if (Test-Path ".env") {
         Write-Host "📄 Loading environment variables from .env..."
         . "$PSScriptRoot\scripts\load-env.ps1"
@@ -19,7 +19,7 @@ if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
 }
 
 # Verify signing credentials are available
-if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
+if (-not $env:TAURI_SIGNING_PRIVATE_KEY -and -not $env:TAURI_SIGNING_PRIVATE_KEY_PATH) {
     Write-Host "❌ Error: No signing credentials found" -ForegroundColor Red
     Write-Host ""
     Write-Host "Please provide signing credentials:" -ForegroundColor Yellow
@@ -33,10 +33,12 @@ if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
     Write-Host ""
     Write-Host "  3. Add to .env file:" -ForegroundColor White
     Write-Host "     TAURI_SIGNING_PRIVATE_KEY=<your-key-content>" -ForegroundColor Gray
+    Write-Host "     hoặc TAURI_SIGNING_PRIVATE_KEY_PATH=.tauri/updater.key" -ForegroundColor Gray
     Write-Host "     TAURI_SIGNING_PRIVATE_KEY_PASSWORD=<your-password>" -ForegroundColor Gray
     Write-Host ""
     Write-Host "Method 2: Set environment variables directly (CI/CD)" -ForegroundColor Cyan
-    Write-Host "     `$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content .tauri\MeetingOne.key -Raw" -ForegroundColor Gray
+    Write-Host "     `$env:TAURI_SIGNING_PRIVATE_KEY_PATH = '.tauri\updater.key'" -ForegroundColor Gray
+    Write-Host "     hoặc `$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content .tauri\MeetingOne.key -Raw" -ForegroundColor Gray
     Write-Host "     `$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = 'your-password'" -ForegroundColor Gray
     Write-Host ""
     exit 1
@@ -44,6 +46,9 @@ if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
 
 # Confirm credentials loaded
 Write-Host "✅ Signing key loaded successfully" -ForegroundColor Green
+if ($env:TAURI_SIGNING_PRIVATE_KEY_PATH) {
+    Write-Host "   (TAURI_SIGNING_PRIVATE_KEY_PATH)" -ForegroundColor DarkGray
+}
 if ($env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD) {
     Write-Host "✅ Signing key password loaded" -ForegroundColor Green
 }
@@ -59,6 +64,7 @@ $buildExitCode = $LASTEXITCODE
 
 # Clear the environment variables for security
 $env:TAURI_SIGNING_PRIVATE_KEY = $null
+$env:TAURI_SIGNING_PRIVATE_KEY_PATH = $null
 $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = $null
 
 if ($buildExitCode -eq 0) {

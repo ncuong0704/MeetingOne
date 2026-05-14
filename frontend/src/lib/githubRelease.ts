@@ -10,6 +10,12 @@ export function getGithubReleaseRepo(): string {
   return DEFAULT_GITHUB_REPO;
 }
 
+/** URL `latest.json` cho Tauri updater (asset `latest.json` trên release GitHub "latest"). */
+export function getGithubUpdaterLatestJsonUrl(): string {
+  const repo = getGithubReleaseRepo();
+  return `https://github.com/${repo}/releases/latest/download/latest.json`;
+}
+
 export type GitHubLatestRelease = {
   tag_name: string;
   html_url: string;

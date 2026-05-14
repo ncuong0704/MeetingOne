@@ -28,7 +28,7 @@
                 "script-src": "'self' 'unsafe-eval' 'unsafe-inline'",
                 "style-src": "'self' 'unsafe-inline'",
                 "img-src": "'self' asset: https://asset.localhost data:",
-                "connect-src": "'self' data: http://localhost:11434 http://localhost:5167 https://api.ollama.ai https://api.github.com https://huggingface.co https://corsproxy.api.blocknotejs.org"
+                "connect-src": "'self' data: http://localhost:11434 http://localhost:5167 https://api.ollama.ai https://api.github.com https://github.com https://objects.githubusercontent.com https://release-assets.githubusercontent.com https://huggingface.co https://corsproxy.api.blocknotejs.org"
             },
             "assetProtocol": {
                 "enable": true,
@@ -65,6 +65,7 @@
                         "notification:default",
                         "notification:allow-is-permission-granted",
                         "process:default",
+                        "updater:default",
                         {
                             "identifier": "fs:scope",
                             "allow": [
@@ -88,7 +89,7 @@
             "app",
             "dmg"
         ],
-        "createUpdaterArtifacts": false,
+        "createUpdaterArtifacts": true,
         "icon": [
             "icons/icon.png",
             "icons/icon.icns",
@@ -107,6 +108,17 @@
         },
         "windows": {
             "signCommand": "powershell -ExecutionPolicy Bypass -File scripts/sign-windows.ps1 -FilePath %1"
+        }
+    },
+    "plugins": {
+        "updater": {
+            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDMyMTQ2OEY4OTFDNjhFClJXU054cEg0YUJReUFQK3lWaXVWY3IxSjIwM1N6SVBFUG8vWmYzN3Z6aWtBcU96ZGU2dXRJai9XCg==",
+            "endpoints": [
+                "https://github.com/ncuong0704/MeetingOne/releases/latest/download/latest.json"
+            ],
+            "windows": {
+                "installMode": "passive"
+            }
         }
     }
 }
