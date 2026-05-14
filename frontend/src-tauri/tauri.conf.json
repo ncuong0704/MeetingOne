@@ -103,9 +103,7 @@
             "binaries/ffmpeg"
         ],
         "macOS": {
-            "entitlements": "entitlements.plist",
-            "signingIdentity": "-",
-            "hardenedRuntime": true
+            "entitlements": "entitlements.plist"
         },
         "windows": {
             "signCommand": "powershell -ExecutionPolicy Bypass -File scripts/sign-windows.ps1 -FilePath %1"
