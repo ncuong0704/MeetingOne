@@ -18,7 +18,8 @@
                 "resizable": true,
                 "fullscreen": false,
                 "theme": "Light",
-                "decorations": true
+                "decorations": true,
+                "devtools": true
             }
         ],
         "macOSPrivateApi": true,
@@ -112,7 +113,7 @@
     },
     "plugins": {
         "updater": {
-            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDMyMTQ2OEY4OTFDNjhFClJXU054cEg0YUJReUFQK3lWaXVWY3IxSjIwM1N6SVBFUG8vWmYzN3Z6aWtBcU96ZGU2dXRJai9XCg==",
+            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDIzQjk3QUFERTI5RDY2RDAKUldUUVpwM2lyWHE1SXpENDV2WjBJb2pWTDR0TGJyNUMzVVhJbDRMb0F1dCtEaVl1bWJWSDhoTmYK",
             "endpoints": [
                 "https://github.com/ncuong0704/MeetingOne/releases/latest/download/latest.json"
             ],

@@ -107,21 +107,26 @@ export function About() {
         });
         return;
       }
-    } catch {
+    } catch (e) {
       // Dev (không phải Tauri), hoặc endpoint / chữ ký chưa cấu hình — thử GitHub API.
+      console.error('[About] Tauri updater check() thất bại:', e);
     }
 
     try {
       await runGithubFallback();
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Không kiểm tra được cập nhật.';
+      console.error('[About] Kiểm tra cập nhật (GitHub fallback) thất bại:', e);
       setCheck({ status: 'error', message });
     }
   }, [runGithubFallback]);
 
   const handleDownloadAndInstall = useCallback(async () => {
     const update = pendingUpdateRef.current;
-    if (!update) return;
+    if (!update) {
+      console.warn('[About] Tải/cài đặt: không có bản cập nhật đang chờ (pendingUpdateRef rỗng).');
+      return;
+    }
 
     setCheck({ status: 'updater_downloading', downloaded: 0, total: undefined });
     try {
@@ -145,6 +150,7 @@ export function About() {
       await relaunch();
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Cài đặt cập nhật thất bại.';
+      console.error('[About] downloadAndInstall / relaunch thất bại:', e);
       setCheck({ status: 'error', message });
     }
   }, []);
