@@ -336,39 +336,6 @@ jobs:
 
           echo "features=$FEATURES" >> "$GITHUB_OUTPUT"
 
-      - name: Build llama-helper sidecar
-        shell: bash
-        run: |
-          echo "Building llama-helper sidecar..."
-
-          # Determine llama-helper features based on platform
-          LLAMA_FEATURES=""
-          if [[ "${{ matrix.platform }}" == *"macos"* ]]; then
-            LLAMA_FEATURES="--features metal"
-            echo "Using Metal GPU acceleration for macOS"
-          elif [[ "${{ matrix.platform }}" == *"windows"* ]]; then
-            LLAMA_FEATURES="--features vulkan"
-            echo "Using Vulkan GPU acceleration for Windows"
-          else
-            echo "Using CPU-only mode for Linux"
-          fi
-
-          # Build llama-helper from workspace root
-          cargo build --release -p llama-helper $LLAMA_FEATURES
-
-          # Determine binary extension
-          EXT=""
-          if [[ "${{ matrix.platform }}" == *"windows"* ]]; then
-            EXT=".exe"
-          fi
-
-          # Copy binary to binaries directory
-          mkdir -p frontend/src-tauri/binaries
-          cp target/release/llama-helper${EXT} frontend/src-tauri/binaries/llama-helper-${{ matrix.target }}${EXT}
-
-          echo "Copied llama-helper to frontend/src-tauri/binaries/llama-helper-${{ matrix.target }}${EXT}"
-          ls -la frontend/src-tauri/binaries/
-
       # Build step (with code signing)
       - name: Build Tauri app (with code signing)
         if: github.event.inputs.sign-build == 'true'

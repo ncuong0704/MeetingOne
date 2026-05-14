@@ -82,17 +82,6 @@ jobs:
           cd frontend
           pnpm install
 
-      - name: Create llama-helper stub binary
-        run: |
-          mkdir -p frontend/src-tauri/binaries
-          # Create a stub binary since llama-helper source is not in this repo
-          cat > frontend/src-tauri/binaries/llama-helper-aarch64-apple-darwin << 'EOF'
-          #!/bin/sh
-          echo "llama-helper stub"
-          EOF
-          chmod +x frontend/src-tauri/binaries/llama-helper-aarch64-apple-darwin
-          echo "Created llama-helper stub for macOS"
-
       - name: Cache FFmpeg binary
         uses: actions/cache@v4
         with:
