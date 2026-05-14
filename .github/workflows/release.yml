@@ -93,14 +93,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - platform: "macos-latest"
+            args: "--target aarch64-apple-darwin"
+            target: "aarch64-apple-darwin"
           - platform: "windows-latest"
             args: ""
             target: "x86_64-pc-windows-msvc"
-          # macOS requires Apple Developer Certificate ($99/year) to avoid Gatekeeper blocking.
-          # Without a cert, auto-updater also won't work on macOS. Re-enable when cert is ready:
-          # - platform: "macos-latest"
-          #   args: "--target aarch64-apple-darwin"
-          #   target: "aarch64-apple-darwin"
 
     uses: ./.github/workflows/build.yml
     with:
