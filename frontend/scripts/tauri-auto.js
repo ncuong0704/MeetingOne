@@ -41,6 +41,12 @@ console.log(''); // Empty line for spacing
 const platform = os.platform();
 const env = { ...process.env };
 
+// Ensure node_modules/.bin is in PATH so `tauri` binary is found
+// (needed when called directly via tauriScript instead of pnpm run)
+const localBin = path.join(__dirname, '..', 'node_modules', '.bin');
+const pathSep = platform === 'win32' ? ';' : ':';
+env.PATH = `${localBin}${pathSep}${env.PATH || process.env.PATH}`;
+
 if (platform === 'linux' && feature === 'cuda') {
   console.log('🐧 Linux/CUDA detected: Setting CMAKE flags for NVIDIA GPU');
   env.CMAKE_CUDA_ARCHITECTURES = '75';
