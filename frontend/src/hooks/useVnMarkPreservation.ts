@@ -208,18 +208,39 @@ export function useVnMarkPreservation(
       // appendTransaction will fire immediately when ProseMirror syncs the DOM
     };
 
-    tiptap.registerPlugin(plugin);
-    container.addEventListener("compositionstart", onCompositionStart);
-    container.addEventListener("compositionend", onCompositionEnd);
+    // tiptap.view may not be ready yet when the effect first fires
+    // (BlockNoteView mounts asynchronously after useCreateBlockNote).
+    // Retry via requestAnimationFrame until the view is available.
+    let rafId: number;
+    let registered = false;
+    let cleanup: (() => void) | null = null;
+
+    const tryRegister = () => {
+      if (!tiptap.view) {
+        rafId = requestAnimationFrame(tryRegister);
+        return;
+      }
+      try {
+        tiptap.registerPlugin(plugin);
+        registered = true;
+      } catch {
+        // view destroyed before we could register — give up
+        return;
+      }
+      container.addEventListener("compositionstart", onCompositionStart);
+      container.addEventListener("compositionend", onCompositionEnd);
+      cleanup = () => {
+        try { tiptap.unregisterPlugin(pluginKey); } catch { /* already destroyed */ }
+        container.removeEventListener("compositionstart", onCompositionStart);
+        container.removeEventListener("compositionend", onCompositionEnd);
+      };
+    };
+
+    tryRegister();
 
     return () => {
-      try {
-        tiptap.unregisterPlugin(pluginKey);
-      } catch {
-        // editor may already be destroyed
-      }
-      container.removeEventListener("compositionstart", onCompositionStart);
-      container.removeEventListener("compositionend", onCompositionEnd);
+      cancelAnimationFrame(rafId);
+      if (registered && cleanup) cleanup();
     };
   }, [editor, containerRef]);
 }
