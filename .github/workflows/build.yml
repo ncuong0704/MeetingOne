@@ -107,6 +107,10 @@ jobs:
           # Only aarch64-apple-darwin for Apple Silicon (no Intel support)
           targets: ${{ contains(inputs.platform, 'macos') && 'aarch64-apple-darwin' || '' }}
 
+      - name: Add Rust to PATH (macOS fix)
+        if: contains(inputs.platform, 'macos')
+        run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
