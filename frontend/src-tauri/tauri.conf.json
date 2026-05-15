@@ -29,7 +29,7 @@
                 "script-src": "'self' 'unsafe-eval' 'unsafe-inline'",
                 "style-src": "'self' 'unsafe-inline'",
                 "img-src": "'self' asset: https://asset.localhost data:",
-                "connect-src": "'self' data: http://localhost:11434 http://localhost:5167 https://api.ollama.ai https://api.github.com https://github.com https://objects.githubusercontent.com https://release-assets.githubusercontent.com https://huggingface.co https://corsproxy.api.blocknotejs.org"
+                "connect-src": "ipc: http://ipc.localhost 'self' data: http://localhost:11434 http://localhost:5167 https://api.ollama.ai https://api.github.com https://github.com https://objects.githubusercontent.com https://release-assets.githubusercontent.com https://huggingface.co https://corsproxy.api.blocknotejs.org"
             },
             "assetProtocol": {
                 "enable": true,
