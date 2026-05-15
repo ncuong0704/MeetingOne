@@ -21,14 +21,8 @@ function detectGPU() {
 
   // macOS: Metal is always available, check for Apple Silicon for CoreML
   if (platform === 'darwin') {
-    const arch = os.arch();
-    if (arch === 'arm64') {
-      console.log('🍎 Apple Silicon detected - using Metal + CoreML');
-      return 'coreml'; // CoreML includes Metal
-    } else {
-      console.log('🍎 macOS Intel detected - using Metal');
-      return 'metal';
-    }
+    console.log('🍎 macOS detected - using Metal');
+    return 'metal';
   }
 
   // Windows/Linux: Check for GPUs
