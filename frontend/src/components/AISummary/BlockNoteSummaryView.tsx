@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle, Component, startTransition, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle, Component, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { Summary, SummaryDataResponse, SummaryFormat, BlockNoteBlock } from '@/types';
 import { AISummary } from './index';
@@ -223,12 +223,14 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
       try {
         const raw = await parserEditor.tryParseMarkdownToBlocks(data.markdown);
         if (cancelled) return;
-        // startTransition marks these as low-priority → excluded from sonner's flushSync
-        // so the Editor chunk is never loaded synchronously mid-flush
-        startTransition(() => {
-          setMdBlocks(sanitizeBlocks(raw));
-          setMdKey(k => k + 1);
-        });
+        // Ensure Editor chunk is fully loaded BEFORE setting state.
+        // flushSync (from sonner toast) flushes ALL pending updates including transitions,
+        // so the only safe way is to guarantee the chunk is loaded first.
+        await import('../BlockNoteEditor/Editor');
+        if (cancelled) return;
+        // Use raw blocks directly — tryParseMarkdownToBlocks already returns valid BlockNote blocks
+        setMdBlocks(raw as Block[]);
+        setMdKey(k => k + 1);
         setTimeout(() => { isContentLoaded.current = true; }, 100);
       } catch (err) {
         console.error('❌ Failed to parse markdown:', err);
