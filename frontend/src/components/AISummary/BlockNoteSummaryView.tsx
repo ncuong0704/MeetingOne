@@ -5,21 +5,8 @@ import dynamic from 'next/dynamic';
 import { Summary, SummaryDataResponse, SummaryFormat, BlockNoteBlock } from '@/types';
 import { AISummary } from './index';
 import { Block } from '@blocknote/core';
-import {
-  useCreateBlockNote,
-  FormattingToolbar,
-  FormattingToolbarController,
-  BlockTypeSelect,
-  BasicTextStyleButton,
-  ColorStyleButton,
-  CreateLinkButton,
-  NestBlockButton,
-  UnnestBlockButton,
-  TextAlignButton,
-} from '@blocknote/react';
-import { BlockNoteView } from '@blocknote/shadcn';
+import { useCreateBlockNote } from '@blocknote/react';
 import "@blocknote/shadcn/style.css";
-import { useVnMarkPreservation } from '@/hooks/useVnMarkPreservation';
 
 // Dynamically import BlockNote Editor to avoid SSR issues
 const Editor = dynamic(() => import('../BlockNoteEditor/Editor'), { ssr: false });
@@ -208,42 +195,37 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
   const [isSaving, setIsSaving] = useState(false);
   const isContentLoaded = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const markdownEditorRef = useRef<HTMLDivElement>(null);
+
+  // Markdown format: parsed blocks + key to force Editor remount
+  const [mdBlocks, setMdBlocks] = useState<Block[] | null>(null);
+  const [mdKey, setMdKey] = useState(0);
 
   // Stable key to force Editor remount khi summary_json thay đổi (tránh stale initialContent)
   const editorKey = format === 'blocknote' && data?.summary_json
     ? (data.summary_json as Block[]).map((b: any) => b.id ?? '').join(',') || 'blocknote'
     : 'empty';
 
-  // Create BlockNote editor for markdown parsing
-  const editor = useCreateBlockNote({
-    initialContent: undefined
-  });
+  // Parser-only editor — never rendered, only used for tryParseMarkdownToBlocks
+  const parserEditor = useCreateBlockNote({ initialContent: undefined });
 
-  // Fix: Preserve bold/italic marks when typing Vietnamese diacritics (markdown format editor)
-  useVnMarkPreservation(editor, markdownEditorRef);
-
-  // Parse markdown to blocks when format is markdown
+  // Parse markdown → store as initialContent for <Editor> (avoids replaceBlocks + renderSpec crash)
   useEffect(() => {
-    if (format === 'markdown' && data?.markdown && editor) {
-      const loadMarkdown = async () => {
-        try {
-          console.log('📝 Parsing markdown to BlockNote blocks...');
-          const rawBlocks = await editor.tryParseMarkdownToBlocks(data.markdown);
-          const blocks = sanitizeBlocks(rawBlocks);
-          editor.replaceBlocks(editor.document, blocks as any);
-          console.log('✅ Markdown parsed successfully');
-
-          setTimeout(() => {
-            isContentLoaded.current = true;
-          }, 100);
-        } catch (err) {
-          console.error('❌ Failed to parse markdown:', err);
-        }
-      };
-      loadMarkdown();
-    }
-  }, [format, data?.markdown, editor]);
+    if (format !== 'markdown' || !data?.markdown || !parserEditor) return;
+    let cancelled = false;
+    const parse = async () => {
+      try {
+        const raw = await parserEditor.tryParseMarkdownToBlocks(data.markdown);
+        if (cancelled) return;
+        setMdBlocks(sanitizeBlocks(raw));
+        setMdKey(k => k + 1);
+        setTimeout(() => { isContentLoaded.current = true; }, 100);
+      } catch (err) {
+        console.error('❌ Failed to parse markdown:', err);
+      }
+    };
+    parse();
+    return () => { cancelled = true; };
+  }, [format, data?.markdown, parserEditor]);
 
   // Reset state khi summary mới được load (ví dụ sau khi regenerate)
   useEffect(() => {
@@ -285,7 +267,7 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
       console.log('💾 Saving BlockNote content...');
 
       // Generate markdown from current blocks
-      const markdown = await editor.blocksToMarkdownLossy(currentBlocks);
+      const markdown = await parserEditor.blocksToMarkdownLossy(currentBlocks);
 
       onSave({
         markdown: markdown,
@@ -311,12 +293,13 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
         console.log('🔍 currentBlocks length:', currentBlocks.length);
         console.log('🔍 data:', data);
 
-        // For markdown format - use the main editor
-        if (format === 'markdown' && editor) {
-          console.log('📝 Using markdown editor, blocks:', editor.document.length);
-          const markdown = await editor.blocksToMarkdownLossy(editor.document);
-          console.log('📝 Generated markdown length:', markdown.length);
-          return markdown;
+        // For markdown format - use currentBlocks (edited) or mdBlocks (initial)
+        if (format === 'markdown') {
+          const blocks = currentBlocks.length > 0 ? currentBlocks : (mdBlocks ?? []);
+          if (blocks.length > 0 && parserEditor) {
+            return await parserEditor.blocksToMarkdownLossy(blocks);
+          }
+          return data?.markdown || '';
         }
 
         // For blocknote format - use currentBlocks state
@@ -327,7 +310,7 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
             ? currentBlocks
             : (data?.summary_json as Block[] | undefined);
           if (blocksToUse && blocksToUse.length > 0 && editor) {
-            const markdown = await editor.blocksToMarkdownLossy(blocksToUse);
+            const markdown = await parserEditor.blocksToMarkdownLossy(blocksToUse);
             console.log('📝 Generated markdown from blocks, length:', markdown.length);
             return markdown;
           }
@@ -347,7 +330,7 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
       }
     },
     getBlocks: (): Block[] => {
-      if (format === 'markdown') return editor.document;
+      if (format === 'markdown') return currentBlocks.length > 0 ? currentBlocks : (mdBlocks ?? []);
       if (currentBlocks.length > 0) return currentBlocks;
       return (data?.summary_json as Block[] | undefined) ?? [];
     },
@@ -357,7 +340,7 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
 
       let blocks: Block[];
       if (format === 'markdown') {
-        blocks = editor.document;
+        blocks = currentBlocks.length > 0 ? currentBlocks : (mdBlocks ?? []);
       } else if (currentBlocks.length > 0) {
         blocks = currentBlocks;
       } else {
@@ -366,7 +349,7 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
 
       if (!blocks.length) throw new Error('Không có nội dung để xuất');
 
-      const exporter = new DOCXExporter(editor.schema, docxDefaultSchemaMappings);
+      const exporter = new DOCXExporter(parserEditor.schema, docxDefaultSchemaMappings);
       const docxDoc = await exporter.toDocxJsDocument(blocks as any);
       return new Uint8Array(await Packer.toArrayBuffer(docxDoc));
     },
@@ -377,7 +360,7 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
       // Lấy blocks hiện tại theo format
       let blocks: Block[];
       if (format === 'markdown') {
-        blocks = editor.document;
+        blocks = currentBlocks.length > 0 ? currentBlocks : (mdBlocks ?? []);
       } else if (currentBlocks.length > 0) {
         blocks = currentBlocks;
       } else {
@@ -386,24 +369,24 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
 
       if (!blocks.length) throw new Error('Không có nội dung để xuất');
 
-      const exporter = new PDFExporter(editor.schema, pdfDefaultSchemaMappings);
+      const exporter = new PDFExporter(parserEditor.schema, pdfDefaultSchemaMappings);
       const pdfDocument = await exporter.toReactPDFDocument(blocks as any);
       const blob = await ReactPDF.pdf(pdfDocument).toBlob();
       return new Uint8Array(await blob.arrayBuffer());
     },
     getHTML: async () => {
       try {
-        if (!editor) return '';
+        if (!parserEditor) return '';
         let blocks: Block[];
         if (format === 'markdown') {
-          blocks = editor.document;
+          blocks = currentBlocks.length > 0 ? currentBlocks : (mdBlocks ?? []);
         } else if (currentBlocks.length > 0) {
           blocks = currentBlocks;
         } else {
           blocks = (data?.summary_json as Block[] | undefined) ?? [];
         }
         if (!blocks.length) return '';
-        return await editor.blocksToHTMLLossy(blocks);
+        return await parserEditor.blocksToHTMLLossy(blocks);
       } catch (err) {
         console.error('❌ Failed to generate HTML:', err);
         return '';
@@ -456,46 +439,19 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
     );
   }
 
-  // Render Markdown format (parse and display in BlockNote)
+  // Render Markdown format — use <Editor initialContent={mdBlocks}> to avoid replaceBlocks+renderSpec crash
   if (format === 'markdown') {
-    console.log('🎨 Rendering MARKDOWN format (parsed to BlockNote)');
+    console.log('🎨 Rendering MARKDOWN format (via Editor initialContent)');
     return (
       <div ref={containerRef} className="flex flex-col w-full">
-        <div ref={markdownEditorRef} className="w-full">
-          <BlockNoteErrorBoundary fallback={editorFallback}>
-            <BlockNoteView
-              editor={editor}
-              editable={true}
-              onChange={() => {
-                if (isContentLoaded.current) {
-                  handleEditorChange(editor.document);
-                }
-              }}
-              theme="light"
-              spellCheck={false}
-              formattingToolbar={false}
-            >
-              <FormattingToolbarController
-                formattingToolbar={() => (
-                  <FormattingToolbar>
-                    <BlockTypeSelect key="blockTypeSelect" />
-                    <BasicTextStyleButton basicTextStyle="bold" key="boldStyleButton" />
-                    <BasicTextStyleButton basicTextStyle="italic" key="italicStyleButton" />
-                    <BasicTextStyleButton basicTextStyle="underline" key="underlineStyleButton" />
-                    <BasicTextStyleButton basicTextStyle="strike" key="strikeStyleButton" />
-                    <ColorStyleButton key="colorStyleButton" />
-                    <TextAlignButton textAlignment="left" key="textAlignLeftButton" />
-                    <TextAlignButton textAlignment="center" key="textAlignCenterButton" />
-                    <TextAlignButton textAlignment="right" key="textAlignRightButton" />
-                    <NestBlockButton key="nestBlockButton" />
-                    <UnnestBlockButton key="unnestBlockButton" />
-                    <CreateLinkButton key="createLinkButton" />
-                  </FormattingToolbar>
-                )}
-              />
-            </BlockNoteView>
-          </BlockNoteErrorBoundary>
-        </div>
+        <BlockNoteErrorBoundary fallback={editorFallback}>
+          <Editor
+            key={mdKey}
+            initialContent={mdBlocks ?? undefined}
+            onChange={handleEditorChange}
+            editable={true}
+          />
+        </BlockNoteErrorBoundary>
       </div>
     );
   }
