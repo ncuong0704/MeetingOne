@@ -8,12 +8,13 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
-// Get the command (dev or build)
+// Get the command (dev or build) and any extra args forwarded by tauri-action
 const command = process.argv[2];
 if (!command || !['dev', 'build'].includes(command)) {
-  console.error('Usage: node tauri-auto.js [dev|build]');
+  console.error('Usage: node tauri-auto.js [dev|build] [extra args...]');
   process.exit(1);
 }
+const extraArgs = process.argv.slice(3).join(' '); // e.g. "--target aarch64-apple-darwin"
 
 // Detect GPU feature
 let feature = '';
@@ -47,13 +48,14 @@ if (platform === 'linux' && feature === 'cuda') {
   env.CMAKE_POSITION_INDEPENDENT_CODE = 'ON';
 }
 
-// Build the tauri command
+// Build the tauri command — forward extra args (e.g. --target) then append features
 let tauriCmd = `tauri ${command}`;
+if (extraArgs) tauriCmd += ` ${extraArgs}`;
 if (feature && feature !== 'none') {
   tauriCmd += ` -- --features ${feature}`;
-  console.log(`🚀 Running: tauri ${command} with features: ${feature}`);
+  console.log(`🚀 Running: tauri ${command}${extraArgs ? ' ' + extraArgs : ''} with features: ${feature}`);
 } else {
-  console.log(`🚀 Running: tauri ${command} (CPU-only mode)`);
+  console.log(`🚀 Running: tauri ${command}${extraArgs ? ' ' + extraArgs : ''} (CPU-only mode)`);
 }
 console.log('');
 
