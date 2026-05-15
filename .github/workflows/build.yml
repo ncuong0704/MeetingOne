@@ -377,30 +377,12 @@ jobs:
           fi
           echo "platform=${patched_platform}" >> $GITHUB_OUTPUT
 
-      - name: Determine build features
+      - name: Set CPU-only build (sync with local pnpm run tauri:build:cpu)
         id: build-features
         shell: bash
         run: |
-          FEATURES=""
-
-          # Windows: CPU-only build
-          if [[ "${{ inputs.platform }}" == *"windows"* ]]; then
-            FEATURES=""
-            echo "Windows build with CPU-only (no GPU acceleration)"
-          fi
-
-          # Linux: Use OpenBLAS for optimized CPU performance
-          if [[ "${{ inputs.platform }}" == *"ubuntu"* ]]; then
-            FEATURES="--features openblas"
-            echo "Linux build with OpenBLAS CPU optimization"
-          fi
-
-          # macOS: Uses Metal by default, no additional features needed
-          if [[ "${{ inputs.platform }}" == *"macos"* ]]; then
-            echo "macOS build with Metal GPU acceleration (default)"
-          fi
-
-          echo "features=$FEATURES" >> "$GITHUB_OUTPUT"
+          echo "features=" >> "$GITHUB_OUTPUT"
+          echo "CPU-only build (no GPU features) — consistent with pnpm run tauri:build:cpu"
 
       - name: Cache FFmpeg binary
         uses: actions/cache@v4
@@ -414,6 +396,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_GPU_FEATURE: none
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
@@ -439,6 +422,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_GPU_FEATURE: none
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           MEETINGONE_RSA_PUBLIC_KEY: ${{ secrets.MEETINGONE_RSA_PUBLIC_KEY }}
