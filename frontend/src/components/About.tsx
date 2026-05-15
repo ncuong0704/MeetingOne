@@ -273,13 +273,13 @@ export function About() {
             <p className="text-xs text-red-600 leading-relaxed">{check.message}</p>
           )}
 
-          <p className="text-[10px] text-gray-400 leading-relaxed border-t border-gray-100 pt-2">
+          {/* <p className="text-[10px] text-gray-400 leading-relaxed border-t border-gray-100 pt-2">
             Cập nhật tự động đọc <code className="text-gray-500">latest.json</code> tại{' '}
             <span className="break-all">{getGithubUpdaterLatestJsonUrl()}</span>. Mỗi release cần ký bằng{' '}
             <code className="text-gray-500">TAURI_SIGNING_PRIVATE_KEY</code> (hoặc{' '}
             <code className="text-gray-500">TAURI_SIGNING_PRIVATE_KEY_PATH</code>) khi build; fork repo khác cần sửa
             endpoint trong <code className="text-gray-500">tauri.conf.json</code>.
-          </p>
+          </p> */}
         </div>
       </div>
 
