@@ -424,7 +424,15 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
     );
   }
 
-  const editorFallback = (
+  const rawMarkdown = format === 'markdown' ? data?.markdown : null;
+  const editorFallback = rawMarkdown ? (
+    <div className="p-4 space-y-2">
+      <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-1.5">
+        <span>Hiển thị dạng văn bản thô (trình soạn thảo gặp lỗi)</span>
+      </div>
+      <pre className="whitespace-pre-wrap text-sm text-gray-700 leading-relaxed font-sans">{rawMarkdown}</pre>
+    </div>
+  ) : (
     <div className="p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm">
       <p className="font-medium">Không thể hiển thị trình soạn thảo.</p>
       <p className="mt-1 text-xs text-amber-600">Tóm tắt đã được lưu. Vui lòng thử tạo lại.</p>
