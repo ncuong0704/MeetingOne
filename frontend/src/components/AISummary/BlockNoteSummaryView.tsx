@@ -80,6 +80,9 @@ function sanitizeInlineContent(items: any[]): any[] {
       if (typeof item !== 'object') {
         return { type: 'text', text: String(item), styles: {} };
       }
+      if (item.type === 'hardBreak') {
+        return { type: 'hardBreak' };
+      }
       if (item.type === 'link') {
         return {
           type: 'link',
@@ -123,15 +126,33 @@ function sanitizeProps(type: string, props: any): Record<string, any> {
   return p;
 }
 
+function sanitizeTableContent(tableContent: any): { type: 'tableContent'; rows: any[] } {
+  if (!tableContent || typeof tableContent !== 'object') {
+    return { type: 'tableContent', rows: [] };
+  }
+  const rows = Array.isArray(tableContent.rows) ? tableContent.rows : [];
+  const sanitizedRows = rows
+    .filter((row: any) => row != null && typeof row === 'object')
+    .map((row: any) => ({
+      ...row,
+      cells: Array.isArray(row.cells)
+        ? row.cells.map((cell: any) =>
+            Array.isArray(cell) ? sanitizeInlineContent(cell) : []
+          )
+        : [],
+    }));
+  return { type: 'tableContent', rows: sanitizedRows };
+}
+
 function sanitizeBlocks(blocks: any[]): any[] {
   if (!Array.isArray(blocks)) return [];
   return blocks
     .filter(block => block != null && typeof block === 'object')
     .map(block => {
       const type = KNOWN_BLOCK_TYPES.has(block.type) ? block.type : 'paragraph';
-      // table blocks have their own content structure — don't flatten
+      // table blocks have their own content structure — sanitize cells separately
       const content = type === 'table'
-        ? (block.content ?? { type: 'tableContent', rows: [] })
+        ? sanitizeTableContent(block.content)
         : Array.isArray(block.content)
           ? sanitizeInlineContent(block.content)
           : typeof block.content === 'string'
@@ -228,8 +249,10 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
         // so the only safe way is to guarantee the chunk is loaded first.
         await import('../BlockNoteEditor/Editor');
         if (cancelled) return;
-        // Use raw blocks directly — tryParseMarkdownToBlocks already returns valid BlockNote blocks
-        setMdBlocks(raw as Block[]);
+        // Sanitize blocks to prevent renderSpec crash — tryParseMarkdownToBlocks can produce
+        // edge-case inline content (hardBreak, unknown types, malformed tables) that ProseMirror
+        // rejects. Sanitization ensures only valid BlockNote schema types reach the renderer.
+        setMdBlocks(sanitizeBlocks(raw as any[]) as Block[]);
         setMdKey(k => k + 1);
         setTimeout(() => { isContentLoaded.current = true; }, 100);
       } catch (err) {
