@@ -282,7 +282,7 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
     } finally {
       setIsSaving(false);
     }
-  }, [onSave, isDirty, currentBlocks, editor]);
+  }, [onSave, isDirty, currentBlocks, parserEditor]);
 
   // Expose methods to parent via ref
   useImperativeHandle(ref, () => ({
@@ -309,7 +309,7 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
           const blocksToUse = currentBlocks.length > 0
             ? currentBlocks
             : (data?.summary_json as Block[] | undefined);
-          if (blocksToUse && blocksToUse.length > 0 && editor) {
+          if (blocksToUse && blocksToUse.length > 0 && parserEditor) {
             const markdown = await parserEditor.blocksToMarkdownLossy(blocksToUse);
             console.log('📝 Generated markdown from blocks, length:', markdown.length);
             return markdown;
@@ -394,7 +394,7 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
     },
     getEditorElement: () => containerRef.current,
     isDirty
-  }), [handleSave, isDirty, editor, format, currentBlocks, data]);
+  }), [handleSave, isDirty, parserEditor, format, currentBlocks, data, mdBlocks]);
 
   // Render legacy format
   if (format === 'legacy') {
