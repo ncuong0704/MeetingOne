@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle, Component, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle, Component, startTransition, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { Summary, SummaryDataResponse, SummaryFormat, BlockNoteBlock } from '@/types';
 import { AISummary } from './index';
@@ -9,7 +9,10 @@ import { useCreateBlockNote } from '@blocknote/react';
 import "@blocknote/shadcn/style.css";
 
 // Dynamically import BlockNote Editor to avoid SSR issues
-const Editor = dynamic(() => import('../BlockNoteEditor/Editor'), { ssr: false });
+const Editor = dynamic(() => import('../BlockNoteEditor/Editor'), {
+  ssr: false,
+  loading: () => <div className="p-4 text-sm text-gray-400 animate-pulse">Đang tải trình soạn thảo...</div>,
+});
 
 interface BlockNoteSummaryViewProps {
   summaryData: SummaryDataResponse | Summary | null;
@@ -200,6 +203,10 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
   const [mdBlocks, setMdBlocks] = useState<Block[] | null>(null);
   const [mdKey, setMdKey] = useState(0);
 
+  // Pre-load the Editor chunk on mount so it's cached before any summary is generated.
+  // Prevents flushSync (from sonner toast) from loading the chunk mid-render → renderSpec crash.
+  useEffect(() => { import('../BlockNoteEditor/Editor'); }, []);
+
   // Stable key to force Editor remount khi summary_json thay đổi (tránh stale initialContent)
   const editorKey = format === 'blocknote' && data?.summary_json
     ? (data.summary_json as Block[]).map((b: any) => b.id ?? '').join(',') || 'blocknote'
@@ -216,8 +223,12 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
       try {
         const raw = await parserEditor.tryParseMarkdownToBlocks(data.markdown);
         if (cancelled) return;
-        setMdBlocks(sanitizeBlocks(raw));
-        setMdKey(k => k + 1);
+        // startTransition marks these as low-priority → excluded from sonner's flushSync
+        // so the Editor chunk is never loaded synchronously mid-flush
+        startTransition(() => {
+          setMdBlocks(sanitizeBlocks(raw));
+          setMdKey(k => k + 1);
+        });
         setTimeout(() => { isContentLoaded.current = true; }, 100);
       } catch (err) {
         console.error('❌ Failed to parse markdown:', err);
