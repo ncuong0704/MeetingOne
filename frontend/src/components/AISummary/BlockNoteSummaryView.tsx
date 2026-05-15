@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle } from 'react';
+import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle, Component, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { Summary, SummaryDataResponse, SummaryFormat, BlockNoteBlock } from '@/types';
 import { AISummary } from './index';
@@ -53,6 +53,27 @@ export interface BlockNoteSummaryViewRef {
   isDirty: boolean;
 }
 
+// Error boundary to prevent BlockNote render errors from crashing the whole app
+class BlockNoteErrorBoundary extends Component<
+  { children: ReactNode; fallback: ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error: Error) {
+    console.error('❌ BlockNote render error caught by boundary:', error);
+  }
+  render() {
+    if (this.state.hasError) return this.props.fallback;
+    return this.props.children;
+  }
+}
+
 // Known block types supported by BlockNote's default schema
 const KNOWN_BLOCK_TYPES = new Set([
   'paragraph', 'heading', 'bulletListItem', 'numberedListItem',
@@ -87,19 +108,56 @@ function sanitizeInlineContent(items: any[]): any[] {
     });
 }
 
+function sanitizeProps(type: string, props: any): Record<string, any> {
+  const p = props && typeof props === 'object' ? { ...props } : {};
+  // heading: level must be number 1 | 2 | 3
+  if (type === 'heading') {
+    const lvl = Number(p.level);
+    p.level = (lvl === 1 || lvl === 2 || lvl === 3) ? lvl : 1;
+  }
+  // checkListItem: checked must be boolean
+  if (type === 'checkListItem') {
+    p.checked = p.checked === true || p.checked === 'true';
+  }
+  // numberedListItem: start must be number
+  if (type === 'numberedListItem' && p.start !== undefined) {
+    p.start = Number(p.start) || 1;
+  }
+  // textAlignment must be valid
+  if (p.textAlignment !== undefined) {
+    const validAlignments = ['left', 'center', 'right', 'justify'];
+    if (!validAlignments.includes(p.textAlignment)) {
+      p.textAlignment = 'left';
+    }
+  }
+  return p;
+}
+
 function sanitizeBlocks(blocks: any[]): any[] {
   if (!Array.isArray(blocks)) return [];
   return blocks
     .filter(block => block != null && typeof block === 'object')
     .map(block => {
       const type = KNOWN_BLOCK_TYPES.has(block.type) ? block.type : 'paragraph';
-      const content = Array.isArray(block.content)
-        ? sanitizeInlineContent(block.content)
-        : [];
+      // table blocks have their own content structure — don't flatten
+      const content = type === 'table'
+        ? (block.content ?? { type: 'tableContent', rows: [] })
+        : Array.isArray(block.content)
+          ? sanitizeInlineContent(block.content)
+          : typeof block.content === 'string'
+            ? [{ type: 'text', text: block.content, styles: {} }]
+            : [];
       const children = Array.isArray(block.children)
         ? sanitizeBlocks(block.children)
         : [];
-      return { ...block, type, content, children, props: block.props ?? {} };
+      return {
+        ...block,
+        type,
+        content,
+        children,
+        props: sanitizeProps(type, block.props),
+        id: typeof block.id === 'string' && block.id ? block.id : crypto.randomUUID(),
+      };
     });
 }
 
@@ -171,11 +229,11 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
       const loadMarkdown = async () => {
         try {
           console.log('📝 Parsing markdown to BlockNote blocks...');
-          const blocks = await editor.tryParseMarkdownToBlocks(data.markdown);
-          editor.replaceBlocks(editor.document, blocks);
+          const rawBlocks = await editor.tryParseMarkdownToBlocks(data.markdown);
+          const blocks = sanitizeBlocks(rawBlocks);
+          editor.replaceBlocks(editor.document, blocks as any);
           console.log('✅ Markdown parsed successfully');
 
-          // Delay to ensure editor has finished rendering before allowing onChange
           setTimeout(() => {
             isContentLoaded.current = true;
           }, 100);
@@ -370,21 +428,29 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
     );
   }
 
+  const editorFallback = (
+    <div className="p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+      <p className="font-medium">Không thể hiển thị trình soạn thảo.</p>
+      <p className="mt-1 text-xs text-amber-600">Tóm tắt đã được lưu. Vui lòng thử tạo lại.</p>
+    </div>
+  );
+
   // Render BlockNote format (has summary_json)
   if (format === 'blocknote') {
     console.log('🎨 Rendering BLOCKNOTE format (direct)');
     return (
       <div ref={containerRef} className="flex flex-col w-full">
         <div className="w-full">
-          <Editor
-            key={editorKey}
-            initialContent={sanitizeBlocks(data.summary_json)}
-            onChange={(blocks) => {
-              console.log('📝 Editor blocks changed:', blocks.length);
-              handleEditorChange(blocks);
-            }}
-            editable={true}
-          />
+          <BlockNoteErrorBoundary fallback={editorFallback}>
+            <Editor
+              key={editorKey}
+              initialContent={sanitizeBlocks(data.summary_json)}
+              onChange={(blocks) => {
+                handleEditorChange(blocks);
+              }}
+              editable={true}
+            />
+          </BlockNoteErrorBoundary>
         </div>
       </div>
     );
@@ -396,37 +462,39 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
     return (
       <div ref={containerRef} className="flex flex-col w-full">
         <div ref={markdownEditorRef} className="w-full">
-          <BlockNoteView
-            editor={editor}
-            editable={true}
-            onChange={() => {
-              if (isContentLoaded.current) {
-                handleEditorChange(editor.document);
-              }
-            }}
-            theme="light"
-            spellCheck={false}
-            formattingToolbar={false}
-          >
-            <FormattingToolbarController
-              formattingToolbar={() => (
-                <FormattingToolbar>
-                  <BlockTypeSelect key="blockTypeSelect" />
-                  <BasicTextStyleButton basicTextStyle="bold" key="boldStyleButton" />
-                  <BasicTextStyleButton basicTextStyle="italic" key="italicStyleButton" />
-                  <BasicTextStyleButton basicTextStyle="underline" key="underlineStyleButton" />
-                  <BasicTextStyleButton basicTextStyle="strike" key="strikeStyleButton" />
-                  <ColorStyleButton key="colorStyleButton" />
-                  <TextAlignButton textAlignment="left" key="textAlignLeftButton" />
-                  <TextAlignButton textAlignment="center" key="textAlignCenterButton" />
-                  <TextAlignButton textAlignment="right" key="textAlignRightButton" />
-                  <NestBlockButton key="nestBlockButton" />
-                  <UnnestBlockButton key="unnestBlockButton" />
-                  <CreateLinkButton key="createLinkButton" />
-                </FormattingToolbar>
-              )}
-            />
-          </BlockNoteView>
+          <BlockNoteErrorBoundary fallback={editorFallback}>
+            <BlockNoteView
+              editor={editor}
+              editable={true}
+              onChange={() => {
+                if (isContentLoaded.current) {
+                  handleEditorChange(editor.document);
+                }
+              }}
+              theme="light"
+              spellCheck={false}
+              formattingToolbar={false}
+            >
+              <FormattingToolbarController
+                formattingToolbar={() => (
+                  <FormattingToolbar>
+                    <BlockTypeSelect key="blockTypeSelect" />
+                    <BasicTextStyleButton basicTextStyle="bold" key="boldStyleButton" />
+                    <BasicTextStyleButton basicTextStyle="italic" key="italicStyleButton" />
+                    <BasicTextStyleButton basicTextStyle="underline" key="underlineStyleButton" />
+                    <BasicTextStyleButton basicTextStyle="strike" key="strikeStyleButton" />
+                    <ColorStyleButton key="colorStyleButton" />
+                    <TextAlignButton textAlignment="left" key="textAlignLeftButton" />
+                    <TextAlignButton textAlignment="center" key="textAlignCenterButton" />
+                    <TextAlignButton textAlignment="right" key="textAlignRightButton" />
+                    <NestBlockButton key="nestBlockButton" />
+                    <UnnestBlockButton key="unnestBlockButton" />
+                    <CreateLinkButton key="createLinkButton" />
+                  </FormattingToolbar>
+                )}
+              />
+            </BlockNoteView>
+          </BlockNoteErrorBoundary>
         </div>
       </div>
     );
