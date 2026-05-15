@@ -438,7 +438,7 @@ jobs:
           pnpm install
 
       - name: rustup install target
-        if: ${{ inputs.target != '' && !contains(inputs.target, 'unknown-linux-gnu') && !contains(inputs.target, 'pc-windows-msvc') }}
+        if: ${{ inputs.target != '' && !contains(inputs.target, 'unknown-linux-gnu') && !contains(inputs.target, 'pc-windows-msvc') && !contains(inputs.target, 'apple-darwin') }}
         run: rustup target add ${{ inputs.target }}
 
       - name: Import Apple Developer Certificate
