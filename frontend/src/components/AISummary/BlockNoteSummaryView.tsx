@@ -53,6 +53,56 @@ export interface BlockNoteSummaryViewRef {
   isDirty: boolean;
 }
 
+// Known block types supported by BlockNote's default schema
+const KNOWN_BLOCK_TYPES = new Set([
+  'paragraph', 'heading', 'bulletListItem', 'numberedListItem',
+  'checkListItem', 'image', 'video', 'audio', 'file', 'table', 'codeBlock'
+]);
+
+function sanitizeInlineContent(items: any[]): any[] {
+  return items
+    .filter(item => item != null)
+    .map(item => {
+      if (typeof item === 'string') {
+        return { type: 'text', text: item, styles: {} };
+      }
+      if (typeof item !== 'object') {
+        return { type: 'text', text: String(item), styles: {} };
+      }
+      if (item.type === 'link') {
+        return {
+          type: 'link',
+          href: typeof item.href === 'string' ? item.href : '',
+          content: Array.isArray(item.content)
+            ? sanitizeInlineContent(item.content)
+            : [],
+        };
+      }
+      // Default: treat as text (covers type:"text" and unknown types)
+      return {
+        type: 'text',
+        text: typeof item.text === 'string' ? item.text : '',
+        styles: item.styles && typeof item.styles === 'object' ? item.styles : {},
+      };
+    });
+}
+
+function sanitizeBlocks(blocks: any[]): any[] {
+  if (!Array.isArray(blocks)) return [];
+  return blocks
+    .filter(block => block != null && typeof block === 'object')
+    .map(block => {
+      const type = KNOWN_BLOCK_TYPES.has(block.type) ? block.type : 'paragraph';
+      const content = Array.isArray(block.content)
+        ? sanitizeInlineContent(block.content)
+        : [];
+      const children = Array.isArray(block.children)
+        ? sanitizeBlocks(block.children)
+        : [];
+      return { ...block, type, content, children, props: block.props ?? {} };
+    });
+}
+
 // Format detection helper
 function detectSummaryFormat(data: any): { format: SummaryFormat; data: any } {
   if (!data) {
@@ -104,7 +154,7 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
 
   // Stable key to force Editor remount khi summary_json thay đổi (tránh stale initialContent)
   const editorKey = format === 'blocknote' && data?.summary_json
-    ? (data.summary_json as Block[]).map((b: any) => b.id).join(',')
+    ? (data.summary_json as Block[]).map((b: any) => b.id ?? '').join(',') || 'blocknote'
     : 'empty';
 
   // Create BlockNote editor for markdown parsing
@@ -328,7 +378,7 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
         <div className="w-full">
           <Editor
             key={editorKey}
-            initialContent={data.summary_json}
+            initialContent={sanitizeBlocks(data.summary_json)}
             onChange={(blocks) => {
               console.log('📝 Editor blocks changed:', blocks.length);
               handleEditorChange(blocks);
