@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle, Component, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle, Component, startTransition, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { Summary, SummaryDataResponse, SummaryFormat, BlockNoteBlock } from '@/types';
 import { AISummary } from './index';
@@ -55,8 +55,13 @@ class BlockNoteErrorBoundary extends Component<
   static getDerivedStateFromError() {
     return { hasError: true };
   }
-  componentDidCatch(error: Error) {
-    console.error('❌ BlockNote render error caught by boundary:', error);
+  componentDidCatch(error: Error, info: any) {
+    console.group('❌ BlockNote render error caught by boundary');
+    console.error('error:', error);
+    console.error('error.message:', error.message);
+    console.error('error.stack:', error.stack);
+    console.error('componentStack:', info?.componentStack);
+    console.groupEnd();
   }
   render() {
     if (this.state.hasError) return this.props.fallback;
@@ -242,8 +247,15 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
     let cancelled = false;
     const parse = async () => {
       try {
+        console.group('[BlockNoteSummaryView] markdown parse');
+        console.log('markdown input (first 300 chars):', data.markdown.slice(0, 300));
         const raw = await parserEditor.tryParseMarkdownToBlocks(data.markdown);
         if (cancelled) return;
+        console.log('tryParseMarkdownToBlocks raw output:', raw);
+        console.log('raw block count:', raw.length);
+        raw.forEach((b: any, i: number) => {
+          console.log(`  raw[${i}]:`, { type: b.type, content: b.content, props: b.props });
+        });
         // Ensure Editor chunk is fully loaded BEFORE setting state.
         // flushSync (from sonner toast) flushes ALL pending updates including transitions,
         // so the only safe way is to guarantee the chunk is loaded first.
@@ -252,11 +264,23 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
         // Sanitize blocks to prevent renderSpec crash — tryParseMarkdownToBlocks can produce
         // edge-case inline content (hardBreak, unknown types, malformed tables) that ProseMirror
         // rejects. Sanitization ensures only valid BlockNote schema types reach the renderer.
-        setMdBlocks(sanitizeBlocks(raw as any[]) as Block[]);
-        setMdKey(k => k + 1);
+        // startTransition defers the update so it cannot be flushed synchronously by flushSync
+        // (e.g. from sonner toasts), which would render the Editor before the chunk is ready.
+        const sanitized = sanitizeBlocks(raw as any[]) as Block[];
+        console.log('sanitized output:', sanitized);
+        console.log('sanitized count:', sanitized.length);
+        sanitized.forEach((b: any, i: number) => {
+          console.log(`  sanitized[${i}]:`, { type: b.type, id: b.id, content: b.content, props: b.props });
+        });
+        console.groupEnd();
+        startTransition(() => {
+          setMdBlocks(sanitized.length > 0 ? sanitized : null);
+          setMdKey(k => k + 1);
+        });
         setTimeout(() => { isContentLoaded.current = true; }, 100);
       } catch (err) {
         console.error('❌ Failed to parse markdown:', err);
+        console.groupEnd();
       }
     };
     parse();
@@ -464,14 +488,29 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
 
   // Render BlockNote format (has summary_json)
   if (format === 'blocknote') {
-    console.log('🎨 Rendering BLOCKNOTE format (direct)');
+    const raw = data.summary_json;
+    const sanitized = sanitizeBlocks(raw);
+    console.group('[BlockNoteSummaryView] BLOCKNOTE render');
+    console.log('summary_json (raw):', raw);
+    console.log('summary_json length:', Array.isArray(raw) ? raw.length : 'NOT array');
+    console.log('sanitized blocks:', sanitized);
+    console.log('sanitized length:', sanitized.length);
+    console.log('editorKey:', editorKey);
+    if (sanitized.length > 0) {
+      sanitized.forEach((b: any, i: number) => {
+        console.log(`  sanitized[${i}]:`, { type: b.type, id: b.id, contentLen: Array.isArray(b.content) ? b.content.length : b.content, props: b.props });
+      });
+    } else {
+      console.warn('  ⚠️ sanitized is EMPTY — passing undefined to Editor');
+    }
+    console.groupEnd();
     return (
       <div ref={containerRef} className="flex flex-col w-full">
         <div className="w-full">
           <BlockNoteErrorBoundary fallback={editorFallback}>
             <Editor
               key={editorKey}
-              initialContent={sanitizeBlocks(data.summary_json)}
+              initialContent={sanitized.length > 0 ? sanitized : undefined}
               onChange={(blocks) => {
                 handleEditorChange(blocks);
               }}
@@ -485,13 +524,24 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
 
   // Render Markdown format — use <Editor initialContent={mdBlocks}> to avoid replaceBlocks+renderSpec crash
   if (format === 'markdown') {
-    console.log('🎨 Rendering MARKDOWN format (via Editor initialContent)');
+    console.group('[BlockNoteSummaryView] MARKDOWN render');
+    console.log('mdBlocks:', mdBlocks);
+    console.log('mdBlocks length:', mdBlocks?.length ?? 'null');
+    console.log('mdKey:', mdKey);
+    if (mdBlocks && mdBlocks.length > 0) {
+      mdBlocks.forEach((b: any, i: number) => {
+        console.log(`  mdBlocks[${i}]:`, { type: b.type, id: b.id, contentLen: Array.isArray(b.content) ? b.content.length : b.content, props: b.props });
+      });
+    } else {
+      console.warn('  ⚠️ mdBlocks is null/empty — passing undefined to Editor (will show empty doc)');
+    }
+    console.groupEnd();
     return (
       <div ref={containerRef} className="flex flex-col w-full">
         <BlockNoteErrorBoundary fallback={editorFallback}>
           <Editor
             key={mdKey}
-            initialContent={mdBlocks ?? undefined}
+            initialContent={(mdBlocks && mdBlocks.length > 0) ? mdBlocks : undefined}
             onChange={handleEditorChange}
             editable={true}
           />
