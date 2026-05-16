@@ -86,7 +86,10 @@ function sanitizeInlineContent(items: any[]): any[] {
         return { type: 'text', text: String(item), styles: {} };
       }
       if (item.type === 'hardBreak') {
-        return { type: 'hardBreak' };
+        // hardBreak is NOT in BlockNote's default inline schema — its toDOM is undefined,
+        // which makes ProseMirror throw "Invalid array passed to renderSpec".
+        // Convert to a space text node to preserve visual separation.
+        return { type: 'text', text: ' ', styles: {} };
       }
       if (item.type === 'link') {
         return {
@@ -534,6 +537,21 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
 
   // Render Markdown format — use <Editor initialContent={mdBlocks}> to avoid replaceBlocks+renderSpec crash
   if (format === 'markdown') {
+    // Block Editor from rendering until mdBlocks is ready.
+    // In production, Webpack scope hoisting can leave the dynamic Editor chunk's
+    // ProseMirror schema partially initialized during the first render cycle.
+    // Rendering BlockNoteView before the parse completes (mdBlocks=null) triggers
+    // renderSpec with an uninitialized node spec → RangeError crash.
+    // Waiting for mdBlocks ensures the chunk is fully evaluated (via the
+    // `await import('../BlockNoteEditor/Editor')` gate inside the parse effect)
+    // before BlockNoteView is mounted for the first time.
+    if (!mdBlocks) {
+      console.log('[BlockNoteSummaryView] MARKDOWN render — waiting for parse (mdBlocks null)');
+      return (
+        <div className="p-4 text-sm text-gray-400 animate-pulse">Đang phân tích nội dung...</div>
+      );
+    }
+
     console.group('[BlockNoteSummaryView] MARKDOWN render');
     console.log('mdBlocks:', mdBlocks);
     console.log('mdBlocks length:', mdBlocks?.length ?? 'null');
@@ -543,7 +561,7 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
         console.log(`  mdBlocks[${i}]:`, { type: b.type, id: b.id, contentLen: Array.isArray(b.content) ? b.content.length : b.content, props: b.props });
       });
     } else {
-      console.warn('  ⚠️ mdBlocks is null/empty — passing undefined to Editor (will show empty doc)');
+      console.warn('  ⚠️ mdBlocks is empty — passing undefined to Editor');
     }
     console.groupEnd();
     return (
@@ -551,7 +569,7 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
         <BlockNoteErrorBoundary fallback={editorFallback}>
           <Editor
             key={mdKey}
-            initialContent={(mdBlocks && mdBlocks.length > 0) ? mdBlocks : undefined}
+            initialContent={mdBlocks.length > 0 ? mdBlocks : undefined}
             onChange={handleEditorChange}
             editable={true}
           />

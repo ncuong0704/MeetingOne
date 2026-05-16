@@ -21,6 +21,18 @@ const nextConfig = {
     ],
   },
 
+  // Force Next.js to re-transpile BlockNote packages through its own Webpack pipeline.
+  // Without this, Webpack's production mode (scope hoisting / module concatenation) can
+  // merge BlockNote module instances across chunks in a way that leaves ProseMirror node
+  // specs partially uninitialized — causing "Invalid array passed to renderSpec" at runtime.
+  transpilePackages: [
+    '@blocknote/core',
+    '@blocknote/react',
+    '@blocknote/shadcn',
+    '@blocknote/xl-docx-exporter',
+    '@blocknote/xl-pdf-exporter',
+  ],
+
   // Webpack configuration for Tauri
   webpack: (config, { isServer, dev }) => {
     if (!isServer) {
