@@ -33,18 +33,15 @@ export default function Editor({ initialContent, onChange, editable = true }: Ed
     : undefined;
 
   console.group('[BlockNote Editor] init');
-  console.log('initialContent (raw prop):', initialContent);
   console.log('initialContent length:', initialContent?.length ?? 0);
-  console.log('safeInitialContent (passed to useCreateBlockNote):', safeInitialContent);
   if (initialContent && initialContent.length > 0) {
     initialContent.forEach((block, i) => {
-      console.log(`  block[${i}]:`, {
-        type: (block as any).type,
-        id: (block as any).id,
-        content: (block as any).content,
-        props: (block as any).props,
-        children: (block as any).children,
-      });
+      // Use JSON.stringify so the full structure is visible even in production minified builds
+      try {
+        console.log(`  block[${i}] JSON:`, JSON.stringify(block, null, 2));
+      } catch {
+        console.log(`  block[${i}] (not serializable):`, block);
+      }
     });
   }
   console.groupEnd();

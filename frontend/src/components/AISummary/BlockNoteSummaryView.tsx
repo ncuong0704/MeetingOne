@@ -75,6 +75,16 @@ const KNOWN_BLOCK_TYPES = new Set([
   'checkListItem', 'image', 'video', 'audio', 'file', 'table', 'codeBlock'
 ]);
 
+function extractTextFromInlineItem(item: any): string {
+  if (typeof item === 'string') return item;
+  if (typeof item?.text === 'string') return item.text;
+  // ProseMirror marks (strong, em, code) wrap content in an array — recurse to extract text
+  if (Array.isArray(item?.content)) {
+    return item.content.map(extractTextFromInlineItem).join('');
+  }
+  return '';
+}
+
 function sanitizeInlineContent(items: any[]): any[] {
   return items
     .filter(item => item != null)
@@ -85,11 +95,15 @@ function sanitizeInlineContent(items: any[]): any[] {
       if (typeof item !== 'object') {
         return { type: 'text', text: String(item), styles: {} };
       }
-      if (item.type === 'hardBreak') {
-        // hardBreak is NOT in BlockNote's default inline schema — its toDOM is undefined,
-        // which makes ProseMirror throw "Invalid array passed to renderSpec".
-        // Convert to a space text node to preserve visual separation.
+      // hardBreak / softBreak: NOT in BlockNote default schema, toDOM is undefined
+      // → ProseMirror throws "Invalid array passed to renderSpec"
+      if (item.type === 'hardBreak' || item.type === 'softBreak') {
         return { type: 'text', text: ' ', styles: {} };
+      }
+      // mention: convert to plain text
+      if (item.type === 'mention') {
+        const label = item.label ?? item.attrs?.label ?? '@unknown';
+        return { type: 'text', text: String(label), styles: {} };
       }
       if (item.type === 'link') {
         return {
@@ -100,10 +114,14 @@ function sanitizeInlineContent(items: any[]): any[] {
             : [],
         };
       }
-      // Default: treat as text (covers type:"text" and unknown types)
+      // Default: treat as text.
+      // Use extractTextFromInlineItem so ProseMirror mark nodes (strong/em/code) that
+      // tryParseMarkdownToBlocks may leave unconverted don't produce an empty text node
+      // (empty string in a text node can also trigger renderSpec in some schema configs).
+      const text = extractTextFromInlineItem(item);
       return {
         type: 'text',
-        text: typeof item.text === 'string' ? item.text : '',
+        text: text.length > 0 ? text : ' ',
         styles: item.styles && typeof item.styles === 'object' ? item.styles : {},
       };
     });

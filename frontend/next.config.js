@@ -42,6 +42,18 @@ const nextConfig = {
         path: false,
         os: false,
       };
+
+      // Disable module concatenation (scope hoisting) in production.
+      // Webpack's scope hoisting merges module scopes and can reorder initialization,
+      // leaving ProseMirror node/mark toDOM references as undefined when they're evaluated
+      // before their source module has run — producing "Invalid array passed to renderSpec".
+      // transpilePackages alone is not enough because concatenation still happens across chunks.
+      if (!dev) {
+        config.optimization = {
+          ...config.optimization,
+          concatenateModules: false,
+        };
+      }
     }
     return config;
   },
