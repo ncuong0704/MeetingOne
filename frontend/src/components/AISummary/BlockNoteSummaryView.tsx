@@ -249,7 +249,11 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
       try {
         console.group('[BlockNoteSummaryView] markdown parse');
         console.log('markdown input (first 300 chars):', data.markdown.slice(0, 300));
-        const raw = await parserEditor.tryParseMarkdownToBlocks(data.markdown);
+        const parsed = await parserEditor.tryParseMarkdownToBlocks(data.markdown);
+        const raw = Array.isArray(parsed) ? parsed : [];
+        if (!Array.isArray(parsed)) {
+          console.warn('tryParseMarkdownToBlocks returned non-array:', parsed);
+        }
         if (cancelled) return;
         console.log('tryParseMarkdownToBlocks raw output:', raw);
         console.log('raw block count:', raw.length);
@@ -281,6 +285,12 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
       } catch (err) {
         console.error('❌ Failed to parse markdown:', err);
         console.groupEnd();
+        if (!cancelled) {
+          startTransition(() => {
+            setMdBlocks(null);
+            setMdKey((k) => k + 1);
+          });
+        }
       }
     };
     parse();

@@ -1,7 +1,8 @@
 "use client";
 
+import dynamic from 'next/dynamic';
 import { Summary, SummaryResponse, Transcript } from '@/types';
-import { BlockNoteSummaryView, BlockNoteSummaryViewRef } from '@/components/AISummary/BlockNoteSummaryView';
+import type { BlockNoteSummaryViewRef } from '@/components/AISummary/BlockNoteSummaryView';
 import { EmptyStateSummary } from '@/components/EmptyStateSummary';
 import { ModelConfig } from '@/components/ModelSettingsModal';
 import { SummaryGeneratorButtonGroup } from './SummaryGeneratorButtonGroup';
@@ -79,6 +80,22 @@ function SummarySkeleton() {
     </div>
   );
 }
+
+/** BlockNote / ProseMirror cần DOM — không SSR module này (tránh renderSpec trên Node). */
+const BlockNoteSummaryView = dynamic(
+  () =>
+    import('@/components/AISummary/BlockNoteSummaryView').then((mod) => ({
+      default: mod.BlockNoteSummaryView,
+    })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="p-6 w-full">
+        <SummarySkeleton />
+      </div>
+    ),
+  }
+);
 
 export function SummaryPanel({
   meeting,
