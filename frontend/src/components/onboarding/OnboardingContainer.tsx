@@ -1,8 +1,10 @@
 import React from 'react';
+import Image from 'next/image';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ProgressIndicator } from './shared/ProgressIndicator';
 import { useOnboarding } from '@/contexts/OnboardingContext';
+import { BRAND_NAME, BRAND_LOGO_PATH } from '@/constants/brand';
 import type { OnboardingContainerProps } from '@/types/onboarding';
 
 export function OnboardingContainer({
@@ -13,6 +15,7 @@ export function OnboardingContainer({
   totalSteps = 5,
   stepOffset = 0,
   hideProgress = false,
+  showBrandLogo = false,
   className,
   showNavigation = false,
   onNext,
@@ -86,6 +89,18 @@ export function OnboardingContainer({
 
         {/* Header - Fixed */}
         <div className="mb-4 text-center space-y-3 flex-shrink-0">
+          {showBrandLogo && (
+            <div className="flex justify-center animate-fade-in-up">
+              <Image
+                src={BRAND_LOGO_PATH}
+                alt={BRAND_NAME}
+                width={240}
+                height={96}
+                priority
+                className="w-56 sm:w-60 h-auto object-contain"
+              />
+            </div>
+          )}
           <h1 className="text-4xl font-semibold text-gray-900 animate-fade-in-up">{title}</h1>
           {description && (
             <p className="text-base text-gray-600 max-w-md mx-auto animate-fade-in-up delay-75">

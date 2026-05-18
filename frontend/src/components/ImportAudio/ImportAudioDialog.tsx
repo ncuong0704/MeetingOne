@@ -85,7 +85,7 @@ export function ImportAudioDialog({
     refetchMeetings();
     onComplete?.();
     onOpenChange(false);
-    router.push(`/meeting-details?id=${result.meeting_id}`);
+    router.push(`/meeting-details?id=${result.meeting_id}&source=import`);
   }, [router, refetchMeetings, onComplete, onOpenChange]);
 
   const handleImportError = useCallback((error: string) => {

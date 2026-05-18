@@ -70,12 +70,28 @@ impl Template {
         Ok(())
     }
 
-    /// Generates a clean markdown template structure
+    /// Generates a clean markdown template structure with format placeholders
     pub fn to_markdown_structure(&self) -> String {
         let mut markdown = String::from("# <Tiêu đề cuộc họp>\n\n");
 
         for section in &self.sections {
-            markdown.push_str(&format!("**{}**\n\n", section.title));
+            markdown.push_str(&format!("## {}\n\n", section.title));
+
+            let item_format = section.item_format.as_ref()
+                .or(section.example_item_format.as_ref());
+
+            match section.format.as_str() {
+                "list" => {
+                    if let Some(fmt) = item_format {
+                        markdown.push_str(&format!("{}\n| (điền nội dung) | ... |\n\n", fmt));
+                    } else {
+                        markdown.push_str("- (điền mục 1)\n- (điền mục 2)\n\n");
+                    }
+                }
+                _ => {
+                    markdown.push_str("(điền nội dung)\n\n");
+                }
+            }
         }
 
         markdown

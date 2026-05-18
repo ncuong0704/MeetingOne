@@ -114,7 +114,8 @@ export function useModelConfiguration({ serverAddress }: UseModelConfigurationPr
         model: configToSave.model,
         whisperModel: configToSave.whisperModel,
         apiKey: configToSave.apiKey ?? null,
-        ollamaEndpoint: configToSave.ollamaEndpoint ?? null
+        ollamaEndpoint: configToSave.ollamaEndpoint ?? null,
+        fallbackModels: configToSave.fallbackModels ?? null,
       };
       console.log('Saving model config with payload:', payload);
 
@@ -137,6 +138,7 @@ export function useModelConfiguration({ serverAddress }: UseModelConfigurationPr
         whisperModel: payload.whisperModel,
         apiKey: payload.apiKey,
         ollamaEndpoint: payload.ollamaEndpoint,
+        fallbackModelsJson: payload.fallbackModels ? JSON.stringify(payload.fallbackModels) : null,
       });
 
       console.log('Save model config success');

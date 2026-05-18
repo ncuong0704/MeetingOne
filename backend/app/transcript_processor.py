@@ -18,6 +18,8 @@ from token_manager import (
     estimate_tokens,
     get_safe_chunk_chars,
     is_rate_limit_error,
+    is_daily_limit_error,
+    extract_retry_after,
     MAX_RETRIES,
     INITIAL_BACKOFF_SECONDS,
     CHUNK_REDUCTION_FACTOR,
@@ -114,6 +116,48 @@ class TranscriptProcessor:
         logger.info("TranscriptProcessor initialized.")
         self.db = DatabaseManager()
         self.active_clients = []  # Track active Ollama client sessions
+    @staticmethod
+    def _build_prompt(chunk: str, custom_prompt: str) -> str:
+        """Build the extraction prompt for a given chunk."""
+        return f"""Dưới đây là một đoạn biên bản cuộc họp. Hãy trích xuất ĐẦY ĐỦ thông tin theo cấu trúc JSON yêu cầu. Nếu một phần không có thông tin liên quan, hãy trả về danh sách trống cho 'blocks'. Chỉ xuất dữ liệu JSON.
+
+HƯỚNG DẪN TRÍCH XUẤT TỪNG PHẦN:
+- People (Người tham dự): Liệt kê TẤT CẢ tên người được đề cập kèm chức vụ/vai trò và đơn vị nếu có, bao gồm cả người vắng mặt được nhắc đến. Mỗi người là một block kiểu 'bullet'.
+- SessionSummary (Tóm tắt phiên họp): Tóm tắt 5-8 câu về toàn bộ nội dung và bối cảnh cuộc họp. Nắm đủ luồng thảo luận chính. Dùng block kiểu 'text'.
+- CriticalDeadlines (Thời hạn quan trọng): Liệt kê TẤT CẢ ngày/thời hạn được đề cập, kể cả thời hạn mang tính ước lượng. Mỗi deadline là một block kiểu 'bullet'.
+- KeyItemsDecisions (Quyết định chính): TẤT CẢ các quyết định đã thống nhất, kể cả quyết định tạm thời hoặc có điều kiện. Không bỏ sót. Mỗi quyết định là một block kiểu 'bullet'.
+- ImmediateActionItems (Việc cần làm ngay): TẤT CẢ công việc được giao — không được bỏ sót bất kỳ đầu việc nào dù nhỏ. Có tên người chịu trách nhiệm và thời hạn nếu được đề cập. Mỗi đầu việc là một block kiểu 'bullet'.
+- NextSteps (Bước tiếp theo): Kế hoạch tương lai, lịch họp tiếp theo, các việc cần theo dõi. Mỗi bước là một block kiểu 'bullet'.
+- MeetingNotes: Chỉ điền 'meeting_name' (tên cuộc họp), để 'sections' là mảng rỗng [].
+
+QUAN TRỌNG - Loại block hợp lệ: 'text', 'bullet', 'heading1', 'heading2'
+- 'text': đoạn văn thông thường
+- 'bullet': mục danh sách
+- 'heading1': tiêu đề chính
+- 'heading2': tiêu đề phụ
+
+QUAN TRỌNG - Trường 'id' của mỗi block PHẢI theo định dạng: "{{tên_section}}_{{số_thứ_tự}}"
+Ví dụ: "session_summary_0", "action_items_1", "next_steps_0"
+
+Trường 'color': dùng 'gray' cho nội dung ít quan trọng, '' (chuỗi rỗng) cho mặc định.
+
+YÊU CẦU NGÔN NGỮ: Toàn bộ nội dung văn bản trong JSON BẮT BUỘC phải bằng tiếng Việt.
+
+Đoạn biên bản:
+---
+{chunk}
+---
+
+Hãy nắm bắt tất cả các đầu việc liên quan. Biên bản có thể có lỗi chính tả, hãy sửa nếu cần. Bối cảnh rất quan trọng.
+
+Thêm ngữ cảnh sau khi tạo tóm tắt:
+---
+{custom_prompt}
+---
+
+ƯU TIÊN: Điền ĐẦY ĐỦ mọi thông tin. Nếu thông tin không chắc chắn — ghi "(không rõ)" thay vì bỏ trống.
+Chỉ xuất dữ liệu JSON. Toàn bộ nội dung phải bằng tiếng Việt."""
+
     async def _process_single_chunk(
         self,
         i: int,
@@ -128,43 +172,7 @@ class TranscriptProcessor:
         chunk_tokens = estimate_tokens(chunk)
         logger.info(f"Processing chunk {i+1}/{num_chunks} | estimated_tokens={chunk_tokens} | stage=chunk_start")
 
-        PROMPT_TEMPLATE = f"""Dưới đây là một đoạn biên bản cuộc họp. Hãy trích xuất thông tin theo cấu trúc JSON yêu cầu. Nếu một phần (ví dụ: Thời hạn quan trọng) không có thông tin liên quan trong đoạn này, hãy trả về danh sách trống cho 'blocks'. Chỉ xuất dữ liệu JSON.
-
-HƯỚNG DẪN TRÍCH XUẤT TỪNG PHẦN:
-- People (Người tham dự): Liệt kê tất cả tên người được đề cập kèm chức vụ/vai trò nếu có. Mỗi người là một block kiểu 'bullet'.
-- SessionSummary (Tóm tắt phiên họp): Tóm tắt 3-5 câu về nội dung chính của cuộc họp. Dùng block kiểu 'text'.
-- CriticalDeadlines (Thời hạn quan trọng): CHỈ điền nếu có ngày/thời hạn cụ thể được đề cập; nếu không có thì để trống.
-- KeyItemsDecisions (Quyết định chính): Các quyết định đã được thống nhất trong cuộc họp. Mỗi quyết định là một block kiểu 'bullet'.
-- ImmediateActionItems (Việc cần làm ngay): Công việc được giao, có tên người chịu trách nhiệm nếu được đề cập. Mỗi đầu việc là một block kiểu 'bullet'.
-- NextSteps (Bước tiếp theo): Kế hoạch tương lai, lịch họp tiếp theo. Mỗi bước là một block kiểu 'bullet'.
-- MeetingNotes: Chỉ điền 'meeting_name' (tên cuộc họp), để 'sections' là mảng rỗng [].
-
-QUAN TRỌNG - Loại block hợp lệ: 'text', 'bullet', 'heading1', 'heading2'
-- 'text': đoạn văn thông thường
-- 'bullet': mục danh sách
-- 'heading1': tiêu đề chính
-- 'heading2': tiêu đề phụ
-
-QUAN TRỌNG - Trường 'id' của mỗi block PHẢI theo định dạng: "{{tên_section}}_{{số_thứ_tự}}"
-Ví dụ: "session_summary_0", "action_items_1", "next_steps_0"
-
-Trường 'color': dùng 'gray' cho nội dung ít quan trọng, '' (chuỗi rỗng) cho mặc định.
-
-YÊU CẦU NGÔN NGỮ: Toàn bộ nội dung văn bản trong JSON (tiêu đề, mô tả, tóm tắt, việc cần làm, v.v.) BẮT BUỘC phải bằng tiếng Việt.
-
-Đoạn biên bản:
----
-{chunk}
----
-
-Hãy nắm bắt tất cả các đầu việc liên quan. Biên bản có thể có lỗi chính tả, hãy sửa nếu cần. Bối cảnh rất quan trọng.
-
-Thêm ngữ cảnh sau khi tạo tóm tắt:
----
-{custom_prompt}
----
-
-Chỉ xuất dữ liệu JSON. Toàn bộ nội dung phải bằng tiếng Việt."""
+        PROMPT_TEMPLATE = self._build_prompt(chunk, custom_prompt)
 
         # Ollama là local model, không có giới hạn API cost nên cho timeout dài hơn
         TIMEOUT = 300.0 if model == "ollama" else 120.0
@@ -180,7 +188,7 @@ Chỉ xuất dữ liệu JSON. Toàn bộ nội dung phải bằng tiếng Việ
                 else:
                     logger.info(f"Ollama chunk {i+1}/{num_chunks} | chunk_size={len(chunk)} | estimated_tokens={chunk_tokens}")
                     response = await asyncio.wait_for(
-                        self.chat_ollama_model(model_name, chunk, custom_prompt, full_prompt=PROMPT_TEMPLATE),
+                        self.chat_ollama_model(model_name, chunk, custom_prompt, full_prompt=PROMPT_TEMPLATE, chunk_tokens=chunk_tokens),
                         timeout=TIMEOUT,
                     )
                     if isinstance(response, SummaryResponse):
@@ -210,7 +218,19 @@ Chỉ xuất dữ liệu JSON. Toàn bộ nội dung phải bằng tiếng Việ
                 raise
 
             except Exception as chunk_error:
-                if is_rate_limit_error(chunk_error) and retry_count < MAX_RETRIES:
+                # Lỗi TPD (giới hạn token theo ngày) — không retry vì phải chờ hàng giờ
+                if is_daily_limit_error(chunk_error):
+                    wait_hint = extract_retry_after(chunk_error)
+                    wait_msg = f" Vui lòng thử lại sau {wait_hint}." if wait_hint else " Vui lòng thử lại vào ngày mai."
+                    logger.error(
+                        f"Chunk {i+1}/{num_chunks} thất bại do vượt giới hạn token HÀNG NGÀY (TPD). "
+                        f"provider={model}/{model_name} | estimated_tokens={chunk_tokens} |{wait_msg} | stage=daily_limit_exhausted"
+                    )
+                    raise RuntimeError(
+                        f"Đã vượt giới hạn token hàng ngày của '{model}/{model_name}'.{wait_msg} "
+                        f"Hãy đổi sang model/nhà cung cấp khác hoặc chờ đến hôm sau."
+                    )
+                elif is_rate_limit_error(chunk_error) and retry_count < MAX_RETRIES:
                     retry_count += 1
                     backoff = INITIAL_BACKOFF_SECONDS * (2 ** (retry_count - 1))
                     logger.warning(
@@ -221,8 +241,9 @@ Chỉ xuất dữ liệu JSON. Toàn bộ nội dung phải bằng tiếng Việ
                     if retry_count == MAX_RETRIES:
                         reduced = int(len(chunk) * CHUNK_REDUCTION_FACTOR)
                         chunk = chunk[:reduced]
-                        PROMPT_TEMPLATE = PROMPT_TEMPLATE  # chunk updated, prompt template rebuilt on next iter
-                        logger.warning(f"Reducing chunk {i+1} to {reduced} chars (~{estimate_tokens(chunk)} tokens) | stage=chunk_size_reduced")
+                        PROMPT_TEMPLATE = self._build_prompt(chunk, custom_prompt)
+                        chunk_tokens = estimate_tokens(chunk)
+                        logger.warning(f"Reducing chunk {i+1} to {reduced} chars (~{chunk_tokens} tokens) | stage=chunk_size_reduced")
                 else:
                     if is_rate_limit_error(chunk_error):
                         logger.error(
@@ -294,10 +315,8 @@ Chỉ xuất dữ liệu JSON. Toàn bộ nội dung phải bằng tiếng Việ
                 llm = AnthropicModel(model_name, provider=AnthropicProvider(api_key=api_key))
                 logger.info(f"Using Claude model: {model_name}")
             elif model == "ollama":
-                ollama_host = os.getenv('OLLAMA_HOST', 'http://localhost:11434')
-                ollama_base_url = f"{ollama_host}/v1"
-                llm = OpenAIModel(model_name=model_name, provider=OpenAIProvider(base_url=ollama_base_url))
-                logger.info(f"Using Ollama model: {model_name}")
+                llm = None  # Ollama dùng AsyncClient trực tiếp trong chat_ollama_model
+                logger.info(f"Using Ollama model: {model_name} (native AsyncClient)")
             elif model == "groq":
                 api_key = await db.get_api_key("groq")
                 if not api_key: raise ValueError("GROQ_API_KEY environment variable not set")
@@ -312,9 +331,12 @@ Chỉ xuất dữ liệu JSON. Toàn bộ nội dung phải bằng tiếng Việ
                 logger.error(f"Unsupported model provider requested: {model}")
                 raise ValueError(f"Unsupported model provider: {model}")
 
-            # Initialize the pydantic-ai agent
-            agent = Agent(llm, result_type=SummaryResponse, result_retries=0)
-            logger.info("Pydantic-AI Agent initialized.")
+            # Ollama dùng AsyncClient riêng, không cần pydantic-ai Agent
+            if model != "ollama":
+                agent = Agent(llm, result_type=SummaryResponse, result_retries=0)
+                logger.info("Pydantic-AI Agent initialized.")
+            else:
+                agent = None
 
             # ── Bước 2 & 3: Split transcript into safe-sized chunks ───────────────
             step = chunk_size - overlap
@@ -362,7 +384,7 @@ Chỉ xuất dữ liệu JSON. Toàn bộ nội dung phải bằng tiếng Việ
             logger.error(f"Error during transcript processing: {str(e)}", exc_info=True)
             raise
     
-    async def chat_ollama_model(self, model_name: str, transcript: str, custom_prompt: str, full_prompt: str = ""):
+    async def chat_ollama_model(self, model_name: str, transcript: str, custom_prompt: str, full_prompt: str = "", chunk_tokens: int = 0):
         # Dùng full_prompt (từ _process_single_chunk) nếu có, ngược lại build prompt cơ bản
         if full_prompt:
             content = full_prompt
@@ -392,7 +414,9 @@ Chỉ xuất dữ liệu JSON. Toàn bộ nội dung phải bằng tiếng Việ
         self.active_clients.append(client)
         
         try:
-            response = await client.chat(model=model_name, messages=[message], stream=True, format=SummaryResponse.model_json_schema(), options={"num_predict": 2048})
+            num_ctx = max(8192, chunk_tokens + 600 + 4096)
+            logger.info(f"Ollama options | num_ctx={num_ctx} | num_predict=4096 | temperature=0 | chunk_tokens={chunk_tokens}")
+            response = await client.chat(model=model_name, messages=[message], stream=True, format=SummaryResponse.model_json_schema(), options={"num_predict": 4096, "temperature": 0, "num_ctx": num_ctx})
             
             full_response = ""
             async for part in response:

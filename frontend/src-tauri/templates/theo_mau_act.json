@@ -9,17 +9,17 @@
     },
     {
       "title": "I. NỘI DUNG TIẾN HÀNH TRONG HỘI NGHỊ",
-      "instruction": "Tóm tắt các nội dung được trình bày và thảo luận trong cuộc họp theo thứ tự: (1) Báo cáo kết quả công tác từ đại diện các phòng ban; (2) Ý kiến chỉ đạo của lãnh đạo cấp cao (Chủ tịch HĐQT, Tổng Giám đốc); (3) Ý kiến tham luận, báo cáo của chỉ huy các đơn vị. Mỗi ý kiến ghi rõ họ tên, chức vụ và nội dung chính. Viết bằng tiếng Việt.",
+      "instruction": "Tóm tắt các nội dung được trình bày và thảo luận trong cuộc họp theo thứ tự: (1) Báo cáo kết quả công tác từ đại diện các phòng ban; (2) Ý kiến chỉ đạo của lãnh đạo cấp cao (Chủ tịch HĐQT, Tổng Giám đốc); (3) Ý kiến tham luận, báo cáo của chỉ huy các đơn vị. Mỗi ý kiến ghi rõ họ tên, chức vụ và nội dung chính. Không bỏ sót ý kiến của bất kỳ người nào đã phát biểu. Giữ nguyên các con số, tỷ lệ, số liệu được đề cập. Viết bằng tiếng Việt.",
       "format": "paragraph"
     },
     {
       "title": "II. KẾT LUẬN CHUNG",
-      "instruction": "Tổng hợp toàn bộ kết luận và chỉ đạo của người chủ trì, phân nhóm theo từng lĩnh vực công tác (ví dụ: Kỹ thuật & Vận hành, Nhân sự & Tuyển dụng, Quản lý Dự án, Tài chính…). Mỗi nhóm đánh số thứ tự (1, 2, 3…). Trong mỗi nhóm, liệt kê rõ các nội dung chỉ đạo, giao việc cụ thể. Viết bằng tiếng Việt.",
+      "instruction": "Tổng hợp toàn bộ kết luận và chỉ đạo của người chủ trì, phân nhóm theo từng lĩnh vực công tác (ví dụ: Kỹ thuật & Vận hành, Nhân sự & Tuyển dụng, Quản lý Dự án, Tài chính…). Mỗi nhóm đánh số thứ tự (1, 2, 3…). Trong mỗi nhóm, liệt kê rõ các nội dung chỉ đạo, giao việc cụ thể. Không được bỏ sót bất kỳ chỉ đạo nào. Giữ nguyên tên đơn vị, con số, thời hạn. Viết bằng tiếng Việt.",
       "format": "paragraph"
     },
     {
       "title": "Công việc được giao",
-      "instruction": "Liệt kê tất cả các công việc được giao cụ thể trong cuộc họp. Mỗi mục phải có: đơn vị/cá nhân được giao, nội dung công việc, thời hạn hoàn thành (nếu có). Viết bằng tiếng Việt.",
+      "instruction": "Liệt kê TẤT CẢ các công việc được giao cụ thể trong cuộc họp — không được bỏ sót bất kỳ đầu việc nào. Mỗi mục phải có: đơn vị/cá nhân được giao, nội dung công việc, thời hạn hoàn thành (nếu có). Nếu thời hạn không rõ, ghi \"(chưa xác định)\". Viết bằng tiếng Việt.",
       "format": "list",
       "item_format": "| Đơn vị/Cá nhân | Nội dung công việc | Thời hạn |\n| --- | --- | --- |"
     }

@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Summary, SummaryResponse } from '@/types';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
@@ -9,6 +10,7 @@ import { toast } from 'sonner';
 import { TranscriptPanel } from '@/components/MeetingDetails/TranscriptPanel';
 import { SummaryPanel } from '@/components/MeetingDetails/SummaryPanel';
 import { ModelConfig } from '@/components/ModelSettingsModal';
+import { persistSummaryModelConfig } from '@/lib/summaryModelConfigSync';
 import { PanelLeft, Columns2, PanelRight } from 'lucide-react';
 
 // Custom hooks
@@ -59,6 +61,9 @@ export default function PageContent({
   const [isRecording] = useState(false);
   const [summaryResponse] = useState<SummaryResponse | null>(null);
 
+  const searchParams = useSearchParams();
+  const navigationSource = searchParams.get('source');
+
   // Split view UI state (persisted)
   const [layoutMode, setLayoutMode] = useState<'split' | 'transcript' | 'summary'>('split');
   const [leftPct, setLeftPct] = useState<number>(40); // transcript width in split mode (%)
@@ -97,18 +102,8 @@ export default function PageContent({
   const handleSaveModelConfig = async (config?: ModelConfig) => {
     if (!config) return;
     try {
-      await invoke('api_save_model_config', {
-        provider: config.provider,
-        model: config.model,
-        whisperModel: config.whisperModel,
-        apiKey: config.apiKey ?? null,
-        ollamaEndpoint: config.ollamaEndpoint ?? null,
-      });
-
-      // Emit event so ConfigContext and other listeners stay in sync
-      const { emit } = await import('@tauri-apps/api/event');
-      await emit('model-config-updated', config);
-
+      await persistSummaryModelConfig(config);
+      setModelConfig(config);
       toast.success('Đã lưu cài đặt mô hình');
     } catch (error) {
       console.error('Failed to save model config:', error);
@@ -205,12 +200,19 @@ export default function PageContent({
     Analytics.trackPageView('meeting_details');
   }, []);
 
-  // Restore persisted layout settings
+  // After recording/import: open split view instead of restoring last tab from localStorage
+  const forceSplitView =
+    navigationSource === 'recording' || navigationSource === 'import';
+
   useEffect(() => {
     try {
-      const savedMode = localStorage.getItem('meetingDetailsLayoutMode');
-      if (savedMode === 'split' || savedMode === 'transcript' || savedMode === 'summary') {
-        setLayoutMode(savedMode);
+      if (forceSplitView) {
+        setLayoutMode('split');
+      } else {
+        const savedMode = localStorage.getItem('meetingDetailsLayoutMode');
+        if (savedMode === 'split' || savedMode === 'transcript' || savedMode === 'summary') {
+          setLayoutMode(savedMode);
+        }
       }
       const savedPct = Number(localStorage.getItem('meetingDetailsSplitLeftPct'));
       if (Number.isFinite(savedPct) && savedPct >= 25 && savedPct <= 75) {
@@ -219,7 +221,7 @@ export default function PageContent({
     } catch {
       // ignore (e.g. sandboxed env)
     }
-  }, []);
+  }, [forceSplitView]);
 
   // Persist layout settings
   useEffect(() => {

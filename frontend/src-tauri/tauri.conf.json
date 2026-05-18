@@ -1,7 +1,7 @@
 {
     "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
     "productName": "ACT MeetingOne",
-    "version": "0.0.1",
+    "version": "0.0.3",
     "identifier": "com.meetingone.app",
     "build": {
         "frontendDist": "../out",
@@ -18,8 +18,7 @@
                 "resizable": true,
                 "fullscreen": false,
                 "theme": "Light",
-                "decorations": true,
-                "devtools": true
+                "decorations": true
             }
         ],
         "macOSPrivateApi": true,

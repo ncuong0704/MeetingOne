@@ -44,27 +44,55 @@ impl SettingsRepository {
         model: &str,
         whisper_model: &str,
         ollama_endpoint: Option<&str>,
+        fallback_models_json: Option<&str>,
     ) -> std::result::Result<(), sqlx::Error> {
         // Using id '1' for backward compatibility
         sqlx::query(
             r#"
-            INSERT INTO settings (id, provider, model, whisperModel, ollamaEndpoint)
-            VALUES ('1', $1, $2, $3, $4)
+            INSERT INTO settings (id, provider, model, whisperModel, ollamaEndpoint, fallbackModels)
+            VALUES ('1', $1, $2, $3, $4, $5)
             ON CONFLICT(id) DO UPDATE SET
                 provider = excluded.provider,
                 model = excluded.model,
                 whisperModel = excluded.whisperModel,
-                ollamaEndpoint = excluded.ollamaEndpoint
+                ollamaEndpoint = excluded.ollamaEndpoint,
+                fallbackModels = COALESCE(excluded.fallbackModels, settings.fallbackModels)
             "#,
         )
         .bind(provider)
         .bind(model)
         .bind(whisper_model)
         .bind(ollama_endpoint)
+        .bind(fallback_models_json)
         .execute(pool)
         .await?;
 
         Ok(())
+    }
+
+    /// Returns the list of fallback model names for the given provider.
+    /// Reads from the `fallbackModels` JSON map column.
+    pub async fn get_fallback_models(
+        pool: &SqlitePool,
+        provider: &str,
+    ) -> std::result::Result<Vec<String>, sqlx::Error> {
+        let setting = Self::get_model_config(pool).await?;
+        let map_str = setting
+            .and_then(|s| s.fallback_models)
+            .unwrap_or_default();
+        if map_str.is_empty() {
+            return Ok(vec![]);
+        }
+        let map: serde_json::Value = serde_json::from_str(&map_str).unwrap_or_default();
+        let models = map[provider]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok(models)
     }
 
     pub async fn save_api_key(

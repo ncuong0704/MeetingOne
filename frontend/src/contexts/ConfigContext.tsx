@@ -231,6 +231,9 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
                   provider: data.provider,
                   model: resolvedModel || prev.model,
                   whisperModel: data.whisperModel || prev.whisperModel,
+                  ollamaEndpoint: data.ollamaEndpoint,
+                  apiKey: data.apiKey ?? prev.apiKey,
+                  fallbackModels: data.fallbackModels ?? prev.fallbackModels,
                   customOpenAIEndpoint: customConfig.endpoint,
                   customOpenAIModel: customConfig.model,
                   customOpenAIApiKey: customConfig.apiKey,
@@ -253,13 +256,28 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
             }
           }
 
-          // For non-custom-openai providers, just set base config
+          // Load API key for cloud providers when not included in model config response
+          if (
+            data.provider !== 'ollama' &&
+            data.provider !== 'custom-openai' &&
+            !data.apiKey
+          ) {
+            try {
+              data.apiKey = await invoke<string>('api_get_api_key', { provider: data.provider });
+            } catch {
+              // no key stored yet
+            }
+          }
+
+          // For non-custom-openai providers, set base config (keep apiKey from DB when present)
           setModelConfig(prev => ({
             ...prev,
             provider: data.provider,
             model: data.model || prev.model,
             whisperModel: data.whisperModel || prev.whisperModel,
             ollamaEndpoint: data.ollamaEndpoint,
+            apiKey: data.apiKey ?? prev.apiKey,
+            fallbackModels: data.fallbackModels ?? prev.fallbackModels,
           }));
 
           // Seed per-provider model cache from DB
@@ -288,12 +306,13 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
           )
         );
 
-        setProviderApiKeys({
+        const loaded = {
           claude: keys[0],
           groq: keys[1],
           openai: keys[2],
           openrouter: keys[3],
-        });
+        };
+        setProviderApiKeys(loaded);
         console.log('[ConfigContext] Loaded provider API keys');
       } catch (error) {
         console.error('[ConfigContext] Failed to load provider API keys:', error);

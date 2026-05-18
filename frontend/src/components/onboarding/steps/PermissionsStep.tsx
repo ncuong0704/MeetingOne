@@ -115,7 +115,7 @@ export function PermissionsStep() {
     <OnboardingContainer
       title="Cấp quyền truy cập"
       description="ACT MeetingOne cần truy cập microphone và âm thanh hệ thống để ghi âm cuộc họp"
-      step={4}
+      step={3}
       hideProgress={true}
       showNavigation={allPermissionsGranted}
       canGoNext={allPermissionsGranted}

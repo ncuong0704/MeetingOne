@@ -28,28 +28,8 @@ interface EditorProps {
 export default function Editor({ initialContent, onChange, editable = true }: EditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const safeInitialContent = (initialContent && initialContent.length > 0)
-    ? initialContent as PartialBlock[]
-    : undefined;
-
-  console.group('[BlockNote Editor] init');
-  console.log('initialContent length:', initialContent?.length ?? 0);
-  if (initialContent && initialContent.length > 0) {
-    initialContent.forEach((block, i) => {
-      // Use JSON.stringify so the full structure is visible even in production minified builds
-      try {
-        console.log(`  block[${i}] JSON:`, JSON.stringify(block, null, 2));
-      } catch {
-        console.log(`  block[${i}] (not serializable):`, block);
-      }
-    });
-  }
-  console.groupEnd();
-
   const editor = useCreateBlockNote({
-    // Treat an empty array the same as undefined — ProseMirror requires at least one
-    // paragraph node in a document, so passing [] triggers renderSpec with invalid spec.
-    initialContent: safeInitialContent,
+    initialContent: initialContent as PartialBlock[] | undefined,
   });
 
   useVnMarkPreservation(editor, containerRef);

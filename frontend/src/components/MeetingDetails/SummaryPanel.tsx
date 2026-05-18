@@ -1,8 +1,7 @@
 "use client";
 
-import dynamic from 'next/dynamic';
 import { Summary, SummaryResponse, Transcript } from '@/types';
-import type { BlockNoteSummaryViewRef } from '@/components/AISummary/BlockNoteSummaryView';
+import { BlockNoteSummaryView, type BlockNoteSummaryViewRef } from '@/components/AISummary/BlockNoteSummaryView';
 import { EmptyStateSummary } from '@/components/EmptyStateSummary';
 import { ModelConfig } from '@/components/ModelSettingsModal';
 import { SummaryGeneratorButtonGroup } from './SummaryGeneratorButtonGroup';
@@ -81,21 +80,8 @@ function SummarySkeleton() {
   );
 }
 
-/** BlockNote / ProseMirror cần DOM — không SSR module này (tránh renderSpec trên Node). */
-const BlockNoteSummaryView = dynamic(
-  () =>
-    import('@/components/AISummary/BlockNoteSummaryView').then((mod) => ({
-      default: mod.BlockNoteSummaryView,
-    })),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="p-6 w-full">
-        <SummarySkeleton />
-      </div>
-    ),
-  }
-);
+// BlockNoteSummaryView không bọc next/dynamic: dynamic() không forward ref nên imperative API (xuất DOCX/PDF)
+// không khớp được với summaryRef — trình soạn trong component vẫn lazy-load Editor (`ssr: false`).
 
 export function SummaryPanel({
   meeting,
@@ -200,7 +186,9 @@ export function SummaryPanel({
             isGenerating={false}
           />
         </div>
-      ) : transcripts?.length > 0 ? (
+      ) : (
+        // Luôn mount BlockNote khi đã có tóm tắt; trước đây gating theo transcripts khiến ref null
+        // và nút Xuất DOCX/PDF (vẫn hiển thị khi có aiSummary) không gọi được export.
         <div className="flex-1 overflow-y-auto min-h-0">
           <div className="p-6 w-full">
             <BlockNoteSummaryView
@@ -228,7 +216,7 @@ export function SummaryPanel({
             </div>
           )}
         </div>
-      ) : null}
+      )}
     </div>
   );
 }

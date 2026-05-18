@@ -35,26 +35,17 @@ pub async fn get_ollama_model_options(
     .map_err(|e| format!("spawn_blocking failed: {}", e))?;
 
     // Curated catalogue: (name, family, size_gb, min_ram_gb, description)
-    // Ordered from smallest to largest. Tags follow Ollama naming (Qwen3 / Gemma / Llama).
+    // Ordered from smallest to largest. Only sub-4B models with good Vietnamese support.
     let catalogue: &[(&str, &str, f32, u64, &str)] = &[
-        ("qwen3.5:2b",    "Qwen",    2.1,  4,  "Qwen 3.5 2B — mới hơn, nhẹ; multilingual (~2B)"),
-        ("llama3.2:3b",   "Llama",   2.5,  4,  "Ổn định; kém Qwen3 một chút về tiếng Việt"),
-        ("gemma3:4b",     "Gemma",   3.0,  6,  "Khá tốt, nhanh — thay thế nếu thích Gemma"),
-        ("qwen3:4b",      "Qwen",    3.5,  6,  "Rất tốt, vượt trội theo size — lựa chọn hàng đầu (nhẹ)"),
-        ("qwen3.5:4b",    "Qwen",    3.6,  6,  "Qwen 3.5 4B — mới hơn, mạnh; multilingual (~4B)"),
-        ("gemma2:9b",     "Gemma",   5.5,  8,  "Gemma ~9B, nhanh — thay thế nếu thích hệ Gemma"),
-        ("qwen3:8b",      "Qwen",    6.5,  8,  "Xuất sắc, multilingual mạnh — cân bằng tốt (nhẹ–mạnh)"),
+        ("qwen3.5:0.8b", "Qwen", 1.0, 4, "Qwen 3.5 0.8B (Feb 2026) — siêu nhẹ, 201 ngôn ngữ, tiếng Việt tốt"),
+        ("qwen3.5:2b",   "Qwen", 2.7, 4, "Qwen 3.5 2B (Feb 2026) — tốt nhất dưới 4B, tóm tắt tiếng Việt xuất sắc"),
     ];
 
     // Recommended tag must appear exactly in `catalogue` above.
-    let recommended = if ram_gb >= 8 {
-        "qwen3:8b"
-    } else if ram_gb >= 6 {
-        "qwen3:4b"
-    } else if ram_gb >= 4 {
+    let recommended = if ram_gb >= 4 {
         "qwen3.5:2b"
     } else {
-        "qwen3.5:2b"
+        "qwen3.5:0.8b"
     };
 
     // Fetch locally pulled models (ignore errors — Ollama may not be running yet)
@@ -110,29 +101,17 @@ pub async fn get_ollama_model_recommendation() -> Result<OllamaModelRecommendati
     .map_err(|e| format!("spawn_blocking failed: {}", e))?;
 
     // Footprint ≈ quantized weights; leave headroom for OS + app + context.
-    let (model, size_gb, description) = if ram_gb >= 8 {
-        (
-            "qwen3:8b",
-            6.5,
-            "Xuất sắc, multilingual mạnh — cân bằng tốt (nhẹ–mạnh)",
-        )
-    } else if ram_gb >= 6 {
-        (
-            "qwen3:4b",
-            3.5,
-            "Rất tốt, vượt trội theo size — lựa chọn hàng đầu (nhẹ)",
-        )
-    } else if ram_gb >= 4 {
+    let (model, size_gb, description) = if ram_gb >= 4 {
         (
             "qwen3.5:2b",
-            2.1,
-            "Qwen 3.5 2B — mới hơn, nhẹ; multilingual (~2B)",
+            2.7,
+            "Qwen 3.5 2B (Feb 2026) — tốt nhất dưới 4B, tóm tắt tiếng Việt xuất sắc",
         )
     } else {
         (
-            "qwen3.5:2b",
-            2.1,
-            "Qwen 3.5 2B — mới hơn, nhẹ; multilingual (~2B)",
+            "qwen3.5:0.8b",
+            1.0,
+            "Qwen 3.5 0.8B (Feb 2026) — siêu nhẹ, 201 ngôn ngữ, tiếng Việt tốt",
         )
     };
 
@@ -323,25 +302,10 @@ pub async fn reset_onboarding_status_cmd<R: Runtime>(
 pub async fn complete_onboarding<R: Runtime>(
     app: AppHandle<R>,
     state: tauri::State<'_, AppState>,
-    model: String,
 ) -> Result<(), String> {
-    info!("Completing onboarding with ollama model: {}", model);
+    info!("Completing onboarding (summary model config saved by frontend)");
 
-    // Step 1: Save model configuration to SQLite database FIRST
     let pool = state.db_manager.pool();
-
-    // Onboarding uses ollama as the summary provider
-    if let Err(e) = SettingsRepository::save_model_config(
-        pool,
-        "ollama",
-        &model,
-        "large-v3",
-        None,
-    ).await {
-        error!("Failed to save ollama model config: {}", e);
-        return Err(format!("Failed to save ollama model config: {}", e));
-    }
-    info!("Saved ollama model config: model={}", model);
 
     // Save transcription model config (ZipFormer Vietnamese ASR)
     if let Err(e) = SettingsRepository::save_transcript_config(
@@ -360,7 +324,7 @@ pub async fn complete_onboarding<R: Runtime>(
         .map_err(|e| format!("Failed to load onboarding status: {}", e))?;
 
     status.completed = true;
-    status.current_step = 4;
+    status.current_step = 3;
     status.model_status.zipformer = "not_downloaded".to_string(); // user downloads separately
     status.model_status.summary = "not_downloaded".to_string();
 
@@ -368,6 +332,6 @@ pub async fn complete_onboarding<R: Runtime>(
         .await
         .map_err(|e| format!("Failed to save completed onboarding status: {}", e))?;
 
-    info!("Onboarding completed successfully with model: {}", model);
+    info!("Onboarding completed successfully");
     Ok(())
 }

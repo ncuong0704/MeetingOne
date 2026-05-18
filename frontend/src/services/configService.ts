@@ -25,6 +25,8 @@ export interface ModelConfig {
   maxTokens?: number | null;
   temperature?: number | null;
   topP?: number | null;
+  /** Per-provider fallback model list. Key = provider name, value = ordered list of fallback models. */
+  fallbackModels?: Record<string, string[]> | null;
 }
 
 export interface CustomOpenAIConfig {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle, Component, startTransition, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle, Component, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
 import { Summary, SummaryDataResponse, SummaryFormat, BlockNoteBlock } from '@/types';
 import { AISummary } from './index';
@@ -55,13 +55,8 @@ class BlockNoteErrorBoundary extends Component<
   static getDerivedStateFromError() {
     return { hasError: true };
   }
-  componentDidCatch(error: Error, info: any) {
-    console.group('❌ BlockNote render error caught by boundary');
-    console.error('error:', error);
-    console.error('error.message:', error.message);
-    console.error('error.stack:', error.stack);
-    console.error('componentStack:', info?.componentStack);
-    console.groupEnd();
+  componentDidCatch(error: Error) {
+    console.error('❌ BlockNote render error caught by boundary:', error);
   }
   render() {
     if (this.state.hasError) return this.props.fallback;
@@ -75,16 +70,6 @@ const KNOWN_BLOCK_TYPES = new Set([
   'checkListItem', 'image', 'video', 'audio', 'file', 'table', 'codeBlock'
 ]);
 
-function extractTextFromInlineItem(item: any): string {
-  if (typeof item === 'string') return item;
-  if (typeof item?.text === 'string') return item.text;
-  // ProseMirror marks (strong, em, code) wrap content in an array — recurse to extract text
-  if (Array.isArray(item?.content)) {
-    return item.content.map(extractTextFromInlineItem).join('');
-  }
-  return '';
-}
-
 function sanitizeInlineContent(items: any[]): any[] {
   return items
     .filter(item => item != null)
@@ -95,15 +80,8 @@ function sanitizeInlineContent(items: any[]): any[] {
       if (typeof item !== 'object') {
         return { type: 'text', text: String(item), styles: {} };
       }
-      // hardBreak / softBreak: NOT in BlockNote default schema, toDOM is undefined
-      // → ProseMirror throws "Invalid array passed to renderSpec"
-      if (item.type === 'hardBreak' || item.type === 'softBreak') {
-        return { type: 'text', text: ' ', styles: {} };
-      }
-      // mention: convert to plain text
-      if (item.type === 'mention') {
-        const label = item.label ?? item.attrs?.label ?? '@unknown';
-        return { type: 'text', text: String(label), styles: {} };
+      if (item.type === 'hardBreak') {
+        return { type: 'hardBreak' };
       }
       if (item.type === 'link') {
         return {
@@ -114,14 +92,10 @@ function sanitizeInlineContent(items: any[]): any[] {
             : [],
         };
       }
-      // Default: treat as text.
-      // Use extractTextFromInlineItem so ProseMirror mark nodes (strong/em/code) that
-      // tryParseMarkdownToBlocks may leave unconverted don't produce an empty text node
-      // (empty string in a text node can also trigger renderSpec in some schema configs).
-      const text = extractTextFromInlineItem(item);
+      // Default: treat as text (covers type:"text" and unknown types)
       return {
         type: 'text',
-        text: text.length > 0 ? text : ' ',
+        text: typeof item.text === 'string' ? item.text : '',
         styles: item.styles && typeof item.styles === 'object' ? item.styles : {},
       };
     });
@@ -152,22 +126,65 @@ function sanitizeProps(type: string, props: any): Record<string, any> {
   return p;
 }
 
-function sanitizeTableContent(tableContent: any): { type: 'tableContent'; rows: any[] } {
+function sanitizeTableContent(tableContent: any): {
+  type: 'tableContent';
+  rows: { cells: unknown[] }[];
+  columnWidths: (number | undefined)[];
+  headerRows: number;
+  headerCols: number;
+} {
   if (!tableContent || typeof tableContent !== 'object') {
-    return { type: 'tableContent', rows: [] };
+    return { type: 'tableContent', rows: [], columnWidths: [], headerRows: 0, headerCols: 0 };
   }
   const rows = Array.isArray(tableContent.rows) ? tableContent.rows : [];
   const sanitizedRows = rows
     .filter((row: any) => row != null && typeof row === 'object')
     .map((row: any) => ({
-      ...row,
       cells: Array.isArray(row.cells)
-        ? row.cells.map((cell: any) =>
-            Array.isArray(cell) ? sanitizeInlineContent(cell) : []
-          )
+        ? row.cells.map((cell: any) => {
+            // BlockNote v0.36 returns cells in two formats:
+            // 1. Array: InlineContent[] (serialized/saved format)
+            // 2. Object: {type:"tableCell", content: InlineContent[], props:{}} (parsed from markdown)
+            if (Array.isArray(cell)) return sanitizeInlineContent(cell);
+            if (cell && typeof cell === 'object' && Array.isArray(cell.content)) {
+              return {
+                type: 'tableCell',
+                content: sanitizeInlineContent(cell.content),
+                props: {
+                  backgroundColor: cell.props?.backgroundColor ?? 'default',
+                  textColor: cell.props?.textColor ?? 'default',
+                  textAlignment: cell.props?.textAlignment ?? 'left',
+                  colspan: cell.props?.colspan ?? 1,
+                  rowspan: cell.props?.rowspan ?? 1,
+                },
+              };
+            }
+            return [];
+          })
         : [],
     }));
-  return { type: 'tableContent', rows: sanitizedRows };
+
+  const maxCols = sanitizedRows.reduce(
+    (max: number, row: { cells: unknown[] }) => Math.max(max, row.cells.length),
+    0
+  );
+  let columnWidths: (number | undefined)[] = Array.isArray(tableContent.columnWidths)
+    ? [...tableContent.columnWidths]
+    : [];
+  while (columnWidths.length < maxCols) {
+    columnWidths.push(undefined);
+  }
+  if (columnWidths.length > maxCols) {
+    columnWidths = columnWidths.slice(0, maxCols);
+  }
+
+  return {
+    type: 'tableContent',
+    rows: sanitizedRows,
+    columnWidths,
+    headerRows: Number(tableContent.headerRows) || 0,
+    headerCols: Number(tableContent.headerCols) || 0,
+  };
 }
 
 function sanitizeBlocks(blocks: any[]): any[] {
@@ -268,19 +285,8 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
     let cancelled = false;
     const parse = async () => {
       try {
-        console.group('[BlockNoteSummaryView] markdown parse');
-        console.log('markdown input (first 300 chars):', data.markdown.slice(0, 300));
-        const parsed = await parserEditor.tryParseMarkdownToBlocks(data.markdown);
-        const raw = Array.isArray(parsed) ? parsed : [];
-        if (!Array.isArray(parsed)) {
-          console.warn('tryParseMarkdownToBlocks returned non-array:', parsed);
-        }
+        const raw = await parserEditor.tryParseMarkdownToBlocks(data.markdown);
         if (cancelled) return;
-        console.log('tryParseMarkdownToBlocks raw output:', raw);
-        console.log('raw block count:', raw.length);
-        raw.forEach((b: any, i: number) => {
-          console.log(`  raw[${i}]:`, { type: b.type, content: b.content, props: b.props });
-        });
         // Ensure Editor chunk is fully loaded BEFORE setting state.
         // flushSync (from sonner toast) flushes ALL pending updates including transitions,
         // so the only safe way is to guarantee the chunk is loaded first.
@@ -289,29 +295,11 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
         // Sanitize blocks to prevent renderSpec crash — tryParseMarkdownToBlocks can produce
         // edge-case inline content (hardBreak, unknown types, malformed tables) that ProseMirror
         // rejects. Sanitization ensures only valid BlockNote schema types reach the renderer.
-        // startTransition defers the update so it cannot be flushed synchronously by flushSync
-        // (e.g. from sonner toasts), which would render the Editor before the chunk is ready.
-        const sanitized = sanitizeBlocks(raw as any[]) as Block[];
-        console.log('sanitized output:', sanitized);
-        console.log('sanitized count:', sanitized.length);
-        sanitized.forEach((b: any, i: number) => {
-          console.log(`  sanitized[${i}]:`, { type: b.type, id: b.id, content: b.content, props: b.props });
-        });
-        console.groupEnd();
-        startTransition(() => {
-          setMdBlocks(sanitized.length > 0 ? sanitized : null);
-          setMdKey(k => k + 1);
-        });
+        setMdBlocks(sanitizeBlocks(raw as any[]) as Block[]);
+        setMdKey(k => k + 1);
         setTimeout(() => { isContentLoaded.current = true; }, 100);
       } catch (err) {
         console.error('❌ Failed to parse markdown:', err);
-        console.groupEnd();
-        if (!cancelled) {
-          startTransition(() => {
-            setMdBlocks(null);
-            setMdKey((k) => k + 1);
-          });
-        }
       }
     };
     parse();
@@ -426,9 +414,6 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
       return (data?.summary_json as Block[] | undefined) ?? [];
     },
     exportToDocxBytes: async (): Promise<Uint8Array> => {
-      const { DOCXExporter, docxDefaultSchemaMappings } = await import('@blocknote/xl-docx-exporter');
-      const { Packer } = await import('docx');
-
       let blocks: Block[];
       if (format === 'markdown') {
         blocks = currentBlocks.length > 0 ? currentBlocks : (mdBlocks ?? []);
@@ -437,18 +422,16 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
       } else {
         blocks = (data?.summary_json as Block[] | undefined) ?? [];
       }
-
       if (!blocks.length) throw new Error('Không có nội dung để xuất');
+      const exportBlocks = sanitizeBlocks(blocks as any[]) as Block[];
 
+      const { DOCXExporter, docxDefaultSchemaMappings } = await import('@blocknote/xl-docx-exporter');
+      const { Packer } = await import('docx');
       const exporter = new DOCXExporter(parserEditor.schema, docxDefaultSchemaMappings);
-      const docxDoc = await exporter.toDocxJsDocument(blocks as any);
+      const docxDoc = await exporter.toDocxJsDocument(exportBlocks as any);
       return new Uint8Array(await Packer.toArrayBuffer(docxDoc));
     },
     exportToPdfBytes: async (): Promise<Uint8Array> => {
-      const { PDFExporter, pdfDefaultSchemaMappings } = await import('@blocknote/xl-pdf-exporter');
-      const ReactPDF = await import('@react-pdf/renderer');
-
-      // Lấy blocks hiện tại theo format
       let blocks: Block[];
       if (format === 'markdown') {
         blocks = currentBlocks.length > 0 ? currentBlocks : (mdBlocks ?? []);
@@ -457,11 +440,13 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
       } else {
         blocks = (data?.summary_json as Block[] | undefined) ?? [];
       }
-
       if (!blocks.length) throw new Error('Không có nội dung để xuất');
+      const exportBlocks = sanitizeBlocks(blocks as any[]) as Block[];
 
+      const { PDFExporter, pdfDefaultSchemaMappings } = await import('@blocknote/xl-pdf-exporter');
+      const ReactPDF = await import('@react-pdf/renderer');
       const exporter = new PDFExporter(parserEditor.schema, pdfDefaultSchemaMappings);
-      const pdfDocument = await exporter.toReactPDFDocument(blocks as any);
+      const pdfDocument = await exporter.toReactPDFDocument(exportBlocks as any);
       const blob = await ReactPDF.pdf(pdfDocument).toBlob();
       return new Uint8Array(await blob.arrayBuffer());
     },
@@ -519,29 +504,14 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
 
   // Render BlockNote format (has summary_json)
   if (format === 'blocknote') {
-    const raw = data.summary_json;
-    const sanitized = sanitizeBlocks(raw);
-    console.group('[BlockNoteSummaryView] BLOCKNOTE render');
-    console.log('summary_json (raw):', raw);
-    console.log('summary_json length:', Array.isArray(raw) ? raw.length : 'NOT array');
-    console.log('sanitized blocks:', sanitized);
-    console.log('sanitized length:', sanitized.length);
-    console.log('editorKey:', editorKey);
-    if (sanitized.length > 0) {
-      sanitized.forEach((b: any, i: number) => {
-        console.log(`  sanitized[${i}]:`, { type: b.type, id: b.id, contentLen: Array.isArray(b.content) ? b.content.length : b.content, props: b.props });
-      });
-    } else {
-      console.warn('  ⚠️ sanitized is EMPTY — passing undefined to Editor');
-    }
-    console.groupEnd();
+    console.log('🎨 Rendering BLOCKNOTE format (direct)');
     return (
       <div ref={containerRef} className="flex flex-col w-full">
         <div className="w-full">
           <BlockNoteErrorBoundary fallback={editorFallback}>
             <Editor
               key={editorKey}
-              initialContent={sanitized.length > 0 ? sanitized : undefined}
+              initialContent={sanitizeBlocks(data.summary_json)}
               onChange={(blocks) => {
                 handleEditorChange(blocks);
               }}
@@ -555,39 +525,13 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
 
   // Render Markdown format — use <Editor initialContent={mdBlocks}> to avoid replaceBlocks+renderSpec crash
   if (format === 'markdown') {
-    // Block Editor from rendering until mdBlocks is ready.
-    // In production, Webpack scope hoisting can leave the dynamic Editor chunk's
-    // ProseMirror schema partially initialized during the first render cycle.
-    // Rendering BlockNoteView before the parse completes (mdBlocks=null) triggers
-    // renderSpec with an uninitialized node spec → RangeError crash.
-    // Waiting for mdBlocks ensures the chunk is fully evaluated (via the
-    // `await import('../BlockNoteEditor/Editor')` gate inside the parse effect)
-    // before BlockNoteView is mounted for the first time.
-    if (!mdBlocks) {
-      console.log('[BlockNoteSummaryView] MARKDOWN render — waiting for parse (mdBlocks null)');
-      return (
-        <div className="p-4 text-sm text-gray-400 animate-pulse">Đang phân tích nội dung...</div>
-      );
-    }
-
-    console.group('[BlockNoteSummaryView] MARKDOWN render');
-    console.log('mdBlocks:', mdBlocks);
-    console.log('mdBlocks length:', mdBlocks?.length ?? 'null');
-    console.log('mdKey:', mdKey);
-    if (mdBlocks && mdBlocks.length > 0) {
-      mdBlocks.forEach((b: any, i: number) => {
-        console.log(`  mdBlocks[${i}]:`, { type: b.type, id: b.id, contentLen: Array.isArray(b.content) ? b.content.length : b.content, props: b.props });
-      });
-    } else {
-      console.warn('  ⚠️ mdBlocks is empty — passing undefined to Editor');
-    }
-    console.groupEnd();
+    console.log('🎨 Rendering MARKDOWN format (via Editor initialContent)');
     return (
       <div ref={containerRef} className="flex flex-col w-full">
         <BlockNoteErrorBoundary fallback={editorFallback}>
           <Editor
             key={mdKey}
-            initialContent={mdBlocks.length > 0 ? mdBlocks : undefined}
+            initialContent={mdBlocks ?? undefined}
             onChange={handleEditorChange}
             editable={true}
           />

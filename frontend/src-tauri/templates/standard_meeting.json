@@ -9,18 +9,18 @@
     },
     {
       "title": "Quyết định chính",
-      "instruction": "Liệt kê các quyết định quan trọng nhất được đưa ra trong cuộc họp bằng tiếng Việt.",
+      "instruction": "Liệt kê TẤT CẢ các quyết định được đưa ra trong cuộc họp, kể cả quyết định tạm thời, có điều kiện, hoặc đang chờ xác nhận. Không bỏ sót. Viết bằng tiếng Việt.",
       "format": "list"
     },
     {
       "title": "Công việc cần thực hiện",
-      "instruction": "Liệt kê tất cả các nhiệm vụ được giao kèm người phụ trách và thời hạn. Luôn thêm đoạn transcript tham chiếu và thời gian. Viết bằng tiếng Việt.",
+      "instruction": "Liệt kê TẤT CẢ các nhiệm vụ được giao — không được bỏ sót bất kỳ đầu việc nào. Kèm người phụ trách và thời hạn (nếu không rõ ghi \"chưa xác định\"). Luôn thêm đoạn transcript tham chiếu và thời gian. Viết bằng tiếng Việt.",
       "format": "list",
       "item_format": "| Người phụ trách | Nhiệm vụ | Thời hạn | Đoạn tham chiếu | Thời gian |\n| --- | --- | --- | --- | --- |"
     },
     {
       "title": "Nội dung thảo luận",
-      "instruction": "Tóm tắt các chủ đề thảo luận chính, các luận điểm quan trọng và thông tin đáng chú ý bằng tiếng Việt.",
+      "instruction": "Tóm tắt TẤT CẢ các chủ đề thảo luận, luận điểm quan trọng, số liệu, và thông tin đáng chú ý. Ghi rõ ai phát biểu điều gì khi có thể. Viết bằng tiếng Việt.",
       "format": "paragraph"
     }
   ]

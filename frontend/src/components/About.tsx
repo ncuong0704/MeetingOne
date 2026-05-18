@@ -184,7 +184,7 @@ export function About() {
         <div className="space-y-1">
           <h1 className="text-2xl font-bold text-gray-900">{BRAND_NAME}</h1>
           <p className="text-sm text-gray-500 max-w-sm mx-auto leading-relaxed">
-            Ghi chú và tóm tắt thời gian thực — dữ liệu không rời khỏi máy của bạn.
+          AI thư ký cuộc họp — tự động tóm tắt và phân tích nội dung sau khi cuộc họp kết thúc.
           </p>
         </div>
 
@@ -251,7 +251,7 @@ export function About() {
 
           {check.status === 'uptodate' && (
             <p className="text-xs text-emerald-700">
-              Bạn đang dùng phiên bản mới nhất (theo GitHub releases: {check.latestTag}).
+              Bạn đang dùng phiên bản mới nhất (version: {check.latestTag}).
             </p>
           )}
           {check.status === 'available' && (

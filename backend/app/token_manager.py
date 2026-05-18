@@ -88,7 +88,7 @@ def get_safe_chunk_chars(provider: str, model_name: str) -> int:
 
 
 def is_rate_limit_error(exc: Exception) -> bool:
-    """Detect rate-limit / token-quota errors from any provider."""
+    """Detect rate-limit / token-quota errors from any provider (TPM and TPD)."""
     msg = str(exc).lower()
     rate_limit_keywords = [
         "rate_limit",
@@ -105,5 +105,39 @@ def is_rate_limit_error(exc: Exception) -> bool:
         "overloaded_error",
         "overloaded",
         "service_unavailable",
+        # TPD (tokens per day) keywords
+        "tokens per day",
+        "tokens_per_day",
+        "tpd exceeded",
+        "daily limit",
+        "daily token",
+        "per day",
+        "day limit",
     ]
     return any(kw in msg for kw in rate_limit_keywords)
+
+
+def is_daily_limit_error(exc: Exception) -> bool:
+    """Phân biệt lỗi TPD (giới hạn theo ngày) với lỗi TPM (giới hạn theo phút).
+
+    Lỗi TPD cần chờ hàng giờ — không nên retry ngay lập tức.
+    """
+    msg = str(exc).lower()
+    daily_keywords = [
+        "tokens per day",
+        "tokens_per_day",
+        "tpd",
+        "daily limit",
+        "daily token",
+        "per day",
+        "day limit",
+    ]
+    return any(kw in msg for kw in daily_keywords)
+
+
+def extract_retry_after(exc: Exception) -> str:
+    """Trích xuất thời gian chờ từ message lỗi, ví dụ 'Please try again in 2h18m2.304s'."""
+    import re
+    msg = str(exc)
+    match = re.search(r'[Pp]lease try again in\s+([\d hms.]+)', msg)
+    return match.group(1).strip() if match else ""

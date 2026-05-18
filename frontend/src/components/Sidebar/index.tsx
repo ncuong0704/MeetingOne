@@ -189,6 +189,7 @@ const Sidebar: React.FC = () => {
         whisperModel: config.whisperModel,
         apiKey: config.apiKey,
         ollamaEndpoint: config.ollamaEndpoint,
+        fallbackModelsJson: config.fallbackModels ? JSON.stringify(config.fallbackModels) : null,
       });
 
       setModelConfig(config);

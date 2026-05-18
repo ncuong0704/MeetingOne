@@ -49,6 +49,18 @@ impl SummaryService {
         false
     }
 
+    /// Returns true if the error is a rate limit that warrants trying a fallback model
+    fn is_provider_rate_limit(error: &str) -> bool {
+        let lower = error.to_lowercase();
+        lower.contains("rate limit")
+            || lower.contains("rate_limit")
+            || lower.contains("tokens per minute")
+            || lower.contains("request too large")
+            || lower.contains("too many requests")
+            || lower.contains("quota exceeded")
+            || lower.contains("vượt quá sau")
+    }
+
     /// Cleans up the cancellation token after processing completes
     fn cleanup_cancellation_token(meeting_id: &str) {
         if let Ok(mut registry) = CANCELLATION_REGISTRY.lock() {
@@ -177,7 +189,7 @@ impl SummaryService {
                     // Cap at 1500 tokens per chunk so small Ollama models (1.5b–7b)
                     // can summarize each chunk reliably without losing language/format.
                     // Large context windows (32k+) cause small models to ignore instructions.
-                    let optimal = metadata.context_size.saturating_sub(300).min(3000);
+                    let optimal = metadata.context_size.saturating_sub(300).min(1500);
                     info!(
                         "✓ Using dynamic context for {}: {} tokens (chunk size capped: {})",
                         model_name, metadata.context_size, optimal
@@ -216,26 +228,56 @@ impl SummaryService {
         // Get app data directory (kept for API compatibility)
         let app_data_dir = _app.path().app_data_dir().ok();
 
-        // Generate summary
-        let client = reqwest::Client::new();
-        let result = generate_meeting_summary(
-            &client,
-            &provider,
-            &model_name,
-            &final_api_key,
-            &text,
-            &custom_prompt,
-            &template_id,
-            token_threshold,
-            ollama_endpoint.as_deref(),
-            custom_openai_endpoint.as_deref(),
-            custom_openai_max_tokens,
-            custom_openai_temperature,
-            custom_openai_top_p,
-            app_data_dir.as_ref(),
-            Some(&cancellation_token),
+        // Load fallback models for this provider (same API key, different model names)
+        let fallback_models = crate::database::repositories::setting::SettingsRepository::get_fallback_models(
+            &pool, &model_provider,
         )
-        .await;
+        .await
+        .unwrap_or_default();
+
+        // Build ordered list: primary model first, then user-selected fallbacks
+        let mut models_to_try = vec![model_name.clone()];
+        models_to_try.extend(fallback_models.into_iter().filter(|m| m != &model_name));
+
+        let client = reqwest::Client::new();
+        let mut result = Err("No models available".to_string());
+
+        for (idx, current_model) in models_to_try.iter().enumerate() {
+            if idx > 0 {
+                warn!(
+                    "Model '{}' rate limited, switching to fallback model '{}' (provider: {})",
+                    models_to_try[idx - 1], current_model, model_provider
+                );
+            }
+            let attempt = generate_meeting_summary(
+                &client,
+                &provider,
+                current_model,
+                &final_api_key,
+                &text,
+                &custom_prompt,
+                &template_id,
+                token_threshold,
+                ollama_endpoint.as_deref(),
+                custom_openai_endpoint.as_deref(),
+                custom_openai_max_tokens,
+                custom_openai_temperature,
+                custom_openai_top_p,
+                app_data_dir.as_ref(),
+                Some(&cancellation_token),
+            )
+            .await;
+
+            match &attempt {
+                Ok(_) => { result = attempt; break; }
+                Err(e) if e.contains("cancelled") => { result = attempt; break; }
+                Err(e) if Self::is_provider_rate_limit(e) && idx + 1 < models_to_try.len() => {
+                    warn!("Rate limit on model '{}': {}. Trying next fallback...", current_model, e);
+                    continue;
+                }
+                Err(_) => { result = attempt; break; }
+            }
+        }
 
         let duration = start_time.elapsed().as_secs_f64();
 

@@ -4,8 +4,16 @@ import React, { createContext, useContext, useState, useEffect, useRef, useCallb
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { PermissionStatus, OnboardingPermissions } from '@/types/onboarding';
+import type { ModelConfig } from '@/components/ModelSettingsModal';
+import { persistSummaryModelConfig } from '@/lib/summaryModelConfigSync';
 
-const ZIPFORMER_MODEL = 'zipformer-vi-30m';
+const DEFAULT_SUMMARY_MODEL_CONFIG: ModelConfig = {
+  provider: 'ollama',
+  model: 'qwen3.5:0.8b',
+  whisperModel: 'large-v3',
+  apiKey: null,
+  ollamaEndpoint: null,
+};
 
 interface OnboardingStatus {
   version: string;
@@ -30,7 +38,7 @@ interface OnboardingContextType {
   parakeetDownloaded: boolean;
   parakeetProgress: number;
   parakeetProgressInfo: ParakeetProgressInfo;
-  selectedSummaryModel: string;
+  summaryModelConfig: ModelConfig;
   databaseExists: boolean;
   isBackgroundDownloading: boolean;
   // Permissions
@@ -42,11 +50,12 @@ interface OnboardingContextType {
   goPrevious: () => void;
   // Setters
   setParakeetDownloaded: (value: boolean) => void;
-  setSelectedSummaryModel: (value: string) => void;
+  setSummaryModelConfig: (config: ModelConfig | ((prev: ModelConfig) => ModelConfig)) => void;
   setDatabaseExists: (value: boolean) => void;
   setPermissionStatus: (permission: keyof OnboardingPermissions, status: PermissionStatus) => void;
   setPermissionsSkipped: (skipped: boolean) => void;
-  completeOnboarding: () => Promise<void>;
+  completeOnboarding: (configOverride?: ModelConfig) => Promise<void>;
+  saveSummaryModelConfig: (config: ModelConfig) => Promise<void>;
   startBackgroundDownloads: (includeGemma: boolean) => Promise<void>;
   retryParakeetDownload: () => Promise<void>;
 }
@@ -64,7 +73,18 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     totalMb: 0,
     speedMbps: 0,
   });
-  const [selectedSummaryModel, setSelectedSummaryModel] = useState<string>('gemma3:1b');
+  const [summaryModelConfig, setSummaryModelConfigState] = useState<ModelConfig>(DEFAULT_SUMMARY_MODEL_CONFIG);
+  const summaryModelConfigRef = useRef<ModelConfig>(DEFAULT_SUMMARY_MODEL_CONFIG);
+  const setSummaryModelConfig = useCallback(
+    (config: ModelConfig | ((prev: ModelConfig) => ModelConfig)) => {
+      setSummaryModelConfigState((prev) => {
+        const next = typeof config === 'function' ? config(prev) : config;
+        summaryModelConfigRef.current = next;
+        return next;
+      });
+    },
+    [],
+  );
   const [databaseExists, setDatabaseExists] = useState(false);
   const [isBackgroundDownloading, setIsBackgroundDownloading] = useState(false);
 
@@ -87,15 +107,17 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     checkDatabaseStatus();
     initializeDatabaseInBackground();
 
-    // Fetch and set recommended Ollama model
+    // Fetch and set recommended Ollama model when using local Ollama provider
     const fetchRecommendation = async () => {
       try {
         const rec = await invoke<{ model: string }>('get_ollama_model_recommendation');
-        setSelectedSummaryModel(rec.model);
+        setSummaryModelConfig((prev) => ({
+          ...prev,
+          model: rec.model,
+        }));
         console.log('[OnboardingContext] Set recommended Ollama model:', rec.model);
       } catch (error) {
         console.error('[OnboardingContext] Failed to get Ollama recommendation:', error);
-        // Keep default
       }
     };
     fetchRecommendation();
@@ -213,7 +235,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
       unlistenComplete.then(fn => fn());
       unlistenError.then(fn => fn());
     };
-  }, [selectedSummaryModel]);
+  }, []);
 
 
   const checkDatabaseStatus = async () => {
@@ -252,6 +274,28 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     }
   };
 
+  // Load saved summary model config from DB so onboarding reflects settings/popup changes
+  useEffect(() => {
+    if (!onboardingStatusHydrated) return;
+    const loadSavedSummaryConfig = async () => {
+      try {
+        const data = await invoke<ModelConfig | null>('api_get_model_config');
+        if (!data?.provider) return;
+        if (data.provider !== 'ollama' && data.provider !== 'custom-openai' && !data.apiKey) {
+          try {
+            data.apiKey = await invoke<string>('api_get_api_key', { provider: data.provider });
+          } catch {
+            // no key stored yet
+          }
+        }
+        setSummaryModelConfig(data);
+      } catch (error) {
+        console.error('[OnboardingContext] Failed to load saved summary model config:', error);
+      }
+    };
+    void loadSavedSummaryConfig();
+  }, [onboardingStatusHydrated, setSummaryModelConfig]);
+
   // Verify that models actually exist on disk, not just trust saved JSON
   const verifyModelStatus = async (savedStatus: OnboardingStatus) => {
     let parakeetDownloaded = false;
@@ -271,9 +315,13 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     let currentStep = savedStatus.current_step;
     let completed = savedStatus.completed;
 
-    // Clamp step to new max (4)
-    if (currentStep > 4) {
-      currentStep = 3;
+    // Migrate from 4-step flow (v1) to 3-step flow
+    if (currentStep > 2) {
+      currentStep -= 1;
+    }
+    // Clamp step to new max (3)
+    if (currentStep > 3) {
+      currentStep = 2;
     }
 
     return {
@@ -310,30 +358,44 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     }
   };
 
-  const completeOnboarding = async () => {
+  const saveSummaryModelConfig = useCallback(async (config: ModelConfig) => {
+    setSummaryModelConfig(config);
+    await persistSummaryModelConfig(config);
+  }, [setSummaryModelConfig]);
+
+  // Keep onboarding UI in sync when settings or popup save
+  useEffect(() => {
+    const setup = async () => {
+      const unlisten = await listen<ModelConfig>('model-config-updated', (event) => {
+        setSummaryModelConfig(event.payload);
+      });
+      return unlisten;
+    };
+    let cleanup: (() => void) | undefined;
+    setup().then((fn) => { cleanup = fn; });
+    return () => { cleanup?.(); };
+  }, [setSummaryModelConfig]);
+
+  const completeOnboarding = async (configOverride?: ModelConfig) => {
     try {
-      // Set completion flag to prevent race conditions with auto-save
       isCompletingRef.current = true;
 
-      // Clear any pending auto-saves
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = undefined;
       }
 
-      // Onboarding uses ollama with the recommended model
-      await invoke('complete_onboarding', {
-        model: selectedSummaryModel,
-      });
+      const configToSave = configOverride ?? summaryModelConfigRef.current;
+      await saveSummaryModelConfig(configToSave);
+      await invoke('complete_onboarding');
       setCompleted(true);
-      console.log('[OnboardingContext] Onboarding completed with Ollama model:', selectedSummaryModel);
+      console.log('[OnboardingContext] Onboarding completed with provider:', configToSave.provider);
 
-      // Reset the flag so subsequent state updates can be saved
       isCompletingRef.current = false;
     } catch (error) {
       console.error('[OnboardingContext] Failed to complete onboarding:', error);
-      isCompletingRef.current = false; // Reset flag on error
-      throw error; // Re-throw so PermissionsStep can handle it
+      isCompletingRef.current = false;
+      throw error;
     }
   };
 
@@ -386,14 +448,14 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   }, []);
 
   const goToStep = useCallback((step: number) => {
-    setCurrentStep(Math.max(1, Math.min(step, 4)));
+    setCurrentStep(Math.max(1, Math.min(step, 3)));
   }, []);
 
   const goNext = useCallback(() => {
     setCurrentStep((prev: number) => {
       const next = prev + 1;
-      // Don't go past step 4
-      return Math.min(next, 4);
+      // Don't go past step 3
+      return Math.min(next, 3);
     });
   }, []);
 
@@ -412,7 +474,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
         parakeetDownloaded,
         parakeetProgress,
         parakeetProgressInfo,
-        selectedSummaryModel,
+        summaryModelConfig,
         databaseExists,
         isBackgroundDownloading,
         permissions,
@@ -421,11 +483,12 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
         goNext,
         goPrevious,
         setParakeetDownloaded,
-        setSelectedSummaryModel,
+        setSummaryModelConfig,
         setDatabaseExists,
         setPermissionStatus,
         setPermissionsSkipped,
         completeOnboarding,
+        saveSummaryModelConfig,
         startBackgroundDownloads,
         retryParakeetDownload,
       }}

@@ -8,7 +8,7 @@ use tracing::info;
 const REQUEST_TIMEOUT_DURATION: Duration = Duration::from_secs(300);
 const OLLAMA_DEFAULT_TEMPERATURE: f32 = 0.1;
 const OLLAMA_DEFAULT_TOP_P: f32 = 0.9;
-const OLLAMA_DEFAULT_NUM_CTX: u32 = 8192;
+const OLLAMA_DEFAULT_NUM_CTX: u32 = 4096;
 
 // Generic structure for OpenAI-compatible API chat messages
 #[derive(Debug, Serialize)]
@@ -37,6 +37,8 @@ pub struct OllamaChatRequest {
     pub messages: Vec<ChatMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub think: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub options: Option<OllamaChatOptions>,
 }
@@ -245,6 +247,7 @@ pub async fn generate_summary(
                 },
             ],
             stream: Some(false),
+            think: Some(false),
             options: Some(OllamaChatOptions {
                 temperature: Some(OLLAMA_DEFAULT_TEMPERATURE),
                 top_p: Some(OLLAMA_DEFAULT_TOP_P),
@@ -305,7 +308,7 @@ pub async fn generate_summary(
             result = request_future => {
                 result.map_err(|e| {
                     if e.is_timeout() {
-                        format!("LLM request timed out after 60 seconds")
+                        format!("LLM request timed out after 300 seconds")
                     } else {
                         format!("Failed to send request to LLM: {}", e)
                     }
@@ -318,7 +321,7 @@ pub async fn generate_summary(
     } else {
         request_future.await.map_err(|e| {
             if e.is_timeout() {
-                format!("LLM request timed out after 60 seconds")
+                format!("LLM request timed out after 300 seconds")
             } else {
                 format!("Failed to send request to LLM: {}", e)
             }
@@ -330,6 +333,24 @@ pub async fn generate_summary(
             .text()
             .await
             .unwrap_or_else(|_| "Unknown error".to_string());
+
+        // Phát hiện lỗi giới hạn token hàng ngày (TPD) — cần thông báo thân thiện kèm thời gian chờ
+        let error_lower = error_body.to_lowercase();
+        if error_lower.contains("tokens per day")
+            || error_lower.contains("tokens_per_day")
+            || (error_lower.contains("tpd") && error_lower.contains("limit"))
+            || error_lower.contains("daily limit")
+            || error_lower.contains("daily token")
+        {
+            let wait_msg = extract_wait_time(&error_body)
+                .map(|t| format!(" Vui lòng thử lại sau {}.", t))
+                .unwrap_or_else(|| " Vui lòng thử lại vào ngày mai hoặc đổi nhà cung cấp.".to_string());
+            return Err(format!(
+                "Đã vượt giới hạn token hàng ngày của nhà cung cấp.{} (Chi tiết: {})",
+                wait_msg, error_body
+            ));
+        }
+
         return Err(format!("LLM API request failed: {}", error_body));
     }
 
@@ -376,6 +397,28 @@ pub async fn generate_summary(
             .trim();
         Ok(content.to_string())
     }
+}
+
+/// Trích xuất thời gian chờ từ error body, ví dụ "Please try again in 2h18m2.304s"
+pub fn extract_wait_time(body: &str) -> Option<String> {
+    let patterns = [
+        "please try again in ",
+        "retry after ",
+    ];
+    let body_lower = body.to_lowercase();
+    for pat in &patterns {
+        if let Some(idx) = body_lower.find(pat) {
+            let rest = &body[idx + pat.len()..];
+            let end = rest
+                .find(|c: char| c == '.' || c == ',' || c == '"' || c == '\n')
+                .unwrap_or(rest.len().min(40));
+            let time_str = rest[..end].trim().to_string();
+            if !time_str.is_empty() {
+                return Some(time_str);
+            }
+        }
+    }
+    None
 }
 
 /// Helper function to get provider name for logging

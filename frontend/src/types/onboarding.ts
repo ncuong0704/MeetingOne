@@ -16,6 +16,7 @@ export interface OnboardingContainerProps {
   totalSteps?: number;
   stepOffset?: number;
   hideProgress?: boolean;
+  showBrandLogo?: boolean;
   className?: string;
   showNavigation?: boolean;
   onNext?: () => void;

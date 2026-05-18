@@ -197,6 +197,7 @@ pub async fn initialize_fresh_database(app: AppHandle) -> Result<(), String> {
         "qwen2.5:3b",
         "large-v3",
         None,
+        None,
     ).await {
         error!("Failed to set default summary model config: {}", e);
     }

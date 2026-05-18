@@ -96,6 +96,11 @@ pub struct Setting {
     #[sqlx(rename = "customOpenAIConfig")]
     #[serde(rename = "customOpenAIConfig")]
     pub custom_openai_config: Option<String>,
+    /// Per-provider fallback model list stored as JSON map
+    /// Format: {"groq": ["model-b", "model-c"], "openai": ["gpt-4o-mini"]}
+    #[sqlx(rename = "fallbackModels")]
+    #[serde(rename = "fallbackModels")]
+    pub fallback_models: Option<String>,
 }
 
 impl Setting {

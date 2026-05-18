@@ -135,6 +135,19 @@ pub fn extract_meeting_name_from_markdown(markdown: &str) -> Option<String> {
         .map(|line| line.trim_start_matches("# ").trim().to_string())
 }
 
+/// Returns per-provider safe token limit for a single LLM request (input content only).
+/// These limits are conservative to avoid hitting TPM or TPD quotas.
+fn get_provider_token_limit(provider: &LLMProvider) -> usize {
+    match provider {
+        LLMProvider::Groq => 4_500,        // Free tier ~6k safe tokens, trừ overhead prompt
+        LLMProvider::OpenAI => 8_000,      // gpt-3.5/4o-mini; gpt-4o lớn hơn nhưng dùng chung
+        LLMProvider::Claude => 50_000,     // 200k context window, giữ 50k để an toàn về chi phí
+        LLMProvider::OpenRouter => 5_000,  // Phụ thuộc model; dùng ngưỡng bảo thủ
+        LLMProvider::CustomOpenAI => 6_000,
+        LLMProvider::Ollama => 4_000,      // Local model, giữ nguyên ngưỡng cũ
+    }
+}
+
 /// Generates a complete meeting summary with conditional chunking strategy
 ///
 /// # Arguments
@@ -190,30 +203,39 @@ pub async fn generate_meeting_summary(
     let content_to_summarize: String;
     let successful_chunk_count: i64;
 
-    // Strategy: Use single-pass for cloud providers or short transcripts
-    // Use multi-level chunking for Ollama with long transcripts
-    // Note: CustomOpenAI is treated like cloud providers (unlimited context)
-    if provider != &LLMProvider::Ollama || total_tokens < token_threshold {
+    // Per-provider safe token limit (input content, excluding prompt overhead).
+    // Cloud providers are chunked when transcript exceeds their safe limit so that
+    // no single request exhausts the daily/per-minute quota.
+    // For Ollama: use the dynamically computed token_threshold from service.rs (model metadata-aware).
+    // For cloud providers: use hardcoded safe limits from get_provider_token_limit().
+    let provider_limit = if provider == &LLMProvider::Ollama {
+        token_threshold
+    } else {
+        get_provider_token_limit(provider)
+    };
+
+    if total_tokens < provider_limit {
         info!(
-            "Using single-pass summarization (tokens: {}, threshold: {})",
-            total_tokens, token_threshold
+            "Using single-pass summarization (tokens: {}, provider limit: {})",
+            total_tokens, provider_limit
         );
         content_to_summarize = text.to_string();
         successful_chunk_count = 1;
     } else {
         info!(
-            "Using multi-level summarization (tokens: {} exceeds threshold: {})",
-            total_tokens, token_threshold
+            "Using multi-level summarization (tokens: {} exceeds provider limit: {})",
+            total_tokens, provider_limit
         );
 
         // Reserve 300 tokens for prompt overhead
-        let chunks = chunk_text(text, token_threshold - 300, 100);
+        let chunks = chunk_text(text, provider_limit.saturating_sub(300), 50);
         let num_chunks = chunks.len();
         info!("Split transcript into {} chunks", num_chunks);
 
         let mut chunk_summaries = Vec::new();
-        let system_prompt_chunk = "Bạn là trợ lý tóm tắt cuộc họp. Trả lời bằng tiếng Việt.";
-        let user_prompt_template_chunk = "Hãy tóm tắt ngắn gọn nhưng đầy đủ cho phần transcript bên dưới. Nêu các ý chính, quyết định, việc cần làm, và tên người được nhắc tới (nếu có).\n\n<transcript_chunk>\n{}\n</transcript_chunk>";
+        let mut first_chunk_error: Option<String> = None;
+        let system_prompt_chunk = "Bạn là thư ký cuộc họp chuyên nghiệp. Nhiệm vụ là ghi lại ĐẦY ĐỦ mọi thông tin quan trọng từ transcript — không được bỏ sót. Trả lời bằng tiếng Việt.";
+        let user_prompt_template_chunk = "Trích xuất ĐẦY ĐỦ thông tin từ đoạn transcript cuộc họp dưới đây.\n\nGiữ nguyên: tên người, chức vụ, con số, ngày/thời hạn, cam kết cụ thể.\n\nTrình bày theo cấu trúc:\n**Người tham gia:** [Tên - Chức vụ/Vai trò]\n**Nội dung thảo luận:** [Chủ đề và ý kiến, kèm tên người phát biểu]\n**Quyết định:** [Các quyết định đã thống nhất]\n**Công việc được giao:** [Tên người - Việc cần làm - Deadline]\n**Thông tin quan trọng khác:** [Số liệu, mốc thời gian, vấn đề cần theo dõi]\n\nLƯU Ý: Ưu tiên ĐẦY ĐỦ hơn ngắn gọn. Không tự ý lược bỏ bất kỳ thông tin nào.\n\nTranscript:\n{}";
 
         for (i, chunk) in chunks.iter().enumerate() {
             // Check for cancellation before processing each chunk
@@ -253,16 +275,20 @@ pub async fn generate_meeting_summary(
                     if e.contains("cancelled") {
                         return Err(e);
                     }
+                    if first_chunk_error.is_none() {
+                        first_chunk_error = Some(e.clone());
+                    }
                     error!("Failed processing chunk {}/{}: {}", i + 1, num_chunks, e);
                 }
             }
         }
 
         if chunk_summaries.is_empty() {
-            return Err(
-                "Multi-level summarization failed: No chunks were processed successfully."
-                    .to_string(),
-            );
+            let detail = first_chunk_error.unwrap_or_else(|| "unknown error".to_string());
+            return Err(format!(
+                "Tóm tắt thất bại với model '{}': {}",
+                model_name, detail
+            ));
         }
 
         successful_chunk_count = chunk_summaries.len() as i64;
@@ -279,8 +305,8 @@ pub async fn generate_meeting_summary(
             );
             let combined_text = chunk_summaries.join("\n---\n");
             let system_prompt_combine =
-                "Bạn là trợ lý tổng hợp biên bản cuộc họp. Trả lời bằng tiếng Việt.";
-            let user_prompt_combine_template = "Dưới đây là các bản tóm tắt liên tiếp của cùng một cuộc họp. Hãy gộp thành một bản tóm tắt thống nhất, mạch lạc, đủ chi tiết, giữ lại các thông tin quan trọng và sắp xếp hợp lý.\n\n<summaries>\n{}\n</summaries>";
+                "Bạn là thư ký cuộc họp chuyên nghiệp. Nhiệm vụ là tổng hợp đầy đủ các phần ghi chép, không được bỏ sót thông tin. Trả lời bằng tiếng Việt.";
+            let user_prompt_combine_template = "Dưới đây là các phần trích xuất liên tiếp của cùng một cuộc họp. Hãy tổng hợp thành một bản đầy đủ.\n\nYÊU CẦU BẮT BUỘC:\n1. GIỮ NGUYÊN tất cả tên người, chức vụ, con số, ngày tháng\n2. GIỮ NGUYÊN tất cả công việc được giao (ai làm gì, deadline)\n3. GIỮ NGUYÊN tất cả quyết định đã thống nhất\n4. Nếu thấy trùng lặp — hợp nhất nội dung, KHÔNG xóa bỏ\n5. Sắp xếp: Người tham gia → Nội dung thảo luận → Quyết định → Công việc được giao\n\n<summaries>\n{}\n</summaries>\n\nTổng hợp đầy đủ (ưu tiên ĐẦY ĐỦ hơn ngắn gọn):";
 
             let user_prompt_combine = user_prompt_combine_template.replace("{}", &combined_text);
             generate_summary(
@@ -325,7 +351,8 @@ pub async fn generate_meeting_summary(
 3. Điền từng mục theo đúng hướng dẫn của mục đó.
 4. Nếu mục không có thông tin liên quan, viết "Không có thông tin trong transcript."
 5. Chỉ output **duy nhất** báo cáo Markdown đã điền đầy đủ (không thêm giải thích ngoài lề).
-6. Nếu không chắc, hãy bỏ qua (không bịa).
+6. Nếu thông tin không rõ ràng, ghi "(không rõ)" thay vì bỏ trống — chỉ để trống khi hoàn toàn không có thông tin liên quan trong transcript.
+7. Ưu tiên ĐẦY ĐỦ hơn ngắn gọn — đặc biệt với công việc được giao, quyết định, và thời hạn.
 
 **HƯỚNG DẪN THEO TỪNG MỤC:**
 {}

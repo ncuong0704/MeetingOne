@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import {
   Mic, Sparkles, Check, Loader2, AlertCircle,
-  Download, Star, Cpu, ArrowRight, RefreshCw, ExternalLink,
+  Download, ArrowRight, RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { OnboardingContainer } from '../OnboardingContainer';
@@ -11,23 +11,14 @@ import { useOnboarding } from '@/contexts/OnboardingContext';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
+import {
+  ModelSettingsModal,
+  type ModelSettingsModalRef,
+} from '@/components/ModelSettingsModal';
 
-// ── types (unchanged) ──────────────────────────────────────────────────────
 type ZipStatus = 'waiting' | 'downloading' | 'completed' | 'error';
 interface ZipState { status: ZipStatus; progress: number; error?: string; }
-interface OllamaModelOption {
-  name: string; family: string; size_gb: number;
-  description: string; is_pulled: boolean; is_recommended: boolean;
-}
-type OllamaStatus =
-  | 'checking'
-  | 'no_local_models'
-  | 'not_installed'
-  | 'selecting'
-  | 'pulling'
-  | 'ready';
 
-// ── small helpers ──────────────────────────────────────────────────────────
 function StatusDot({ status }: { status: 'idle' | 'loading' | 'ok' | 'warn' | 'error' }) {
   if (status === 'loading') return <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />;
   if (status === 'ok') return (
@@ -50,33 +41,30 @@ function StatusDot({ status }: { status: 'idle' | 'loading' | 'ok' | 'warn' | 'e
 
 function ProgressBar({ value, color = 'bg-gray-800' }: { value: number; color?: string }) {
   return (
-    <div className="w-full h-1.5 rounded-full bg-gray-100 overflow-hidden">
+    <motion.div className="w-full h-1.5 rounded-full bg-gray-100 overflow-hidden">
       <motion.div
         className={cn('h-full rounded-full', color)}
         initial={{ width: 0 }}
         animate={{ width: `${value}%` }}
         transition={{ duration: 0.4, ease: 'easeOut' }}
       />
-    </div>
+    </motion.div>
   );
 }
 
-// ── component ──────────────────────────────────────────────────────────────
 export function DownloadProgressStep() {
   const {
-    goNext, setSelectedSummaryModel,
-    parakeetDownloaded, setParakeetDownloaded,
-    startBackgroundDownloads, completeOnboarding,
+    goNext,
+    setParakeetDownloaded,
+    parakeetDownloaded,
+    startBackgroundDownloads,
+    completeOnboarding,
+    summaryModelConfig,
+    setSummaryModelConfig,
+    saveSummaryModelConfig,
   } = useOnboarding();
 
   const [isMac, setIsMac] = useState(false);
-  const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus>('checking');
-  const [modelOptions, setModelOptions] = useState<OllamaModelOption[] | null>(null);
-  const [hardwareInfo, setHardwareInfo] = useState<{ ram_gb?: number; max_size_gb?: number } | null>(null);
-  const [selectedModel, setSelectedModel] = useState('');
-  const [pullingModel, setPullingModel] = useState('');
-  const [pullProgress, setPullProgress] = useState(0);
-  const [pullError, setPullError] = useState<string | null>(null);
   const [zipState, setZipState] = useState<ZipState>({
     status: parakeetDownloaded ? 'completed' : 'waiting',
     progress: parakeetDownloaded ? 100 : 0,
@@ -84,96 +72,31 @@ export function DownloadProgressStep() {
   const [isCompleting, setIsCompleting] = useState(false);
   const downloadStartedRef = useRef(false);
   const retryingRef = useRef(false);
+  const modelSettingsRef = useRef<ModelSettingsModalRef>(null);
 
-  // ── load models: RAM/catalogue first, then Ollama reachability ───────────
-  const loadModels = async () => {
-    setOllamaStatus('checking');
-    setModelOptions(null);
-    setHardwareInfo(null);
-
-    let options: OllamaModelOption[];
-    try {
-      options = await invoke<OllamaModelOption[]>('get_ollama_model_options', { endpoint: null });
-      const rec = await invoke<{ model: string; ram_gb: number; size_gb: number }>(
-        'get_ollama_model_recommendation'
-      );
-      setHardwareInfo({ ram_gb: rec.ram_gb, max_size_gb: rec.size_gb });
-    } catch {
-      setOllamaStatus('selecting');
-      return;
-    }
-
-    if (options.length === 0) {
-      setModelOptions([]);
-      setSelectedModel('');
-      setSelectedSummaryModel('');
-      setOllamaStatus('no_local_models');
-      return;
-    }
-
-    setModelOptions(options);
-
-    let ollamaReachable = false;
-    try {
-      await invoke<unknown[]>('get_ollama_models', { endpoint: null });
-      ollamaReachable = true;
-    } catch (err) {
-      const s = String(err);
-      if (s.includes('No models found') || s.includes('NoModelsFound')) ollamaReachable = true;
-    }
-
-    if (!ollamaReachable) {
-      setOllamaStatus('not_installed');
-      const best = options.find(m => m.is_recommended) ?? options[0];
-      if (best) {
-        setSelectedModel(best.name);
-        setSelectedSummaryModel(best.name);
-      }
-      return;
-    }
-
-    const alreadyPulled = options.find(m => m.is_pulled);
-    if (alreadyPulled) {
-      const best = options.find(m => m.is_pulled && m.is_recommended) ?? alreadyPulled;
-      setSelectedModel(best.name);
-      setSelectedSummaryModel(best.name);
-      setOllamaStatus('ready');
-    } else {
-      const best = options.find(m => m.is_recommended) ?? options[0];
-      if (best) {
-        setSelectedModel(best.name);
-        setSelectedSummaryModel(best.name);
-      }
-      setOllamaStatus('selecting');
-    }
-  };
-
-  // On mount, verify actual model file presence on disk (not just in-memory state).
-  // This corrects the case where parakeetDownloaded is still false after a restart
-  // even though the model files are already on disk.
   useEffect(() => {
     const checkPlatform = async () => {
       try {
         const { platform } = await import('@tauri-apps/plugin-os');
         setIsMac(platform() === 'macos');
-      } catch { setIsMac(navigator.userAgent.includes('Mac')); }
+      } catch {
+        setIsMac(navigator.userAgent.includes('Mac'));
+      }
     };
 
     const checkModelPresence = async () => {
-      if (parakeetDownloaded) return; // Already known to be downloaded
+      if (parakeetDownloaded) return;
       try {
         await invoke('zipformer_validate_model_ready');
-        // Files found and model loaded — update both local state and context
         setZipState({ status: 'completed', progress: 100 });
         setParakeetDownloaded(true);
       } catch {
-        // Model files not present; keep current waiting state
+        // Model files not present
       }
     };
 
     checkPlatform();
     checkModelPresence();
-    loadModels();
   }, []);
 
   const handleStartZipDownload = async () => {
@@ -201,37 +124,7 @@ export function DownloadProgressStep() {
       setZipState(prev => ({ ...prev, status: 'error', error: e.payload.error }))
     );
     return () => { unP.then(f => f()); unC.then(f => f()); unE.then(f => f()); };
-  }, []);
-
-  useEffect(() => {
-    const unP = listen<{ modelName: string; progress: number }>(
-      'ollama-model-download-progress', (e) => setPullProgress(e.payload.progress)
-    );
-    const unC = listen<{ modelName: string }>('ollama-model-download-complete', (e) => {
-      const tag = e.payload.modelName;
-      setPullProgress(100); setPullingModel(''); setPullError(null);
-      setModelOptions(prev => prev ? prev.map(m => m.name === tag ? { ...m, is_pulled: true } : m) : prev);
-      setSelectedModel(tag); setSelectedSummaryModel(tag);
-      setOllamaStatus('ready');
-      toast.success(`Đã tải xong ${tag}!`);
-    });
-    const unE = listen<{ modelName: string; error: string }>('ollama-model-download-error', (e) => {
-      setPullingModel(''); setPullError(e.payload.error); setOllamaStatus('selecting');
-      toast.error('Tải model thất bại', { description: e.payload.error });
-    });
-    return () => { unP.then(f => f()); unC.then(f => f()); unE.then(f => f()); };
-  }, []);
-
-  const handlePullModel = async (tag: string) => {
-    setPullError(null); setPullProgress(0); setPullingModel(tag); setOllamaStatus('pulling');
-    try {
-      await invoke('pull_ollama_model', { modelName: tag, endpoint: null });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setPullingModel(''); setPullError(msg); setOllamaStatus('selecting');
-      toast.error('Không thể kéo model', { description: msg });
-    }
-  };
+  }, [setParakeetDownloaded]);
 
   const handleRetryZip = async () => {
     if (retryingRef.current) return;
@@ -251,21 +144,46 @@ export function DownloadProgressStep() {
     try {
       await invoke('zipformer_init');
       const ok = await invoke<boolean>('zipformer_is_model_loaded');
-      if (ok && !parakeetDownloaded) { setParakeetDownloaded(true); setZipState({ status: 'completed', progress: 100 }); }
-    } catch { /* ignore */ }
+      if (ok && !parakeetDownloaded) {
+        setParakeetDownloaded(true);
+        setZipState({ status: 'completed', progress: 100 });
+      }
+    } catch {
+      // ignore
+    }
+
+    const latestConfig = modelSettingsRef.current?.getConfig() ?? summaryModelConfig;
+    setSummaryModelConfig(latestConfig);
 
     if (!parakeetDownloaded) {
-      toast.message('Bạn có thể tải model sau', { description: 'Chưa có bộ nhận dạng giọng nói. Bạn vẫn có thể tiếp tục và tải sau trong Cài đặt.' });
-    } else if (ollamaStatus !== 'ready' && ollamaStatus !== 'no_local_models') {
-      toast.message('Bạn có thể tải model tóm tắt sau', { description: 'Tóm tắt AI sẽ cần Ollama + model. Bạn có thể cài/tải sau trong Cài đặt.' });
+      toast.message('Bạn có thể tải model sau', {
+        description: 'Chưa có bộ nhận dạng giọng nói. Bạn vẫn có thể tiếp tục và tải sau trong Cài đặt.',
+      });
+    }
+
+    const cloudProviders = ['claude', 'openai', 'groq', 'openrouter', 'custom-openai'];
+    if (cloudProviders.includes(latestConfig.provider) && !latestConfig.apiKey?.trim()) {
+      toast.message('Bạn có thể cấu hình API key sau', {
+        description: 'Tóm tắt AI sẽ cần API key. Bạn có thể thêm sau trong Cài đặt > Tóm tắt AI.',
+      });
+    } else if (latestConfig.provider === 'ollama' && !latestConfig.model) {
+      toast.message('Bạn có thể tải model tóm tắt sau', {
+        description: 'Tóm tắt AI sẽ cần Ollama + model. Bạn có thể cài/tải sau trong Cài đặt.',
+      });
     }
 
     if (isMac) {
+      try {
+        await saveSummaryModelConfig(latestConfig);
+      } catch {
+        toast.error('Không lưu được cài đặt mô hình');
+        return;
+      }
       goNext();
     } else {
       setIsCompleting(true);
       try {
-        await completeOnboarding();
+        await completeOnboarding(latestConfig);
         await new Promise(r => setTimeout(r, 100));
         window.location.reload();
       } catch {
@@ -275,43 +193,28 @@ export function DownloadProgressStep() {
     }
   };
 
-  const pulledOptions   = modelOptions?.filter(m => m.is_pulled)  ?? [];
-  const unpulledOptions = modelOptions?.filter(m => !m.is_pulled) ?? [];
-
   const zipDotStatus =
     zipState.status === 'waiting'     ? 'idle'    :
     zipState.status === 'downloading' ? 'loading' :
     zipState.status === 'completed'   ? 'ok'      : 'error';
 
-  const ollamaDotStatus =
-    ollamaStatus === 'checking'        ? 'loading' :
-    ollamaStatus === 'ready'           ? 'ok'      :
-    ollamaStatus === 'not_installed'   ? 'warn'    :
-    ollamaStatus === 'no_local_models' ? 'warn'    :
-    ollamaStatus === 'pulling'         ? 'loading' : 'warn';
-
-  const isBusy = isCompleting || ollamaStatus === 'checking' || ollamaStatus === 'pulling';
-
-  // ── render ──────────────────────────────────────────────────────────────
   return (
     <OnboardingContainer
       title="Đang chuẩn bị..."
-      description="Tải nhận dạng giọng nói, kiểm tra model tóm tắt theo RAM và thiết lập Ollama khi phù hợp."
-      step={3}
-      totalSteps={isMac ? 4 : 3}
+      description="Tải nhận dạng giọng nói và chọn nhà cung cấp AI tóm tắt phù hợp với bạn."
+      step={2}
+      totalSteps={isMac ? 3 : 2}
     >
       <div className="flex flex-col items-center gap-5">
-        <div className="w-full max-w-lg space-y-3">
+        <motion.div className="w-full max-w-lg space-y-3">
 
-          {/* ── Card 1: ZipFormer (nhận dạng giọng nói) ───────────────── */}
+          {/* Card 1: ZipFormer */}
           <motion.div
             initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.35, delay: 0.05 }}
             className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden"
           >
-            {/* Accent bar */}
             <div className="h-0.5 w-full bg-gradient-to-r from-blue-400 to-blue-600" />
-
             <div className="p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -366,216 +269,39 @@ export function DownloadProgressStep() {
             </div>
           </motion.div>
 
-          {/* ── Card 2: Ollama / RAM ───────────────────────────────────── */}
+          {/* Card 2: Summary model — multi-provider */}
           <motion.div
             initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.35, delay: 0.12 }}
             className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden"
           >
             <div className="h-0.5 w-full bg-gradient-to-r from-violet-400 to-violet-600" />
-
             <div className="p-4 space-y-3">
-              {/* Header */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-lg bg-violet-50 flex items-center justify-center shrink-0">
-                    <Sparkles className="w-4 h-4 text-violet-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-gray-800">Model AI tóm tắt (Ollama)</p>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      {ollamaStatus === 'checking'         ? 'Đang phân tích phần cứng...'          :
-                       ollamaStatus === 'no_local_models'  ? 'Không có model cục bộ phù hợp với RAM' :
-                       ollamaStatus === 'not_installed'    ? 'Ollama chưa được cài đặt'             :
-                       ollamaStatus === 'ready'            ? `Đã chọn: ${selectedModel}`            :
-                       ollamaStatus === 'pulling'          ? `Đang tải ${pullingModel}...`          :
-                       `${modelOptions?.length ?? 0} model phù hợp với máy của bạn`}
-                    </p>
-                  </div>
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-violet-50 flex items-center justify-center shrink-0">
+                  <Sparkles className="w-4 h-4 text-violet-600" />
                 </div>
-                <StatusDot status={ollamaDotStatus} />
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Model AI tóm tắt</p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Ollama cục bộ hoặc đám mây (Claude, OpenAI, Groq, OpenRouter…)
+                  </p>
+                </div>
               </div>
 
-              {/* Hardware badge */}
-              {hardwareInfo && ollamaStatus !== 'not_installed' && (
-                <div className="flex items-center gap-1.5 bg-gray-50 rounded-lg border border-gray-100 px-3 py-1.5">
-                  <Cpu className="w-3 h-3 text-gray-400 shrink-0" />
-                  <span className="text-[11px] text-gray-500">
-                    {hardwareInfo.ram_gb != null ? `RAM ${hardwareInfo.ram_gb} GB` : 'Phần cứng'}
-                    {ollamaStatus !== 'no_local_models' && hardwareInfo.max_size_gb
-                      ? ` · Gợi ý model ~${hardwareInfo.max_size_gb} GB`
-                      : ''}
-                  </span>
-                </div>
-              )}
-
-              {/* ── RAM too low: skip Ollama ───────────────────────────── */}
-              {ollamaStatus === 'no_local_models' && (
-                <div className="rounded-lg bg-amber-50 border border-amber-100 p-3">
-                  <p className="text-xs text-amber-900 leading-relaxed">
-                    Máy của bạn không có model tóm tắt nào phù hợp (RAM quá thấp). Bạn có thể dùng các nhà cung cấp đám mây như Claude, OpenAI hoặc Groq.
-                  </p>
-                </div>
-              )}
-
-              {/* ── Not installed ─────────────────────────────────────── */}
-              {ollamaStatus === 'not_installed' && (
-                <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 space-y-2">
-                  <p className="text-xs text-amber-900">
-                    Bạn có muốn tải và cài đặt Ollama ngay?
-                  </p>
-                  <button
-                    onClick={() => invoke('open_external_url', { url: 'https://ollama.com/download' })}
-                    className="flex items-center gap-1.5 w-full h-8 justify-center bg-gray-900 hover:bg-gray-700 text-white text-xs font-medium rounded-lg transition-colors"
-                  >
-                    <ExternalLink className="w-3 h-3" />
-                    Tải Ollama tại ollama.com/download
-                  </button>
-                  <button
-                    onClick={loadModels}
-                    className="w-full h-8 border border-amber-200 bg-white hover:bg-amber-100/80 text-amber-900 text-xs font-medium rounded-lg transition-colors flex items-center justify-center gap-1.5"
-                  >
-                    <RefreshCw className="w-3 h-3" /> Kiểm tra lại
-                  </button>
-                </div>
-              )}
-
-              {/* ── Model selection ───────────────────────────────────── */}
-              {(ollamaStatus === 'selecting' || ollamaStatus === 'pulling') && (
-                <div className="space-y-3">
-                  {pullError && (
-                    <div className="rounded-lg bg-red-50 border border-red-100 px-3 py-2">
-                      <p className="text-xs text-red-600">{pullError}</p>
-                    </div>
-                  )}
-
-                  {/* Already pulled */}
-                  {pulledOptions.length > 0 && (
-                    <div className="space-y-1.5">
-                      <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Đã có sẵn trên máy</p>
-                      {pulledOptions.map(m => (
-                        <div
-                          key={m.name}
-                          onClick={() => { setSelectedModel(m.name); setSelectedSummaryModel(m.name); }}
-                          className={cn(
-                            'flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all',
-                            selectedModel === m.name
-                              ? 'border-gray-900 bg-gray-50 ring-1 ring-gray-900'
-                              : 'border-gray-100 hover:border-gray-300 hover:bg-gray-50'
-                          )}
-                        >
-                          <div className="flex items-center gap-2.5">
-                            <div className={cn(
-                              'w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors',
-                              selectedModel === m.name ? 'border-gray-900 bg-gray-900' : 'border-gray-300'
-                            )}>
-                              {selectedModel === m.name && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
-                            </div>
-                            <div>
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-xs font-semibold text-gray-900">{m.name}</span>
-                                {m.is_recommended && <Star className="w-3 h-3 text-amber-400 fill-amber-400" />}
-                                <span className="text-[10px] px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded-full font-medium">Đã tải</span>
-                              </div>
-                              <p className="text-[10px] text-gray-500">{m.size_gb} GB · {m.description}</p>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* To pull */}
-                  <div className="space-y-1.5">
-                    <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">
-                      {pulledOptions.length > 0 ? 'Tải thêm model' : 'Chọn model để tải về'}
-                    </p>
-                    <div className="space-y-1.5 max-h-52 overflow-y-auto pr-0.5">
-                      {unpulledOptions.map(m => {
-                        const isPullingThis = pullingModel === m.name;
-                        return (
-                          <div
-                            key={m.name}
-                            className={cn(
-                              'p-3 rounded-lg border transition-all',
-                              isPullingThis ? 'border-violet-200 bg-violet-50' : 'border-gray-100'
-                            )}
-                          >
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="text-xs font-semibold text-gray-900">{m.name}</span>
-                                  {m.is_recommended && <Star className="w-3 h-3 text-amber-400 fill-amber-400 shrink-0" />}
-                                  <span className="text-[10px] text-gray-400 font-medium">{m.family}</span>
-                                </div>
-                                <p className="text-[10px] text-gray-500 mt-0.5">{m.size_gb} GB · {m.description}</p>
-                              </div>
-                              {isPullingThis ? (
-                                <Loader2 className="w-4 h-4 text-violet-600 animate-spin shrink-0" />
-                              ) : (
-                                <button
-                                  onClick={() => handlePullModel(m.name)}
-                                  disabled={ollamaStatus === 'pulling'}
-                                  className="flex items-center gap-1.5 px-2.5 h-7 bg-gray-900 hover:bg-gray-700 disabled:opacity-40 text-white text-xs font-medium rounded-lg transition-colors shrink-0"
-                                >
-                                  <Download className="w-3 h-3" /> Tải
-                                </button>
-                              )}
-                            </div>
-                            {isPullingThis && pullProgress > 0 && (
-                              <div className="mt-2.5 space-y-1">
-                                <ProgressBar value={pullProgress} color="bg-violet-500" />
-                                <div className="flex justify-between">
-                                  <span className="text-[10px] text-violet-500">Đang tải...</span>
-                                  <span className="text-[10px] font-medium text-violet-600">{pullProgress}%</span>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {pulledOptions.length > 0 && (
-                    <button
-                      onClick={() => {
-                        const best = pulledOptions.find(m => m.is_recommended) ?? pulledOptions[0];
-                        setSelectedModel(best.name); setSelectedSummaryModel(best.name); setOllamaStatus('ready');
-                      }}
-                      className="w-full h-8 bg-gray-900 hover:bg-gray-700 text-white text-xs font-medium rounded-lg transition-colors"
-                    >
-                      Dùng model đã có sẵn
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* ── Ready ─────────────────────────────────────────────── */}
-              {ollamaStatus === 'ready' && selectedModel && (
-                <div className="flex items-center justify-between rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-2.5">
-                  <div>
-                    <p className="text-xs font-semibold text-emerald-800">{selectedModel} · Sẵn sàng</p>
-                    {modelOptions?.find(m => m.name === selectedModel) && (
-                      <p className="text-[10px] text-emerald-700 mt-0.5">
-                        {modelOptions.find(m => m.name === selectedModel)?.size_gb} GB ·{' '}
-                        {modelOptions.find(m => m.name === selectedModel)?.description}
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => setOllamaStatus('selecting')}
-                    className="text-[10px] text-gray-500 hover:text-gray-700 underline shrink-0 ml-3 transition-colors"
-                  >
-                    Đổi model
-                  </button>
-                </div>
-              )}
+              <ModelSettingsModal
+                ref={modelSettingsRef}
+                embedded
+                allowSkipApiKey
+                modelConfig={summaryModelConfig}
+                setModelConfig={setSummaryModelConfig}
+                onSave={saveSummaryModelConfig}
+                skipInitialFetch
+              />
             </div>
           </motion.div>
-        </div>
+        </motion.div>
 
-        {/* ── Continue ──────────────────────────────────────────────────── */}
         <motion.div
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35, delay: 0.22 }}
@@ -583,11 +309,11 @@ export function DownloadProgressStep() {
         >
           <Button
             onClick={handleContinue}
-            disabled={isBusy}
+            disabled={isCompleting}
             className="w-full h-11 bg-gray-900 hover:bg-gray-700 text-white rounded-xl group transition-colors disabled:opacity-50"
           >
-            {isBusy ? (
-              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Đang xử lý...</>
+            {isCompleting ? (
+              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Đang chuẩn bị...</>
             ) : (
               <>Tiếp tục <ArrowRight className="w-4 h-4 ml-2 transition-transform group-hover:translate-x-0.5" /></>
             )}
@@ -596,16 +322,6 @@ export function DownloadProgressStep() {
           {!parakeetDownloaded && (
             <p className="text-[11px] text-center text-gray-400">
               Đang tải bộ nhận dạng giọng nói — có thể bỏ qua và tải sau
-            </p>
-          )}
-          {ollamaStatus === 'not_installed' && (
-            <p className="text-[11px] text-center text-amber-800/90">
-              Chưa có Ollama — bạn có thể tiếp tục và cài sau trong Cài đặt
-            </p>
-          )}
-          {ollamaStatus === 'no_local_models' && (
-            <p className="text-[11px] text-center text-gray-400">
-              Tóm tắt cục bộ không khả dụng — cấu hình Claude, OpenAI hoặc Groq trong Cài đặt
             </p>
           )}
         </motion.div>
