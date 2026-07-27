@@ -22,6 +22,8 @@ import { DownloadProgressToastProvider } from '@/components/shared/DownloadProgr
 import { RecordingPostProcessingProvider } from '@/contexts/RecordingPostProcessingProvider'
 import { ImportAudioDialog, ImportDropOverlay } from '@/components/ImportAudio'
 import { ImportDialogProvider } from '@/contexts/ImportDialogContext'
+import { DocumentImportDialog } from '@/components/ImportDocuments'
+import { DocumentImportDialogProvider } from '@/contexts/DocumentImportDialogContext'
 import { isAudioExtension, getAudioFormatsDisplayList } from '@/constants/audioFormats'
 
 
@@ -52,6 +54,21 @@ function ConditionalImportDialog({
   );
 }
 
+function ConditionalDocumentImportDialog({
+  showDocumentImportDialog,
+  handleDocumentImportDialogClose,
+}: {
+  showDocumentImportDialog: boolean;
+  handleDocumentImportDialogClose: (open: boolean) => void;
+}) {
+  return (
+    <DocumentImportDialog
+      open={showDocumentImportDialog}
+      onOpenChange={handleDocumentImportDialogClose}
+    />
+  );
+}
+
 // export { metadata } from './metadata'
 
 export default function RootLayout({
@@ -66,6 +83,7 @@ export default function RootLayout({
   const [showDropOverlay, setShowDropOverlay] = useState(false)
   const [showImportDialog, setShowImportDialog] = useState(false)
   const [importFilePath, setImportFilePath] = useState<string | null>(null)
+  const [showDocumentImportDialog, setShowDocumentImportDialog] = useState(false)
 
   useEffect(() => {
     // Check onboarding status first
@@ -201,6 +219,14 @@ export default function RootLayout({
     setShowImportDialog(true);
   }, []);
 
+  const handleDocumentImportDialogClose = useCallback((open: boolean) => {
+    setShowDocumentImportDialog(open);
+  }, []);
+
+  const handleOpenDocumentImportDialog = useCallback(() => {
+    setShowDocumentImportDialog(true);
+  }, []);
+
   const handleOnboardingComplete = () => {
     console.log('[Layout] Onboarding completed, reloading app')
     setShowOnboarding(false)
@@ -222,6 +248,7 @@ export default function RootLayout({
                         <TooltipProvider>
                           <RecordingPostProcessingProvider>
                             <ImportDialogProvider onOpen={handleOpenImportDialog}>
+                            <DocumentImportDialogProvider onOpen={handleOpenDocumentImportDialog}>
                               {/* Download progress toast provider - listens for background downloads */}
                               <DownloadProgressToastProvider />
 
@@ -241,6 +268,12 @@ export default function RootLayout({
                                 handleImportDialogClose={handleImportDialogClose}
                                 importFilePath={importFilePath}
                               />
+                              {/* Document import dialog */}
+                              <ConditionalDocumentImportDialog
+                                showDocumentImportDialog={showDocumentImportDialog}
+                                handleDocumentImportDialogClose={handleDocumentImportDialogClose}
+                              />
+                            </DocumentImportDialogProvider>
                             </ImportDialogProvider>
                           </RecordingPostProcessingProvider>
                         </TooltipProvider>
