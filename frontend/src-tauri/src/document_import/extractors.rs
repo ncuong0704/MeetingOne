@@ -34,6 +34,32 @@ fn extract_from_subtitle(path: &Path) -> Result<String, String> {
     Ok(lines_out.join("\n"))
 }
 
+fn extract_from_docx(path: &Path) -> Result<String, String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("Lỗi đọc file: {}", e))?;
+    let docx = docx_rs::read_docx(&bytes).map_err(|e| format!("Lỗi đọc DOCX: {}", e))?;
+
+    let mut text = String::new();
+    for child in docx.document.children {
+        if let docx_rs::DocumentChild::Paragraph(paragraph) = child {
+            let mut paragraph_text = String::new();
+            for pchild in paragraph.children {
+                if let docx_rs::ParagraphChild::Run(run) = pchild {
+                    for rchild in run.children {
+                        if let docx_rs::RunChild::Text(t) = rchild {
+                            paragraph_text.push_str(&t.text);
+                        }
+                    }
+                }
+            }
+            if !paragraph_text.is_empty() {
+                text.push_str(&paragraph_text);
+                text.push('\n');
+            }
+        }
+    }
+    Ok(text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -68,5 +94,27 @@ mod tests {
 
         let text = extract_from_subtitle(&path).unwrap();
         assert_eq!(text, "Hello everyone");
+    }
+
+    #[test]
+    fn test_extract_from_docx_reads_paragraph_text() {
+        use docx_rs::{Docx, Paragraph, Run};
+        use std::io::Cursor;
+
+        let mut buf: Vec<u8> = Vec::new();
+        Docx::new()
+            .add_paragraph(Paragraph::new().add_run(Run::new().add_text("Hello world")))
+            .add_paragraph(Paragraph::new().add_run(Run::new().add_text("Second paragraph")))
+            .build()
+            .pack(Cursor::new(&mut buf))
+            .expect("failed to pack test docx");
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sample.docx");
+        std::fs::write(&path, &buf).unwrap();
+
+        let text = extract_from_docx(&path).unwrap();
+        assert!(text.contains("Hello world"), "got: {}", text);
+        assert!(text.contains("Second paragraph"), "got: {}", text);
     }
 }
