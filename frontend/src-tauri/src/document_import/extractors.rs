@@ -60,6 +60,42 @@ fn extract_from_docx(path: &Path) -> Result<String, String> {
     Ok(text)
 }
 
+fn extract_from_pdf(path: &Path) -> Result<String, String> {
+    pdf_extract::extract_text(path).map_err(|e| format!("Lỗi đọc PDF: {}", e))
+}
+
+fn extract_text(path: &Path) -> Result<String, String> {
+    let extension = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default();
+
+    match extension.as_str() {
+        "pdf" => extract_from_pdf(path),
+        "docx" => extract_from_docx(path),
+        "srt" | "vtt" => extract_from_subtitle(path),
+        "txt" => extract_from_plain_text(path),
+        other => Err(format!("Định dạng .{} không được hỗ trợ", other)),
+    }
+}
+
+/// Extract text from `path` and validate it has real content.
+/// Returns a trimmed, non-empty string, or an error describing why the file
+/// was rejected (unsupported format, read/parse failure, or too little text —
+/// e.g. a scanned/image-only PDF with no extractable text layer).
+pub fn extract_text_validated(path: &Path) -> Result<String, String> {
+    let text = extract_text(path)?;
+    let trimmed = text.trim();
+    if trimmed.chars().count() < MIN_CONTENT_LENGTH {
+        return Err(
+            "Không trích xuất được nội dung văn bản (có thể là file PDF dạng scan/ảnh, hoặc file rỗng)"
+                .to_string(),
+        );
+    }
+    Ok(trimmed.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -116,5 +152,55 @@ mod tests {
         let text = extract_from_docx(&path).unwrap();
         assert!(text.contains("Hello world"), "got: {}", text);
         assert!(text.contains("Second paragraph"), "got: {}", text);
+    }
+
+    #[test]
+    fn test_extract_from_pdf_invalid_bytes_returns_err() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("corrupt.pdf");
+        std::fs::write(&path, b"this is not a real pdf file").unwrap();
+
+        let result = extract_from_pdf(&path);
+        assert!(result.is_err(), "expected an error for a non-PDF file");
+    }
+
+    #[test]
+    fn test_extract_text_dispatches_by_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sample.txt");
+        std::fs::write(&path, "Nội dung mẫu").unwrap();
+
+        let text = extract_text(&path).unwrap();
+        assert_eq!(text, "Nội dung mẫu");
+    }
+
+    #[test]
+    fn test_extract_text_unsupported_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sample.xyz");
+        std::fs::write(&path, "some content").unwrap();
+
+        let result = extract_text(&path);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_extract_text_validated_rejects_short_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("short.txt");
+        std::fs::write(&path, "hi").unwrap();
+
+        let result = extract_text_validated(&path);
+        assert!(result.is_err(), "content shorter than MIN_CONTENT_LENGTH should be rejected");
+    }
+
+    #[test]
+    fn test_extract_text_validated_accepts_real_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("real.txt");
+        std::fs::write(&path, "Đây là nội dung cuộc họp có đủ độ dài để vượt qua ngưỡng kiểm tra").unwrap();
+
+        let result = extract_text_validated(&path);
+        assert!(result.is_ok());
     }
 }
