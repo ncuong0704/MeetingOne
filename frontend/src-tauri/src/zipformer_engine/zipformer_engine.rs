@@ -262,7 +262,7 @@ impl ZipFormerEngine {
             config.model_config.tokens.as_deref().unwrap_or("?")
         );
 
-        let recognizer = OfflineRecognizer::create(&config)
+        let recognizer = tokio::task::block_in_place(|| OfflineRecognizer::create(&config))
             .ok_or_else(|| anyhow!("Failed to create ZipFormer recognizer — check model files"))?;
 
         *self.recognizer.write().await = Some(recognizer);
@@ -286,23 +286,36 @@ impl ZipFormerEngine {
     /// Transcribe a complete audio buffer (16 kHz f32 mono PCM).
     /// Uses offline batch inference — call once per VAD segment.
     pub async fn transcribe_audio(&self, audio: Vec<f32>) -> Result<String> {
+        if audio.is_empty() {
+            return Ok(String::new());
+        }
+
         let guard = self.recognizer.read().await;
         let recognizer = guard
             .as_ref()
             .ok_or_else(|| anyhow!("ZipFormer model not loaded"))?;
 
-        if audio.is_empty() {
-            return Ok(String::new());
-        }
+        // Run the blocking native inference call off the async runtime so it
+        // can't starve other tasks (audio capture/mixing) sharing this
+        // worker thread. tokio::task::block_in_place requires a
+        // multi-threaded runtime (already the case for this app's runtime,
+        // per Cargo.toml's tokio "full" feature) and lets us keep the RwLock
+        // guard held across the blocking section without moving it across
+        // threads (spawn_blocking would require `recognizer`/`stream` to be
+        // Send, which sherpa-onnx's FFI-backed types are not guaranteed to
+        // be — block_in_place avoids that requirement entirely by running
+        // synchronously on the CURRENT thread, just outside the async
+        // scheduler's cooperative multitasking).
+        let text = tokio::task::block_in_place(|| {
+            let stream = recognizer.create_stream();
+            stream.accept_waveform(16000, &audio);
+            recognizer.decode(&stream);
 
-        let stream = recognizer.create_stream();
-        stream.accept_waveform(16000, &audio);
-        recognizer.decode(&stream);
-
-        let text = stream
-            .get_result()
-            .map(|r| r.text.trim().to_string())
-            .unwrap_or_default();
+            stream
+                .get_result()
+                .map(|r| r.text.trim().to_string())
+                .unwrap_or_default()
+        });
 
         if !text.is_empty() {
             info!("ZipFormer transcribed: {}", text);
