@@ -65,11 +65,31 @@ pub fn start_transcription_task<R: Runtime>(
 
         // Create parallel workers for faster processing while preserving ALL chunks
         const NUM_WORKERS: usize = 1; // Serial processing ensures transcripts emit in chronological order
-        // Bounded to cap memory growth if transcription falls behind real-time
-        // speech for an extended period (weak CPU, background load, very long
-        // meeting). Capacity chosen generously — at ~150ms-25s per VAD segment,
-        // 300 outstanding segments represents many minutes of backlog before
-        // send() ever blocks, so this should never engage under normal use.
+        // Bounded to cap the dispatcher→worker handoff if transcription falls
+        // behind real-time speech for an extended period (weak CPU, background
+        // load, very long meeting). Capacity chosen generously — at ~150ms-25s
+        // per VAD segment, 300 outstanding segments represents many minutes of
+        // backlog before send() ever blocks, so this should never engage under
+        // normal use.
+        //
+        // KNOWN LIMITATION: this bounds only this dispatcher→worker channel.
+        // The upstream channel this dispatcher reads from (`transcription_receiver`,
+        // created in recording_manager.rs, fed synchronously and un-awaited by
+        // pipeline.rs's real-time VAD/mixing loop) remains unbounded. When this
+        // channel fills and send() blocks, the dispatcher stops draining that
+        // upstream channel, so the backlog relocates there instead of being
+        // eliminated. A full fix would require making the VAD loop's send path
+        // in pipeline.rs async/backpressured, which risks destabilizing the
+        // real-time audio-timing-sensitive hot path — intentionally out of
+        // scope for this narrow fix. Tracked as a known follow-up.
+        //
+        // Also note: if the sole worker (NUM_WORKERS == 1 below) panics while
+        // this channel is full, nothing will ever drain it again, and the
+        // dispatcher's next send().await blocks forever — a hang, rather than
+        // the unbounded memory growth that occurred here pre-fix. No
+        // panic-recovery/restart logic exists for the worker; this is a
+        // pre-existing gap, not something this fix needs to solve, but it's
+        // worth knowing about.
         const WORK_QUEUE_CAPACITY: usize = 300;
         let (work_sender, work_receiver) = tokio::sync::mpsc::channel::<AudioChunk>(WORK_QUEUE_CAPACITY);
         let work_receiver = Arc::new(tokio::sync::Mutex::new(work_receiver));
