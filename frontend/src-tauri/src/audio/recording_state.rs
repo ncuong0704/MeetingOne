@@ -476,31 +476,42 @@ mod tests {
 
     #[test]
     fn test_error_callback_lock_released_before_invocation() {
+        // Regression test: report_error must release the error_callback lock
+        // BEFORE invoking the registered callback. This test proves it by
+        // having the callback itself call set_error_callback again — which
+        // internally does another `error_callback.lock()`. If report_error
+        // still held that lock while the callback ran (the bug this file's
+        // fix addresses), this inner lock attempt would deadlock forever
+        // (parking_lot::Mutex is not reentrant). We run report_error on a
+        // background thread and wait with a timeout so a regression shows
+        // up as a clean test failure rather than hanging the whole suite.
         let state = RecordingState::new();
 
-        // Register a callback that itself calls back into RecordingState,
-        // re-acquiring locks report_error also uses. If report_error still
-        // held the error_callback lock while invoking the callback, this
-        // callback couldn't touch the same RecordingState's other methods
-        // (like get_error_count, which also locks separately) without
-        // deadlocking with parking_lot's own guard rules for THIS SAME lock —
-        // more directly: the old Box<dyn Fn> design made this pattern
-        // impossible to write safely at all. Proving we can register and
-        // invoke a callback that re-enters state methods (get_error_count)
-        // confirms report_error doesn't hold error_callback locked during
-        // the call.
-        let reentrant_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
-        let reentrant_count_clone = reentrant_count.clone();
+        let reentered = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let reentered_clone = reentered.clone();
         let state_clone = state.clone();
+
         state.set_error_callback(move |_error| {
-            // Re-enter: read another field's lock while report_error's own
-            // call site still has its stack frame active.
-            let _ = state_clone.get_error_count();
-            reentrant_count_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            // Re-enter error_callback's own lock from inside the callback.
+            // This is the operation that would deadlock if report_error
+            // still held the lock at this point.
+            state_clone.set_error_callback(|_| {});
+            reentered_clone.store(true, std::sync::atomic::Ordering::SeqCst);
         });
 
-        state.report_error(AudioError::ProcessingFailed);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let state_for_thread = state.clone();
+        std::thread::spawn(move || {
+            state_for_thread.report_error(AudioError::ProcessingFailed);
+            let _ = tx.send(());
+        });
 
-        assert_eq!(reentrant_count.load(std::sync::atomic::Ordering::SeqCst), 1);
+        rx.recv_timeout(std::time::Duration::from_secs(5))
+            .expect("report_error did not return within 5s — error_callback lock is likely still held during callback invocation (deadlock)");
+
+        assert!(
+            reentered.load(std::sync::atomic::Ordering::SeqCst),
+            "callback's re-entrant set_error_callback call did not complete"
+        );
     }
 }
