@@ -39,6 +39,13 @@ pub use super::transcription::TranscriptUpdate;
 // Simple recording state tracking
 static IS_RECORDING: AtomicBool = AtomicBool::new(false);
 
+// Set while attempt_device_reconnect legitimately owns (has taken) the
+// RecordingManager out of RECORDING_MANAGER, so other commands (notably
+// stop_recording) can tell "manager temporarily absent for reconnect" apart
+// from "not recording," and avoid silently no-op'ing or letting a new
+// recording start into the same slot while a reconnect is still in flight.
+static RECONNECT_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
 // Global recording manager and transcription task to keep them alive during recording
 static RECORDING_MANAGER: Mutex<Option<RecordingManager>> = Mutex::new(None);
 static TRANSCRIPTION_TASK: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
@@ -492,6 +499,17 @@ pub async fn stop_recording<R: Runtime>(
     if !IS_RECORDING.load(Ordering::SeqCst) {
         info!("Recording was not active");
         return Ok(());
+    }
+
+    // A device reconnect currently owns the manager (RECORDING_MANAGER is
+    // temporarily None while it does its I/O). Proceeding here would hit the
+    // "no manager found" no-op path below and silently discard the active
+    // session without saving it — instead, ask the caller to retry shortly
+    // rather than pretending the stop succeeded.
+    if RECONNECT_IN_PROGRESS.load(Ordering::SeqCst) {
+        return Err(
+            "Device reconnect in progress, please try stopping again in a moment".to_string(),
+        );
     }
 
     // Emit shutdown progress to frontend
@@ -1165,15 +1183,27 @@ pub async fn attempt_device_reconnect(
             None => return Err("Recording not active".to_string()),
         }
     }; // Lock released here
+    RECONNECT_IN_PROGRESS.store(true, Ordering::SeqCst);
 
     let result = manager.attempt_device_reconnect(&device_name, monitor_type).await;
 
-    // Put the manager back, regardless of outcome, so the recording session
-    // isn't silently abandoned by a failed reconnect attempt.
+    // Put the manager back, but only if the slot is still empty. If the user
+    // stopped and started a new recording while this reconnect was in
+    // flight, stop_recording's RECONNECT_IN_PROGRESS check below should have
+    // prevented that — this is defense in depth in case that check is ever
+    // bypassed: never silently clobber a live manager that's already there.
     {
         let mut manager_guard = RECORDING_MANAGER.lock();
-        *manager_guard = Some(manager);
+        if manager_guard.is_none() {
+            *manager_guard = Some(manager);
+        } else {
+            warn!(
+                "⚠️ Reconnect finished but a new recording session is already active — \
+                 discarding stale manager instead of overwriting it"
+            );
+        }
     }
+    RECONNECT_IN_PROGRESS.store(false, Ordering::SeqCst);
 
     match result {
         Ok(success) => {
