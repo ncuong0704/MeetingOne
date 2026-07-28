@@ -3620,6 +3620,7 @@ dependencies = [
  "nnnoiseless",
  "objc",
  "once_cell",
+ "parking_lot",
  "pdf-extract",
  "rand 0.8.6",
  "rayon",

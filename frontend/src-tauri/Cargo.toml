@@ -81,6 +81,7 @@ reqwest = { version = "0.11", features = ["blocking", "multipart", "json", "stre
 # crossbeam
 crossbeam = "0.8.4"
 dashmap = "6.1.0"
+parking_lot = "0.12"
 
 # Directories
 dirs = "5.0.1"
