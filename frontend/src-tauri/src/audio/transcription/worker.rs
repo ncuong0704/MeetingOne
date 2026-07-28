@@ -65,7 +65,13 @@ pub fn start_transcription_task<R: Runtime>(
 
         // Create parallel workers for faster processing while preserving ALL chunks
         const NUM_WORKERS: usize = 1; // Serial processing ensures transcripts emit in chronological order
-        let (work_sender, work_receiver) = tokio::sync::mpsc::unbounded_channel::<AudioChunk>();
+        // Bounded to cap memory growth if transcription falls behind real-time
+        // speech for an extended period (weak CPU, background load, very long
+        // meeting). Capacity chosen generously — at ~150ms-25s per VAD segment,
+        // 300 outstanding segments represents many minutes of backlog before
+        // send() ever blocks, so this should never engage under normal use.
+        const WORK_QUEUE_CAPACITY: usize = 300;
+        let (work_sender, work_receiver) = tokio::sync::mpsc::channel::<AudioChunk>(WORK_QUEUE_CAPACITY);
         let work_receiver = Arc::new(tokio::sync::Mutex::new(work_receiver));
 
         // Track completion: AtomicU64 for chunks queued, AtomicU64 for chunks completed
@@ -323,7 +329,10 @@ pub fn start_transcription_task<R: Runtime>(
                 chunk.chunk_id, queued
             );
 
-            if let Err(_) = work_sender.send(chunk) {
+            // Bounded send: if the queue is full (worker seriously behind),
+            // this awaits until space frees up rather than growing memory
+            // without limit. No chunk is ever dropped.
+            if work_sender.send(chunk).await.is_err() {
                 error!("❌ Failed to send chunk to workers - this should not happen!");
                 break;
             }
