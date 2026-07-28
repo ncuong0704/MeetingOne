@@ -28,23 +28,29 @@ pub enum StreamBackend {
 // from the same thread context by using spawn_blocking for operations that cross thread boundaries
 unsafe impl Send for StreamBackend {}
 
-/// Wrapper that force-asserts `Send` for a value that is normally `!Send`
-/// (namely cpal's `Stream`, whose backends carry a raw `*mut ()` marker
-/// type). This is needed to move the value into a `tokio::task::spawn_blocking`
-/// closure, since `spawn_blocking` requires `F: Send`.
+/// Wraps a `cpal::Stream` (which is `!Send` on most platforms due to real
+/// thread-affinity requirements, e.g. WASAPI COM objects on Windows) so it
+/// can be moved into a `tokio::task::spawn_blocking` closure.
 ///
-/// SAFETY: Same justification as `unsafe impl Send for StreamBackend` above —
-/// the wrapped value is only ever touched by the single blocking-pool thread
-/// that runs the closure it was moved into; it is not accessed concurrently
-/// from multiple threads. This does NOT guarantee the same OS thread is used
-/// across separate `spawn_blocking` calls (e.g. `play()` vs. the later
-/// `pause()`/`drop()`), which is why this remains a partial mitigation for
-/// cpal's real thread-affinity requirements (e.g. WASAPI COM objects on
-/// Windows) rather than a complete fix.
-struct AssertSend<T>(T);
-unsafe impl<T> Send for AssertSend<T> {}
+/// SAFETY: sound only because every use of this type is a single, sequential
+/// ownership handoff across exactly one `spawn_blocking` boundary — the
+/// value is wrapped immediately before the call, unwrapped via `into_inner()`
+/// as the very first line inside the closure, and never observed from more
+/// than one thread at a time. `JoinHandle::await` establishes the
+/// happens-before edge that makes this safe. This type is deliberately
+/// NOT generic — do not repurpose it for any other type without
+/// re-justifying this exact invariant for that type; a type with interior
+/// mutability accessed concurrently (rather than handed off sequentially)
+/// would NOT be safe to wrap this way.
+///
+/// This does NOT guarantee the same OS thread is used across separate
+/// `spawn_blocking` calls (e.g. `play()` vs. the later `pause()`/`drop()`),
+/// which is why this remains a partial mitigation for cpal's real
+/// thread-affinity requirements rather than a complete fix.
+struct AssertSend(Stream);
+unsafe impl Send for AssertSend {}
 
-impl<T> AssertSend<T> {
+impl AssertSend {
     /// Extract the wrapped value. Deliberately a method (rather than
     /// destructuring `AssertSend(x) = wrapped` at the call site) so that
     /// Rust 2021's disjoint closure capture can't see through to the inner
@@ -52,7 +58,7 @@ impl<T> AssertSend<T> {
     /// `spawn_blocking` closure body would make the closure capture just the
     /// (non-Send) inner field instead of this (Send) wrapper, defeating the
     /// whole point of the wrapper.
-    fn into_inner(self) -> T {
+    fn into_inner(self) -> Stream {
         self.0
     }
 }
@@ -170,7 +176,7 @@ impl AudioStream {
         // `Stream` itself is `!Send` (see `AssertSend` above), so it must be
         // wrapped before it can be moved into the spawn_blocking closure.
         let wrapped = AssertSend(stream);
-        let stream = tokio::task::spawn_blocking(move || -> Result<AssertSend<Stream>> {
+        let stream = tokio::task::spawn_blocking(move || -> Result<AssertSend> {
             let stream = wrapped.into_inner();
             stream.play()?;
             Ok(AssertSend(stream))
@@ -422,15 +428,21 @@ impl AudioStream {
     /// Synchronous stop path used ONLY from `AudioStreamManager`'s `Drop`
     /// impl, where `.await` is unavailable. This performs the same
     /// pause()+drop() logic as `stop()` above but directly on whatever
-    /// thread `Drop::drop` happens to run on, instead of via
-    /// `spawn_blocking`.
+    /// thread `Drop::drop` happens to run on, WITHOUT the `spawn_blocking`
+    /// mitigation `stop()` uses — so it still carries the original
+    /// cross-thread cpal thread-affinity risk in full.
     ///
-    /// This is strictly an emergency-cleanup fallback: it accepts the
-    /// thread-affinity risk that `stop()` mitigates, but only for the case
-    /// where a `RecordingManager`/`AudioStreamManager` is dropped without
-    /// having gone through the normal async `stop_recording` command path
-    /// (e.g. the struct is torn down without an explicit stop call). Normal
-    /// shutdown always uses the async `stop()` above.
+    /// KNOWN GAP: this is not just a rare/expected emergency-cleanup path.
+    /// `recording_commands.rs` currently has an open TOCTOU race on
+    /// `start_recording` (`IS_RECORDING` is checked, then only set after a
+    /// long `.await`-laden init, not atomically) — two near-simultaneous
+    /// `start_recording` calls can cause a live `AudioStreamManager` (with
+    /// actively running streams) to be replaced and dropped in place on a
+    /// shared tokio worker thread, reaching this exact path with a stream
+    /// that is genuinely live, not merely during unexpected teardown. A
+    /// planned later fix for that race (see the crash-fix plan's TOCTOU
+    /// task) should close this gap; re-verify this comment once that fix
+    /// lands.
     fn stop_sync(self) -> Result<()> {
         info!("Stopping audio stream for device (sync/drop path): {}", self.device.name);
 
@@ -570,9 +582,10 @@ impl AudioStreamManager {
 
     /// Synchronous fallback used only by `Drop::drop` below, where `.await`
     /// is unavailable. Performs pause()+drop() directly on the calling
-    /// thread via `AudioStream::stop_sync` instead of `spawn_blocking`. This
-    /// is an emergency-cleanup path only — normal shutdown always goes
-    /// through the async `stop_streams` above.
+    /// thread via `AudioStream::stop_sync` instead of `spawn_blocking` — see
+    /// `stop_sync`'s doc comment for why this path is reachable with
+    /// genuinely live streams today (open `start_recording` TOCTOU race),
+    /// not only during rare/unexpected cleanup.
     fn stop_streams_sync(&mut self) -> Result<()> {
         info!("Stopping all audio streams (sync/drop path)");
 
@@ -625,10 +638,18 @@ impl Drop for AudioStreamManager {
         // Fall back to `stop_streams_sync`, which performs the pause()+drop()
         // directly on whatever thread `Drop::drop` happens to run on. This
         // carries the same thread-affinity risk `stop_streams`/`stop()`
-        // mitigate via spawn_blocking, but this path is only exercised for
-        // emergency/unexpected cleanup — normal shutdown always goes through
-        // the async `stop_recording` command path, which calls the async
-        // `stop_streams` before this struct would ever be dropped.
+        // mitigate via spawn_blocking.
+        //
+        // KNOWN GAP: normal shutdown goes through the async `stop_recording`
+        // command path, which calls the async `stop_streams` before this
+        // struct would be dropped — but that's not the only way this Drop
+        // impl fires today. `recording_commands.rs` has an open TOCTOU race
+        // on `start_recording` (checked-then-later-set `IS_RECORDING`, not
+        // atomic): two near-simultaneous `start_recording` calls can replace
+        // and drop a live `AudioStreamManager` in place on a shared tokio
+        // worker thread, landing here with active streams rather than only
+        // during rare/unexpected cleanup. A planned later fix for that race
+        // should close this gap — see `stop_sync`'s doc comment for detail.
         if let Err(e) = self.stop_streams_sync() {
             error!("Error stopping streams during drop: {}", e);
         }
