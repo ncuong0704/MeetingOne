@@ -272,6 +272,17 @@ impl ZipFormerEngine {
         Ok(())
     }
 
+    /// Release the loaded model's native memory. Safe to call whether or not
+    /// a model is currently loaded. Used after one-off batch operations
+    /// (audio import, retranscription) to avoid keeping the model resident
+    /// in memory for the rest of the process lifetime when it isn't actively
+    /// needed for live recording.
+    pub async fn unload_model(&self) {
+        *self.recognizer.write().await = None;
+        *self.model_status.write().await = ModelStatus::NotLoaded;
+        info!("ZipFormer model unloaded, native memory released");
+    }
+
     /// Transcribe a complete audio buffer (16 kHz f32 mono PCM).
     /// Uses offline batch inference — call once per VAD segment.
     pub async fn transcribe_audio(&self, audio: Vec<f32>) -> Result<String> {
@@ -304,5 +315,27 @@ impl ZipFormerEngine {
 impl Default for ZipFormerEngine {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_unload_model_clears_recognizer_and_status() {
+        let engine = ZipFormerEngine::new();
+        // Simulate a loaded state directly (bypassing the real load_model,
+        // which needs real model files on disk) by writing to the internal
+        // fields the same way load_model does, minus the actual recognizer
+        // construction — we only need to prove unload_model resets state.
+        *engine.model_status.write().await = ModelStatus::Ready;
+
+        assert!(!matches!(*engine.model_status.read().await, ModelStatus::NotLoaded));
+
+        engine.unload_model().await;
+
+        assert!(engine.recognizer.read().await.is_none());
+        assert!(matches!(*engine.model_status.read().await, ModelStatus::NotLoaded));
     }
 }

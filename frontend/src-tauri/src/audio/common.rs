@@ -4,10 +4,24 @@ use log::{debug, info};
 use std::path::Path;
 use uuid::Uuid;
 
-/// ZipFormer engine stays loaded across batch jobs — no unload needed.
+/// Release the ZipFormer model's memory after a one-off batch job (audio
+/// import, retranscription) finishes, unless a live recording is currently
+/// using the engine. This restores the memory-freeing behavior the original
+/// Whisper-based implementation had (commit 6a7eb26) before the ZipFormer
+/// migration silently dropped it.
 pub(crate) async fn unload_engine_after_batch() {
     if crate::audio::recording_commands::is_recording().await {
         log::info!("Skipping model unload after batch: recording in progress");
+        return;
+    }
+
+    match crate::zipformer_engine::commands::get_engine_arc() {
+        Ok(engine) => {
+            engine.unload_model().await;
+        }
+        Err(e) => {
+            log::warn!("Skipping model unload after batch: engine not available: {}", e);
+        }
     }
 }
 
