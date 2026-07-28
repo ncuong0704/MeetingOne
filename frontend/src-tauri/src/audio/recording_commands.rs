@@ -46,6 +46,16 @@ static IS_RECORDING: AtomicBool = AtomicBool::new(false);
 // recording start into the same slot while a reconnect is still in flight.
 static RECONNECT_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
+// Set for the duration of a start_recording_*_inner call (from just after
+// the IS_RECORDING claim until the manager is either fully installed or the
+// attempt fails), so other commands (notably stop_recording) can tell "a
+// start is still initializing its manager" apart from "genuinely not
+// recording," the same way RECONNECT_IN_PROGRESS distinguishes an in-flight
+// reconnect. Without this, a stop_recording call landing in that window
+// would silently no-op while the manager finishes installing moments later,
+// orphaning a live recording with no way to stop it.
+static START_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
 // Global recording manager and transcription task to keep them alive during recording
 static RECORDING_MANAGER: Mutex<Option<RecordingManager>> = Mutex::new(None);
 static TRANSCRIPTION_TASK: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
@@ -98,8 +108,11 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
         info!("🔍 IS_RECORDING already true — rejecting concurrent start");
         return Err("Recording already in progress".to_string());
     }
+    START_IN_PROGRESS.store(true, Ordering::SeqCst);
 
     let result = start_recording_with_meeting_name_inner(app, meeting_name, mic_enabled).await;
+
+    START_IN_PROGRESS.store(false, Ordering::SeqCst);
 
     if result.is_err() {
         // Roll back the claim so a failed start doesn't permanently lock out
@@ -323,12 +336,19 @@ async fn start_recording_with_meeting_name_inner<R: Runtime>(
         info!("✅ Transcript-update event listener registered for history persistence");
     }
 
-    // Emit success event
-    app.emit("recording-started", serde_json::json!({
+    // Emit success event. Non-fatal: by this point the manager is already
+    // live and installed (RECORDING_MANAGER, TRANSCRIPTION_TASK, and the
+    // transcript listener are all set up above) — a failure to notify the
+    // frontend must not be treated as a failed start, since the wrapper
+    // would otherwise roll IS_RECORDING back to false while a real recording
+    // keeps running, orphaning it.
+    if let Err(e) = app.emit("recording-started", serde_json::json!({
         "message": "Recording started successfully with parallel processing",
         "devices": ["Default Microphone", "Default System Audio"],
         "workers": 3
-    })).map_err(|e| e.to_string())?;
+    })) {
+        warn!("Failed to emit recording-started event (recording itself started fine): {}", e);
+    }
 
     // Update tray menu to reflect recording state
     crate::tray::update_tray_menu(&app);
@@ -367,6 +387,7 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
         info!("🔍 IS_RECORDING already true — rejecting concurrent start");
         return Err("Recording already in progress".to_string());
     }
+    START_IN_PROGRESS.store(true, Ordering::SeqCst);
 
     let result = start_recording_with_devices_and_meeting_inner(
         app,
@@ -375,6 +396,8 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
         meeting_name,
     )
     .await;
+
+    START_IN_PROGRESS.store(false, Ordering::SeqCst);
 
     if result.is_err() {
         // Roll back the claim so a failed start doesn't permanently lock out
@@ -521,15 +544,18 @@ async fn start_recording_with_devices_and_meeting_inner<R: Runtime>(
         info!("✅ Transcript-update event listener registered for history persistence");
     }
 
-    // Emit success event
-    app.emit("recording-started", serde_json::json!({
+    // Emit success event. Non-fatal: see the identical comment in
+    // start_recording_with_meeting_name_inner above.
+    if let Err(e) = app.emit("recording-started", serde_json::json!({
         "message": "Recording started with custom devices and parallel processing",
         "devices": [
             mic_device_name.unwrap_or_else(|| "Default Microphone".to_string()),
             system_device_name.unwrap_or_else(|| "Default System Audio".to_string())
         ],
         "workers": 3
-    })).map_err(|e| e.to_string())?;
+    })) {
+        warn!("Failed to emit recording-started event (recording itself started fine): {}", e);
+    }
 
     // Update tray menu to reflect recording state
     crate::tray::update_tray_menu(&app);
@@ -555,13 +581,14 @@ pub async fn stop_recording<R: Runtime>(
     }
 
     // A device reconnect currently owns the manager (RECORDING_MANAGER is
-    // temporarily None while it does its I/O). Proceeding here would hit the
-    // "no manager found" no-op path below and silently discard the active
-    // session without saving it — instead, ask the caller to retry shortly
-    // rather than pretending the stop succeeded.
-    if RECONNECT_IN_PROGRESS.load(Ordering::SeqCst) {
+    // temporarily None while it does its I/O), OR a start is still
+    // installing its manager. Proceeding here would hit the "no manager
+    // found" no-op path below and silently discard the active session
+    // without saving it — instead, ask the caller to retry shortly rather
+    // than pretending the stop succeeded.
+    if RECONNECT_IN_PROGRESS.load(Ordering::SeqCst) || START_IN_PROGRESS.load(Ordering::SeqCst) {
         return Err(
-            "Device reconnect in progress, please try stopping again in a moment".to_string(),
+            "Recording is still starting up or reconnecting, please try stopping again in a moment".to_string(),
         );
     }
 
@@ -589,14 +616,14 @@ pub async fn stop_recording<R: Runtime>(
         let manager_for_cleanup = Some(manager);
         (result, manager_for_cleanup)
     } else {
-        // Narrow residual race: a reconnect may have taken the manager in
-        // the brief window between our RECONNECT_IN_PROGRESS check above and
-        // this lock acquisition. Re-check before treating this as "nothing
-        // to stop" — otherwise we'd silently flip IS_RECORDING to false
-        // without ever saving the in-progress session.
-        if RECONNECT_IN_PROGRESS.load(Ordering::SeqCst) {
+        // Narrow residual race: a reconnect or an in-flight start may have
+        // taken/not-yet-installed the manager in the brief window between
+        // our checks above and this lock acquisition. Re-check before
+        // treating this as "nothing to stop" — otherwise we'd silently flip
+        // IS_RECORDING to false without ever saving the in-progress session.
+        if RECONNECT_IN_PROGRESS.load(Ordering::SeqCst) || START_IN_PROGRESS.load(Ordering::SeqCst) {
             return Err(
-                "Device reconnect in progress, please try stopping again in a moment".to_string(),
+                "Recording is still starting up or reconnecting, please try stopping again in a moment".to_string(),
             );
         }
         warn!("No recording manager found to stop");
