@@ -28,6 +28,35 @@ pub enum StreamBackend {
 // from the same thread context by using spawn_blocking for operations that cross thread boundaries
 unsafe impl Send for StreamBackend {}
 
+/// Wrapper that force-asserts `Send` for a value that is normally `!Send`
+/// (namely cpal's `Stream`, whose backends carry a raw `*mut ()` marker
+/// type). This is needed to move the value into a `tokio::task::spawn_blocking`
+/// closure, since `spawn_blocking` requires `F: Send`.
+///
+/// SAFETY: Same justification as `unsafe impl Send for StreamBackend` above —
+/// the wrapped value is only ever touched by the single blocking-pool thread
+/// that runs the closure it was moved into; it is not accessed concurrently
+/// from multiple threads. This does NOT guarantee the same OS thread is used
+/// across separate `spawn_blocking` calls (e.g. `play()` vs. the later
+/// `pause()`/`drop()`), which is why this remains a partial mitigation for
+/// cpal's real thread-affinity requirements (e.g. WASAPI COM objects on
+/// Windows) rather than a complete fix.
+struct AssertSend<T>(T);
+unsafe impl<T> Send for AssertSend<T> {}
+
+impl<T> AssertSend<T> {
+    /// Extract the wrapped value. Deliberately a method (rather than
+    /// destructuring `AssertSend(x) = wrapped` at the call site) so that
+    /// Rust 2021's disjoint closure capture can't see through to the inner
+    /// field and capture it directly — a direct destructure inside a
+    /// `spawn_blocking` closure body would make the closure capture just the
+    /// (non-Send) inner field instead of this (Send) wrapper, defeating the
+    /// whole point of the wrapper.
+    fn into_inner(self) -> T {
+        self.0
+    }
+}
+
 /// Simplified audio stream wrapper with multi-backend support
 pub struct AudioStream {
     device: Arc<AudioDevice>,
@@ -130,8 +159,25 @@ impl AudioStream {
         // Build the appropriate stream based on sample format
         let stream = Self::build_stream(&cpal_device, &config, capture.clone())?;
 
-        // Start the stream
-        stream.play()?;
+        // Start the stream on a blocking thread. cpal's Stream has real
+        // thread-affinity requirements on some backends (e.g. WASAPI COM
+        // objects on Windows) — spawn_blocking keeps this off the shared
+        // tokio async worker pool. This doesn't guarantee the same OS thread
+        // handles both play() and the later pause()/drop() in `stop()`
+        // below — a full fix requires owning the stream on one dedicated
+        // thread for its whole lifecycle, which is a larger follow-up.
+        //
+        // `Stream` itself is `!Send` (see `AssertSend` above), so it must be
+        // wrapped before it can be moved into the spawn_blocking closure.
+        let wrapped = AssertSend(stream);
+        let stream = tokio::task::spawn_blocking(move || -> Result<AssertSend<Stream>> {
+            let stream = wrapped.into_inner();
+            stream.play()?;
+            Ok(AssertSend(stream))
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("Stream play task panicked: {}", e))??
+        .into_inner();
         info!("CPAL stream started for device: {}", device.name);
 
         Ok(Self {
@@ -316,20 +362,42 @@ impl AudioStream {
         &self.device
     }
 
-    /// Stop the stream
-    pub fn stop(self) -> Result<()> {
+    /// Stop the stream.
+    ///
+    /// This is `async` so the cpal `pause()` + `drop()` can be moved onto a
+    /// `spawn_blocking` thread (see `create_cpal_stream` above for why —
+    /// same thread-affinity rationale). Use this from any async context;
+    /// `Drop` impls cannot call this (they can't `.await`) — see
+    /// `stop_sync` below for that case.
+    pub async fn stop(self) -> Result<()> {
         info!("Stopping audio stream for device: {}", self.device.name);
 
         match self.backend {
             StreamBackend::Cpal(stream) => {
                 // CRITICAL: Pause the stream first to stop callbacks immediately
                 // This ensures closures stop executing before we drop the stream,
-                // allowing Arc references captured in callbacks to be released
-                if let Err(e) = stream.pause() {
-                    warn!("Failed to pause stream before drop: {}", e);
-                }
-                info!("Stream paused, now dropping to release callbacks");
-                drop(stream);
+                // allowing Arc references captured in callbacks to be released.
+                // Done on a blocking thread for the same thread-affinity reason
+                // as stream.play() in create_cpal_stream above. Note this does
+                // NOT guarantee the same OS thread that called play() handles
+                // this pause()/drop() — spawn_blocking doesn't pin to a
+                // specific thread across separate calls. A full fix requires
+                // owning the stream on one dedicated thread for its entire
+                // lifecycle (tracked as a follow-up, not done here).
+                //
+                // `Stream` is `!Send` (see `AssertSend` above), so it must
+                // be wrapped before it can be moved into the closure.
+                let wrapped = AssertSend(stream);
+                tokio::task::spawn_blocking(move || {
+                    let stream = wrapped.into_inner();
+                    if let Err(e) = stream.pause() {
+                        warn!("Failed to pause stream before drop: {}", e);
+                    }
+                    info!("Stream paused, now dropping to release callbacks");
+                    drop(stream);
+                })
+                .await
+                .map_err(|e| anyhow::anyhow!("Stream stop task panicked: {}", e))?;
             }
             #[cfg(target_os = "macos")]
             StreamBackend::CoreAudio { task } => {
@@ -348,6 +416,45 @@ impl AudioStream {
         // Explicitly drop self.device Arc reference
         drop(self.device);
         info!("Audio stream stopped and device reference dropped");
+        Ok(())
+    }
+
+    /// Synchronous stop path used ONLY from `AudioStreamManager`'s `Drop`
+    /// impl, where `.await` is unavailable. This performs the same
+    /// pause()+drop() logic as `stop()` above but directly on whatever
+    /// thread `Drop::drop` happens to run on, instead of via
+    /// `spawn_blocking`.
+    ///
+    /// This is strictly an emergency-cleanup fallback: it accepts the
+    /// thread-affinity risk that `stop()` mitigates, but only for the case
+    /// where a `RecordingManager`/`AudioStreamManager` is dropped without
+    /// having gone through the normal async `stop_recording` command path
+    /// (e.g. the struct is torn down without an explicit stop call). Normal
+    /// shutdown always uses the async `stop()` above.
+    fn stop_sync(self) -> Result<()> {
+        info!("Stopping audio stream for device (sync/drop path): {}", self.device.name);
+
+        match self.backend {
+            StreamBackend::Cpal(stream) => {
+                if let Err(e) = stream.pause() {
+                    warn!("Failed to pause stream before drop: {}", e);
+                }
+                info!("Stream paused, now dropping to release callbacks");
+                drop(stream);
+            }
+            #[cfg(target_os = "macos")]
+            StreamBackend::CoreAudio { task } => {
+                if let Some(task_handle) = task {
+                    info!("Aborting Core Audio task...");
+                    task_handle.abort();
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    info!("Core Audio task aborted");
+                }
+            }
+        }
+
+        drop(self.device);
+        info!("Audio stream stopped and device reference dropped (sync path)");
         Ok(())
     }
 }
@@ -426,15 +533,20 @@ impl AudioStreamManager {
         Ok(())
     }
 
-    /// Stop all audio streams
-    pub fn stop_streams(&mut self) -> Result<()> {
+    /// Stop all audio streams.
+    ///
+    /// `async` because `AudioStream::stop` now runs the cpal pause/drop on a
+    /// `spawn_blocking` thread. Use this from any async context (this is the
+    /// normal path — e.g. `RecordingManager::stop_recording`). `Drop::drop`
+    /// cannot call this since it can't `.await` — see `stop_streams_sync`.
+    pub async fn stop_streams(&mut self) -> Result<()> {
         info!("Stopping all audio streams");
 
         let mut errors = Vec::new();
 
         // Stop microphone stream
         if let Some(mic_stream) = self.microphone_stream.take() {
-            if let Err(e) = mic_stream.stop() {
+            if let Err(e) = mic_stream.stop().await {
                 error!("Failed to stop microphone stream: {}", e);
                 errors.push(e);
             }
@@ -442,7 +554,7 @@ impl AudioStreamManager {
 
         // Stop system stream
         if let Some(sys_stream) = self.system_stream.take() {
-            if let Err(e) = sys_stream.stop() {
+            if let Err(e) = sys_stream.stop().await {
                 error!("Failed to stop system stream: {}", e);
                 errors.push(e);
             }
@@ -452,6 +564,38 @@ impl AudioStreamManager {
             Err(anyhow::anyhow!("Failed to stop some streams: {:?}", errors))
         } else {
             info!("All audio streams stopped successfully");
+            Ok(())
+        }
+    }
+
+    /// Synchronous fallback used only by `Drop::drop` below, where `.await`
+    /// is unavailable. Performs pause()+drop() directly on the calling
+    /// thread via `AudioStream::stop_sync` instead of `spawn_blocking`. This
+    /// is an emergency-cleanup path only — normal shutdown always goes
+    /// through the async `stop_streams` above.
+    fn stop_streams_sync(&mut self) -> Result<()> {
+        info!("Stopping all audio streams (sync/drop path)");
+
+        let mut errors = Vec::new();
+
+        if let Some(mic_stream) = self.microphone_stream.take() {
+            if let Err(e) = mic_stream.stop_sync() {
+                error!("Failed to stop microphone stream: {}", e);
+                errors.push(e);
+            }
+        }
+
+        if let Some(sys_stream) = self.system_stream.take() {
+            if let Err(e) = sys_stream.stop_sync() {
+                error!("Failed to stop system stream: {}", e);
+                errors.push(e);
+            }
+        }
+
+        if !errors.is_empty() {
+            Err(anyhow::anyhow!("Failed to stop some streams: {:?}", errors))
+        } else {
+            info!("All audio streams stopped successfully (sync path)");
             Ok(())
         }
     }
@@ -476,7 +620,16 @@ impl AudioStreamManager {
 
 impl Drop for AudioStreamManager {
     fn drop(&mut self) {
-        if let Err(e) = self.stop_streams() {
+        // Drop::drop cannot be async, so the spawn_blocking-based
+        // `stop_streams` above (which requires `.await`) can't be used here.
+        // Fall back to `stop_streams_sync`, which performs the pause()+drop()
+        // directly on whatever thread `Drop::drop` happens to run on. This
+        // carries the same thread-affinity risk `stop_streams`/`stop()`
+        // mitigate via spawn_blocking, but this path is only exercised for
+        // emergency/unexpected cleanup — normal shutdown always goes through
+        // the async `stop_recording` command path, which calls the async
+        // `stop_streams` before this struct would ever be dropped.
+        if let Err(e) = self.stop_streams_sync() {
             error!("Error stopping streams during drop: {}", e);
         }
     }
