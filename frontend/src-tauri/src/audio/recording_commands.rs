@@ -536,6 +536,16 @@ pub async fn stop_recording<R: Runtime>(
         let manager_for_cleanup = Some(manager);
         (result, manager_for_cleanup)
     } else {
+        // Narrow residual race: a reconnect may have taken the manager in
+        // the brief window between our RECONNECT_IN_PROGRESS check above and
+        // this lock acquisition. Re-check before treating this as "nothing
+        // to stop" — otherwise we'd silently flip IS_RECORDING to false
+        // without ever saving the in-progress session.
+        if RECONNECT_IN_PROGRESS.load(Ordering::SeqCst) {
+            return Err(
+                "Device reconnect in progress, please try stopping again in a moment".to_string(),
+            );
+        }
         warn!("No recording manager found to stop");
         (Ok(()), None)
     };
