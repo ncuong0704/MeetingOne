@@ -707,7 +707,7 @@ impl AudioPipeline {
         mic_device_kind: super::device_detection::InputDeviceKind,
         system_device_name: String,
         system_device_kind: super::device_detection::InputDeviceKind,
-    ) -> Self {
+    ) -> Result<Self> {
         // Log device characteristics for adaptive buffering
         info!("🎛️ AudioPipeline initializing with device characteristics:");
         info!("   Mic: '{}' ({:?}) - Buffer: {:?}",
@@ -733,7 +733,7 @@ impl AudioPipeline {
             }
             Err(e) => {
                 error!("Failed to create VAD processor: {}", e);
-                panic!("VAD processor creation failed: {}", e);
+                return Err(anyhow::anyhow!("VAD processor creation failed: {}", e));
             }
         };
 
@@ -744,7 +744,7 @@ impl AudioPipeline {
         // Note: target_chunk_duration_ms is ignored - VAD controls segmentation now
         let _ = target_chunk_duration_ms;
 
-        Self {
+        Ok(Self {
             receiver,
             transcription_sender,
             state,
@@ -760,7 +760,7 @@ impl AudioPipeline {
             ring_buffer,
             mixer,
             recording_sender_for_mixed: None,  // Will be set by manager
-        }
+        })
     }
 
     /// Run the VAD-driven audio processing pipeline
@@ -989,7 +989,7 @@ impl AudioPipelineManager {
             mic_device_kind,
             system_device_name,
             system_device_kind,
-        );
+        )?;
 
         // CRITICAL FIX: Connect recording sender to receive pre-mixed audio
         // This ensures both mic AND system audio are captured in recordings
@@ -1076,5 +1076,35 @@ impl AudioPipelineManager {
 impl Default for AudioPipelineManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_audio_pipeline_new_returns_result() {
+        let (_audio_sender, audio_receiver) = mpsc::unbounded_channel();
+        let (transcription_sender, _transcription_receiver) = mpsc::unbounded_channel();
+        let state = RecordingState::new();
+
+        let result = AudioPipeline::new(
+            audio_receiver,
+            transcription_sender,
+            state,
+            0,
+            16000,
+            "Test Mic".to_string(),
+            super::super::device_detection::InputDeviceKind::Unknown,
+            "Test System".to_string(),
+            super::super::device_detection::InputDeviceKind::Unknown,
+        );
+
+        assert!(
+            result.is_ok(),
+            "AudioPipeline::new should succeed with valid inputs and a working VAD model: {:?}",
+            result.err()
+        );
     }
 }
