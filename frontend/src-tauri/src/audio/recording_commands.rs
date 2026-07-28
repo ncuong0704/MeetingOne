@@ -1153,27 +1153,27 @@ pub async fn attempt_device_reconnect(
         _ => return Err(format!("Invalid device type: {}", device_type)),
     };
 
-    // Check if recording is active
-    {
-        let manager_guard = RECORDING_MANAGER.lock();
-        if manager_guard.is_none() {
-            return Err("Recording not active".to_string());
+    // Take the manager out from behind the global lock for the duration of
+    // the reconnect attempt, instead of holding the lock the whole time.
+    // This means other recording commands (notably poll_audio_device_events,
+    // which the frontend calls every 1-2 seconds) don't block on this
+    // command's unbounded-duration device re-enumeration + stream restart.
+    let mut manager = {
+        let mut manager_guard = RECORDING_MANAGER.lock();
+        match manager_guard.take() {
+            Some(m) => m,
+            None => return Err("Recording not active".to_string()),
         }
-    } // Release lock
+    }; // Lock released here
 
-    // Spawn blocking task to handle the async reconnection
-    let result = tokio::task::spawn_blocking(move || {
-        tokio::runtime::Handle::current().block_on(async {
-            let mut manager_guard = RECORDING_MANAGER.lock();
-            if let Some(manager) = manager_guard.as_mut() {
-                manager.attempt_device_reconnect(&device_name, monitor_type).await
-            } else {
-                Err(anyhow::anyhow!("Recording not active"))
-            }
-        })
-    })
-    .await
-    .map_err(|e| format!("Task join error: {}", e))?;
+    let result = manager.attempt_device_reconnect(&device_name, monitor_type).await;
+
+    // Put the manager back, regardless of outcome, so the recording session
+    // isn't silently abandoned by a failed reconnect attempt.
+    {
+        let mut manager_guard = RECORDING_MANAGER.lock();
+        *manager_guard = Some(manager);
+    }
 
     match result {
         Ok(success) => {
