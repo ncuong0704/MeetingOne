@@ -85,17 +85,40 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
     meeting_name: Option<String>,
     mic_enabled: bool,
 ) -> Result<(), String> {
+    // Atomically claim the "starting" state: only one caller can transition
+    // IS_RECORDING from false to true here. Any concurrent caller sees the
+    // swap fail (current value was already true) and is rejected immediately,
+    // closing the race window where two near-simultaneous start calls could
+    // both pass a plain load-then-later-store check and both open the same
+    // audio devices.
+    if IS_RECORDING
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        info!("🔍 IS_RECORDING already true — rejecting concurrent start");
+        return Err("Recording already in progress".to_string());
+    }
+
+    let result = start_recording_with_meeting_name_inner(app, meeting_name, mic_enabled).await;
+
+    if result.is_err() {
+        // Roll back the claim so a failed start doesn't permanently lock out
+        // future attempts.
+        IS_RECORDING.store(false, Ordering::SeqCst);
+    }
+
+    result
+}
+
+async fn start_recording_with_meeting_name_inner<R: Runtime>(
+    app: AppHandle<R>,
+    meeting_name: Option<String>,
+    mic_enabled: bool,
+) -> Result<(), String> {
     info!(
         "Starting recording with default devices, meeting: {:?}, mic_enabled: {}",
         meeting_name, mic_enabled
     );
-
-    // Check if already recording
-    let current_recording_state = IS_RECORDING.load(Ordering::SeqCst);
-    info!("🔍 IS_RECORDING state check: {}", current_recording_state);
-    if current_recording_state {
-        return Err("Recording already in progress".to_string());
-    }
 
     // Validate that transcription models are available before starting recording
     info!("🔍 Validating transcription model availability before starting recording...");
@@ -255,10 +278,10 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
         *global_manager = Some(manager);
     }
 
-    // Set recording flag and reset speech detection flag
-    info!("🔍 Setting IS_RECORDING to true and resetting SPEECH_DETECTED_EMITTED");
-    IS_RECORDING.store(true, Ordering::SeqCst);
-    reset_speech_detected_flag(); // Reset for new recording session
+    // Reset speech detection flag for new recording session
+    // (IS_RECORDING was already set to true by the caller's atomic claim)
+    info!("🔍 Resetting SPEECH_DETECTED_EMITTED for new recording session");
+    reset_speech_detected_flag();
 
     // Start optimized parallel transcription task and store handle
     let task_handle = transcription::start_transcription_task(app.clone(), transcription_receiver);
@@ -331,17 +354,47 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
     system_device_name: Option<String>,
     meeting_name: Option<String>,
 ) -> Result<(), String> {
+    // Atomically claim the "starting" state: only one caller can transition
+    // IS_RECORDING from false to true here. Any concurrent caller sees the
+    // swap fail (current value was already true) and is rejected immediately,
+    // closing the race window where two near-simultaneous start calls could
+    // both pass a plain load-then-later-store check and both open the same
+    // audio devices.
+    if IS_RECORDING
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        info!("🔍 IS_RECORDING already true — rejecting concurrent start");
+        return Err("Recording already in progress".to_string());
+    }
+
+    let result = start_recording_with_devices_and_meeting_inner(
+        app,
+        mic_device_name,
+        system_device_name,
+        meeting_name,
+    )
+    .await;
+
+    if result.is_err() {
+        // Roll back the claim so a failed start doesn't permanently lock out
+        // future attempts.
+        IS_RECORDING.store(false, Ordering::SeqCst);
+    }
+
+    result
+}
+
+async fn start_recording_with_devices_and_meeting_inner<R: Runtime>(
+    app: AppHandle<R>,
+    mic_device_name: Option<String>,
+    system_device_name: Option<String>,
+    meeting_name: Option<String>,
+) -> Result<(), String> {
     info!(
         "Starting recording with specific devices: mic={:?}, system={:?}, meeting={:?}",
         mic_device_name, system_device_name, meeting_name
     );
-
-    // Check if already recording
-    let current_recording_state = IS_RECORDING.load(Ordering::SeqCst);
-    info!("🔍 IS_RECORDING state check: {}", current_recording_state);
-    if current_recording_state {
-        return Err("Recording already in progress".to_string());
-    }
 
     // Validate that transcription models are available before starting recording
     info!("🔍 Validating transcription model availability before starting recording...");
@@ -423,10 +476,10 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
         *global_manager = Some(manager);
     }
 
-    // Set recording flag and reset speech detection flag
-    info!("🔍 Setting IS_RECORDING to true and resetting SPEECH_DETECTED_EMITTED");
-    IS_RECORDING.store(true, Ordering::SeqCst);
-    reset_speech_detected_flag(); // Reset for new recording session
+    // Reset speech detection flag for new recording session
+    // (IS_RECORDING was already set to true by the caller's atomic claim)
+    info!("🔍 Resetting SPEECH_DETECTED_EMITTED for new recording session");
+    reset_speech_detected_flag();
 
     // Start optimized parallel transcription task and store handle
     let task_handle = transcription::start_transcription_task(app.clone(), transcription_receiver);
