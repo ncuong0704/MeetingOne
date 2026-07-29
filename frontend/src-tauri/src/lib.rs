@@ -39,12 +39,11 @@ pub mod config;
 pub mod console_utils;
 pub mod database;
 pub mod document_import;
+pub mod meeting_documents;
 pub mod notifications;
-pub mod ollama;
 pub mod onboarding;
 pub mod openai;
 pub mod anthropic;
-pub mod groq;
 pub mod openrouter;
 pub mod report_export;
 pub mod state;
@@ -210,14 +209,6 @@ fn get_transcription_status() -> TranscriptionStatus {
         chunks_in_queue: 0,
         is_processing: false,
         last_activity_ms: 0,
-    }
-}
-
-#[tauri::command]
-fn read_audio_file(file_path: String) -> Result<Vec<u8>, String> {
-    match std::fs::read(&file_path) {
-        Ok(data) => Ok(data),
-        Err(e) => Err(format!("Failed to read audio file: {}", e)),
     }
 }
 
@@ -466,7 +457,6 @@ pub fn run() {
             stop_recording,
             is_recording,
             get_transcription_status,
-            read_audio_file,
             check_file_exists,
             save_transcript,
             analytics::commands::init_analytics,
@@ -503,6 +493,7 @@ pub fn run() {
             zipformer_engine::commands::zipformer_load_model,
             zipformer_engine::commands::zipformer_transcribe_audio,
             zipformer_engine::commands::zipformer_validate_model_ready,
+            zipformer_engine::commands::zipformer_get_variant_status,
             get_audio_devices,
             trigger_microphone_permission,
             check_microphone_access,
@@ -535,13 +526,8 @@ pub fn run() {
             console_utils::show_console,
             console_utils::hide_console,
             console_utils::toggle_console,
-            ollama::get_ollama_models,
-            ollama::pull_ollama_model,
-            ollama::delete_ollama_model,
-            ollama::get_ollama_model_context,
             openai::openai::get_openai_models,
             anthropic::anthropic::get_anthropic_models,
-            groq::groq::get_groq_models,
             api::api_get_meetings,
             api::api_search_transcripts,
             api::api_get_profile,
@@ -570,6 +556,10 @@ pub fn run() {
             api::api_save_custom_openai_config,
             api::api_get_custom_openai_config,
             api::api_test_custom_openai_connection,
+            // Prompt settings commands
+            api::api_get_prompt_settings,
+            api::api_save_prompt_settings,
+            api::api_reset_prompt_settings,
             api::api_export_summary_docx,
             api::api_save_export_file,
             // Summary commands
@@ -581,6 +571,11 @@ pub fn run() {
             summary::api_list_templates,
             summary::api_get_template_details,
             summary::api_validate_template,
+            summary::api_get_template_json,
+            summary::api_save_custom_template,
+            summary::api_delete_custom_template,
+            summary::api_get_default_template,
+            summary::api_set_default_template,
             openrouter::get_openrouter_models,
             audio::recording_preferences::get_recording_preferences,
             audio::recording_preferences::set_recording_preferences,
@@ -633,8 +628,6 @@ pub fn run() {
             onboarding::save_onboarding_status_cmd,
             onboarding::reset_onboarding_status_cmd,
             onboarding::complete_onboarding,
-            onboarding::get_ollama_model_recommendation,
-            onboarding::get_ollama_model_options,
             // System settings commands
             #[cfg(target_os = "macos")]
             utils::open_system_settings,
@@ -652,6 +645,11 @@ pub fn run() {
             // Import document commands
             document_import::commands::api_select_document_files,
             document_import::commands::api_import_documents,
+            // Meeting reference document commands
+            meeting_documents::commands::api_select_meeting_document_files,
+            meeting_documents::commands::api_attach_meeting_document,
+            meeting_documents::commands::api_list_meeting_documents,
+            meeting_documents::commands::api_delete_meeting_document,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
