@@ -18,14 +18,12 @@ interface MeetingDocumentsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   meetingId: string;
-  onDocumentsChanged?: (count: number) => void;
 }
 
 export function MeetingDocumentsDialog({
   open,
   onOpenChange,
   meetingId,
-  onDocumentsChanged,
 }: MeetingDocumentsDialogProps) {
   const { documents, status, error, isBusy, refetch, selectAndAttach, remove } =
     useMeetingDocuments();
@@ -45,10 +43,6 @@ export function MeetingDocumentsDialog({
       toast.error('Lỗi tài liệu tham khảo', { description: error });
     }
   }, [error]);
-
-  useEffect(() => {
-    onDocumentsChanged?.(documents.length);
-  }, [documents.length, onDocumentsChanged]);
 
   const handleAttach = async () => {
     await selectAndAttach(meetingId);
@@ -95,6 +89,7 @@ export function MeetingDocumentsDialog({
                     disabled={isBusy}
                     className="text-gray-400 hover:text-red-600 disabled:opacity-40 shrink-0"
                     title="Xóa tài liệu"
+                    aria-label="Xóa tài liệu"
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>
