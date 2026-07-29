@@ -62,6 +62,42 @@ fn build_final_system_prompt(
         .replace("{current_datetime}", &current_datetime)
 }
 
+/// Builds the final user prompt: the transcript, optionally followed by a
+/// `<meeting_documents>` block (reference materials attached to the meeting —
+/// slides, docs — extracted as plain text) and/or a `<user_context>` block
+/// (free-form instructions the user typed in). Both extra blocks are omitted
+/// when their content is absent/empty.
+fn build_final_user_prompt(
+    text: &str,
+    documents_context: Option<&str>,
+    custom_prompt: &str,
+) -> String {
+    let mut final_user_prompt = format!(
+        r#"
+<transcript>
+{}
+</transcript>
+"#,
+        text
+    );
+
+    if let Some(docs) = documents_context {
+        if !docs.is_empty() {
+            final_user_prompt.push_str("\n\n<meeting_documents>\n");
+            final_user_prompt.push_str(docs);
+            final_user_prompt.push_str("\n</meeting_documents>");
+        }
+    }
+
+    if !custom_prompt.is_empty() {
+        final_user_prompt.push_str("\n\nUser Provided Context:\n\n<user_context>\n");
+        final_user_prompt.push_str(custom_prompt);
+        final_user_prompt.push_str("\n</user_context>");
+    }
+
+    final_user_prompt
+}
+
 /// Generates a complete meeting summary from the full transcript in a single pass.
 pub async fn generate_meeting_summary(
     client: &Client,
@@ -79,6 +115,7 @@ pub async fn generate_meeting_summary(
     cancellation_token: Option<&CancellationToken>,
     prompt_config: &PromptConfig,
     meeting_created_at: DateTime<Utc>,
+    documents_context: Option<String>,
 ) -> Result<(String, i64), String> {
     if let Some(token) = cancellation_token {
         if token.is_cancelled() {
@@ -107,20 +144,7 @@ pub async fn generate_meeting_summary(
         Local::now(),
     );
 
-    let mut final_user_prompt = format!(
-        r#"
-<transcript>
-{}
-</transcript>
-"#,
-        text
-    );
-
-    if !custom_prompt.is_empty() {
-        final_user_prompt.push_str("\n\nUser Provided Context:\n\n<user_context>\n");
-        final_user_prompt.push_str(custom_prompt);
-        final_user_prompt.push_str("\n</user_context>");
-    }
+    let final_user_prompt = build_final_user_prompt(text, documents_context.as_deref(), custom_prompt);
 
     if let Some(token) = cancellation_token {
         if token.is_cancelled() {
@@ -174,5 +198,38 @@ mod tests {
             datetime_pattern.is_match(&result),
             "meeting_datetime not formatted correctly: {result}"
         );
+    }
+
+    #[test]
+    fn build_final_user_prompt_includes_transcript() {
+        let result = build_final_user_prompt("hello transcript", None, "");
+        assert!(result.contains("<transcript>\nhello transcript\n</transcript>"));
+    }
+
+    #[test]
+    fn build_final_user_prompt_includes_meeting_documents_when_present() {
+        let result = build_final_user_prompt("t", Some("slide content here"), "");
+        assert!(result.contains("<meeting_documents>\nslide content here\n</meeting_documents>"));
+    }
+
+    #[test]
+    fn build_final_user_prompt_omits_meeting_documents_when_absent_or_empty() {
+        let without = build_final_user_prompt("t", None, "");
+        assert!(!without.contains("<meeting_documents>"));
+
+        let empty = build_final_user_prompt("t", Some(""), "");
+        assert!(!empty.contains("<meeting_documents>"));
+    }
+
+    #[test]
+    fn build_final_user_prompt_orders_transcript_then_documents_then_user_context() {
+        let result = build_final_user_prompt("t", Some("doc"), "please focus on X");
+
+        let transcript_pos = result.find("<transcript>").expect("transcript missing");
+        let documents_pos = result.find("<meeting_documents>").expect("meeting_documents missing");
+        let context_pos = result.find("<user_context>").expect("user_context missing");
+
+        assert!(transcript_pos < documents_pos, "transcript should come before meeting_documents");
+        assert!(documents_pos < context_pos, "meeting_documents should come before user_context");
     }
 }
