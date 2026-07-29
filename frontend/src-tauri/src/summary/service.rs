@@ -1,5 +1,6 @@
 use crate::database::repositories::{
-    meeting::MeetingsRepository, setting::SettingsRepository, summary::SummaryProcessesRepository,
+    meeting::MeetingsRepository, meeting_document::MeetingDocumentsRepository,
+    setting::SettingsRepository, summary::SummaryProcessesRepository,
 };
 use crate::summary::llm_client::LLMProvider;
 use crate::summary::processor::{extract_meeting_name_from_markdown, generate_meeting_summary};
@@ -201,6 +202,23 @@ impl SummaryService {
             }
         };
 
+        let documents_context = match MeetingDocumentsRepository::list_by_meeting(&pool, &meeting_id).await {
+            Ok(docs) if !docs.is_empty() => Some(
+                docs.iter()
+                    .map(|d| format!("--- Tài liệu: {} ---\n{}", d.filename, d.extracted_text))
+                    .collect::<Vec<_>>()
+                    .join("\n\n"),
+            ),
+            Ok(_) => None,
+            Err(e) => {
+                warn!(
+                    "Failed to fetch meeting documents for prompt context: {}. Continuing without them.",
+                    e
+                );
+                None
+            }
+        };
+
         let client = reqwest::Client::new();
         let mut result = Err("No models available".to_string());
 
@@ -227,6 +245,7 @@ impl SummaryService {
                 Some(&cancellation_token),
                 &prompt_config,
                 meeting_created_at,
+                documents_context.clone(),
             )
             .await;
 
