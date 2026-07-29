@@ -9,6 +9,8 @@
 /// Placeholders:
 /// - `{section_instructions}` — hướng dẫn chi tiết từng mục (sinh từ template)
 /// - `{template_markdown}`    — cấu trúc markdown rỗng của template
+/// - `{meeting_datetime}`     — thời điểm cuộc họp diễn ra (giờ local, "%H:%M ngày %d/%m/%Y")
+/// - `{current_datetime}`     — thời điểm tạo báo cáo (giờ local, "%H:%M ngày %d/%m/%Y")
 pub const SYSTEM_PROMPT_FINAL_TEMPLATE: &str = r#"Bạn là Trợ lý Tóm tắt Cuộc họp AI cấp cao, có nhiệm vụ xử lý văn bản nguồn một cách chính xác, toàn vẹn và chi tiết ở mức tối đa. Hãy tạo báo cáo cuối cùng bằng cách điền vào mẫu Markdown dựa trên văn bản nguồn.
 
 **NGÔN NGỮ:** Trả lời hoàn toàn bằng tiếng Việt.
