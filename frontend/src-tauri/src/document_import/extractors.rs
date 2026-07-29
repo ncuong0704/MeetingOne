@@ -1,11 +1,13 @@
 use std::path::Path;
 
+use super::transcript_parser;
+
 /// File extensions this module knows how to extract text from.
-pub const SUPPORTED_EXTENSIONS: &[&str] = &["pdf", "docx", "txt", "srt", "vtt"];
+pub const SUPPORTED_EXTENSIONS: &[&str] = &["pdf", "docx", "pptx", "txt", "srt", "vtt"];
 
 /// Minimum number of characters (after trimming) a file must yield to be
 /// considered "has real text content" rather than empty/scanned/corrupt.
-const MIN_CONTENT_LENGTH: usize = 20;
+pub const MIN_CONTENT_LENGTH: usize = 20;
 
 fn extract_from_plain_text(path: &Path) -> Result<String, String> {
     std::fs::read_to_string(path).map_err(|e| format!("Lỗi đọc file: {}", e))
@@ -64,6 +66,55 @@ fn extract_from_pdf(path: &Path) -> Result<String, String> {
     pdf_extract::extract_text(path).map_err(|e| format!("Lỗi đọc PDF: {}", e))
 }
 
+fn decode_xml_entities(s: &str) -> String {
+    s.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+}
+
+/// PPTX is a ZIP archive of per-slide XML files under `ppt/slides/slideN.xml`.
+/// Extracts visible text runs (`<a:t>...</a:t>`) from each slide, in slide order.
+fn extract_from_pptx(path: &Path) -> Result<String, String> {
+    let file = std::fs::File::open(path).map_err(|e| format!("Lỗi đọc file: {}", e))?;
+    let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("Lỗi đọc PPTX: {}", e))?;
+
+    let slide_path_re =
+        regex::Regex::new(r"^ppt/slides/slide(\d+)\.xml$").expect("static regex is valid");
+    let text_run_re = regex::Regex::new(r"<a:t>(.*?)</a:t>").expect("static regex is valid");
+
+    let mut slide_indices: Vec<(usize, usize)> = Vec::new();
+    for i in 0..archive.len() {
+        let entry = archive
+            .by_index(i)
+            .map_err(|e| format!("Lỗi đọc PPTX: {}", e))?;
+        if let Some(captures) = slide_path_re.captures(entry.name()) {
+            let slide_num: usize = captures[1].parse().unwrap_or(0);
+            slide_indices.push((slide_num, i));
+        }
+    }
+    slide_indices.sort_by_key(|(num, _)| *num);
+
+    let mut text = String::new();
+    for (_, index) in slide_indices {
+        let mut entry = archive
+            .by_index(index)
+            .map_err(|e| format!("Lỗi đọc PPTX: {}", e))?;
+        let mut xml = String::new();
+        std::io::Read::read_to_string(&mut entry, &mut xml)
+            .map_err(|e| format!("Lỗi đọc PPTX: {}", e))?;
+
+        for cap in text_run_re.captures_iter(&xml) {
+            text.push_str(&decode_xml_entities(&cap[1]));
+            text.push(' ');
+        }
+        text.push('\n');
+    }
+
+    Ok(text)
+}
+
 fn extract_text(path: &Path) -> Result<String, String> {
     let extension = path
         .extension()
@@ -74,10 +125,40 @@ fn extract_text(path: &Path) -> Result<String, String> {
     match extension.as_str() {
         "pdf" => extract_from_pdf(path),
         "docx" => extract_from_docx(path),
+        "pptx" => extract_from_pptx(path),
         "srt" | "vtt" => extract_from_subtitle(path),
         "txt" => extract_from_plain_text(path),
         other => Err(format!("Định dạng .{} không được hỗ trợ", other)),
     }
+}
+
+/// Parse a file into transcript segments, preserving timestamps when present.
+pub fn parse_file_segments(path: &Path) -> Result<Vec<transcript_parser::ParsedSegment>, String> {
+    let extension = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default();
+
+    let text = match extension.as_str() {
+        "pdf" => extract_from_pdf(path)?,
+        "docx" => extract_from_docx(path)?,
+        "pptx" => extract_from_pptx(path)?,
+        "txt" | "srt" | "vtt" => {
+            std::fs::read_to_string(path).map_err(|e| format!("Lỗi đọc file: {}", e))?
+        }
+        other => return Err(format!("Định dạng .{} không được hỗ trợ", other)),
+    };
+
+    let trimmed = text.trim();
+    if trimmed.chars().count() < MIN_CONTENT_LENGTH {
+        return Err(
+            "Không trích xuất được nội dung văn bản (có thể là file PDF dạng scan/ảnh, hoặc file rỗng)"
+                .to_string(),
+        );
+    }
+
+    Ok(transcript_parser::parse_document_content(trimmed, &extension))
 }
 
 /// Extract text from `path` and validate it has real content.
@@ -162,6 +243,55 @@ mod tests {
 
         let result = extract_from_pdf(&path);
         assert!(result.is_err(), "expected an error for a non-PDF file");
+    }
+
+    #[test]
+    fn test_extract_from_pptx_reads_slide_text_in_order() {
+        use std::io::Write;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sample.pptx");
+
+        let file = std::fs::File::create(&path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default();
+
+        // Written out of order on purpose — extraction must sort by slide number.
+        zip.start_file("ppt/slides/slide2.xml", options).unwrap();
+        zip.write_all(b"<p:sld><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Second slide</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>").unwrap();
+
+        zip.start_file("ppt/slides/slide1.xml", options).unwrap();
+        zip.write_all(b"<p:sld><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>First slide</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>").unwrap();
+
+        zip.finish().unwrap();
+
+        let text = extract_from_pptx(&path).unwrap();
+        let first_pos = text.find("First slide").expect("First slide text missing");
+        let second_pos = text.find("Second slide").expect("Second slide text missing");
+        assert!(
+            first_pos < second_pos,
+            "slides should be ordered by slide number, got: {}",
+            text
+        );
+    }
+
+    #[test]
+    fn test_extract_from_pptx_decodes_xml_entities() {
+        use std::io::Write;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("entities.pptx");
+
+        let file = std::fs::File::create(&path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default();
+
+        zip.start_file("ppt/slides/slide1.xml", options).unwrap();
+        zip.write_all(b"<a:t>Q&amp;A session</a:t>").unwrap();
+        zip.finish().unwrap();
+
+        let text = extract_from_pptx(&path).unwrap();
+        assert!(text.contains("Q&A session"), "got: {}", text);
     }
 
     #[test]
