@@ -80,6 +80,7 @@ export function useMeetingDocuments(): UseMeetingDocumentsReturn {
     try {
       await invoke('api_delete_meeting_document', { documentId });
       setDocuments((prev) => prev.filter((d) => d.id !== documentId));
+      setStatus('idle');
     } catch (err) {
       const errorMsg = extractErrorMessage(err, 'Không xóa được tài liệu');
       setStatus('error');
