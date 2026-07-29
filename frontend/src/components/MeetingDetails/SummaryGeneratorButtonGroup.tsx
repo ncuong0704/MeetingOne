@@ -89,8 +89,33 @@ export function SummaryGeneratorButtonGroup({
     }
   }, [onOpenModelSettings]);
 
+  const documentsButton = (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        className="relative"
+        onClick={() => setDocumentsDialogOpen(true)}
+        title="Tài liệu tham khảo"
+      >
+        <Paperclip />
+        <span className="hidden lg:inline">Tài liệu</span>
+        {documents.length > 0 && (
+          <div className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-[#16478e] text-[10px] font-medium text-white">
+            {documents.length}
+          </div>
+        )}
+      </Button>
+      <MeetingDocumentsDialog
+        open={documentsDialogOpen}
+        onOpenChange={handleDocumentsDialogChange}
+        meetingId={meetingId}
+      />
+    </>
+  );
+
   if (!hasTranscripts) {
-    return null;
+    return <ButtonGroup>{documentsButton}</ButtonGroup>;
   }
 
   const isGenerating = summaryStatus === 'processing' || summaryStatus === 'summarizing' || summaryStatus === 'regenerating';
@@ -143,26 +168,7 @@ export function SummaryGeneratorButtonGroup({
       )}
 
       {/* Reference documents button */}
-      <Button
-        variant="outline"
-        size="sm"
-        className="relative"
-        onClick={() => setDocumentsDialogOpen(true)}
-        title="Tài liệu tham khảo"
-      >
-        <Paperclip />
-        <span className="hidden lg:inline">Tài liệu</span>
-        {documents.length > 0 && (
-          <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-[#16478e] text-[10px] font-medium text-white">
-            {documents.length}
-          </span>
-        )}
-      </Button>
-      <MeetingDocumentsDialog
-        open={documentsDialogOpen}
-        onOpenChange={handleDocumentsDialogChange}
-        meetingId={meetingId}
-      />
+      {documentsButton}
 
       {/* Settings button */}
       <Dialog open={settingsDialogOpen} onOpenChange={setSettingsDialogOpen}>
