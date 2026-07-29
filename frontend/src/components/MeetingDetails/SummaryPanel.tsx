@@ -146,6 +146,7 @@ export function SummaryPanel({
     hasTranscripts: transcripts.length > 0,
     isModelConfigLoading,
     onOpenModelSettings,
+    meetingId: meeting.id,
   };
 
   return (

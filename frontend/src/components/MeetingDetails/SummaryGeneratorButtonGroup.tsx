@@ -16,12 +16,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Sparkles, Settings, Loader2, FileText, Check, Square } from 'lucide-react';
+import { Sparkles, Settings, Loader2, FileText, Check, Square, Paperclip } from 'lucide-react';
 import Analytics from '@/lib/analytics';
-import { invoke } from '@tauri-apps/api/core';
-import { toast } from 'sonner';
-import { useState, useEffect, useRef } from 'react';
-import { isOllamaNotInstalledError } from '@/lib/utils';
+import { useState, useEffect, useCallback } from 'react';
+import { useMeetingDocuments } from '@/hooks/useMeetingDocuments';
+import { MeetingDocumentsDialog } from './MeetingDocumentsDialog';
 interface SummaryGeneratorButtonGroupProps {
   modelConfig: ModelConfig;
   setModelConfig: (config: ModelConfig | ((prev: ModelConfig) => ModelConfig)) => void;
@@ -36,6 +35,7 @@ interface SummaryGeneratorButtonGroupProps {
   hasTranscripts?: boolean;
   isModelConfigLoading?: boolean;
   onOpenModelSettings?: (openFn: () => void) => void;
+  meetingId: string;
 }
 
 export function SummaryGeneratorButtonGroup({
@@ -51,10 +51,26 @@ export function SummaryGeneratorButtonGroup({
   onTemplateSelect,
   hasTranscripts = true,
   isModelConfigLoading = false,
-  onOpenModelSettings
+  onOpenModelSettings,
+  meetingId,
 }: SummaryGeneratorButtonGroupProps) {
-  const [isCheckingModels, setIsCheckingModels] = useState(false);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
+  const [documentsDialogOpen, setDocumentsDialogOpen] = useState(false);
+  const { documents, refetch: refetchDocuments } = useMeetingDocuments();
+
+  useEffect(() => {
+    refetchDocuments(meetingId);
+  }, [meetingId, refetchDocuments]);
+
+  const handleDocumentsDialogChange = useCallback(
+    (open: boolean) => {
+      setDocumentsDialogOpen(open);
+      if (!open) {
+        refetchDocuments(meetingId);
+      }
+    },
+    [meetingId, refetchDocuments]
+  );
 
   // Expose the function to open the modal via callback registration
   useEffect(() => {
@@ -76,60 +92,6 @@ export function SummaryGeneratorButtonGroup({
   if (!hasTranscripts) {
     return null;
   }
-
-  const checkOllamaModelsAndGenerate = async () => {
-    // Only check for Ollama provider
-    if (modelConfig.provider !== 'ollama') {
-      onGenerateSummary(customPrompt);
-      return;
-    }
-
-    setIsCheckingModels(true);
-    try {
-      const endpoint = modelConfig.ollamaEndpoint || null;
-      const models = await invoke('get_ollama_models', { endpoint }) as any[];
-
-      if (!models || models.length === 0) {
-        // No models available, show message and open settings
-        toast.error(
-          'Không tìm thấy mô hình Ollama. Vui lòng tải gemma2:2b từ Cài đặt mô hình.',
-          { duration: 5000 }
-        );
-        setSettingsDialogOpen(true);
-        return;
-      }
-
-      // Models are available, proceed with generation
-      onGenerateSummary(customPrompt);
-    } catch (error) {
-      console.error('Error checking Ollama models:', error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-
-      if (isOllamaNotInstalledError(errorMessage)) {
-        // Ollama is not installed - show specific message with download link
-        toast.error(
-          'Ollama chưa được cài đặt',
-          {
-            description: 'Vui lòng tải và cài đặt Ollama để dùng mô hình cục bộ.',
-            duration: 7000,
-            action: {
-              label: 'Tải xuống',
-              onClick: () => invoke('open_external_url', { url: 'https://ollama.com/download' })
-            }
-          }
-        );
-      } else {
-        // Other error - generic message
-        toast.error(
-          'Không thể kiểm tra mô hình Ollama. Hãy đảm bảo Ollama đang chạy.',
-          { duration: 5000 }
-        );
-      }
-      setSettingsDialogOpen(true);
-    } finally {
-      setIsCheckingModels(false);
-    }
-  };
 
   const isGenerating = summaryStatus === 'processing' || summaryStatus === 'summarizing' || summaryStatus === 'regenerating';
 
@@ -157,18 +119,16 @@ export function SummaryGeneratorButtonGroup({
           className="bg-[rgba(22,71,142,0.08)] hover:bg-[rgba(22,71,142,0.15)] border-[rgba(22,71,142,0.3)] text-[#16478e] xl:px-4"
           onClick={() => {
             Analytics.trackButtonClick('generate_summary', 'meeting_details');
-            checkOllamaModelsAndGenerate();
+            onGenerateSummary(customPrompt);
           }}
-          disabled={isCheckingModels || isModelConfigLoading}
+          disabled={isModelConfigLoading}
           title={
             isModelConfigLoading
               ? 'Đang tải cấu hình mô hình...'
-              : isCheckingModels
-                ? 'Đang kiểm tra mô hình...'
-                : 'Tạo báo cáo'
+              : 'Tạo báo cáo'
           }
         >
-          {isCheckingModels || isModelConfigLoading ? (
+          {isModelConfigLoading ? (
             <>
               <Loader2 className="animate-spin xl:mr-2" size={18} />
               <span className="hidden xl:inline">Đang xử lý...</span>
@@ -181,6 +141,28 @@ export function SummaryGeneratorButtonGroup({
           )}
         </Button>
       )}
+
+      {/* Reference documents button */}
+      <Button
+        variant="outline"
+        size="sm"
+        className="relative"
+        onClick={() => setDocumentsDialogOpen(true)}
+        title="Tài liệu tham khảo"
+      >
+        <Paperclip />
+        <span className="hidden lg:inline">Tài liệu</span>
+        {documents.length > 0 && (
+          <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-[#16478e] text-[10px] font-medium text-white">
+            {documents.length}
+          </span>
+        )}
+      </Button>
+      <MeetingDocumentsDialog
+        open={documentsDialogOpen}
+        onOpenChange={handleDocumentsDialogChange}
+        meetingId={meetingId}
+      />
 
       {/* Settings button */}
       <Dialog open={settingsDialogOpen} onOpenChange={setSettingsDialogOpen}>
