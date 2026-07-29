@@ -127,9 +127,12 @@ pub async fn api_delete_meeting_document<R: Runtime>(
         .try_state::<AppState>()
         .ok_or_else(|| "Không thể truy cập trạng thái ứng dụng".to_string())?;
 
-    MeetingDocumentsRepository::delete(app_state.db_manager.pool(), &document_id)
-        .await
-        .map_err(|e| format!("Lỗi xóa tài liệu: {}", e))?;
-
-    Ok(())
+    match MeetingDocumentsRepository::delete(app_state.db_manager.pool(), &document_id).await {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(format!(
+            "Không tìm thấy tài liệu để xóa: {}",
+            document_id
+        )),
+        Err(e) => Err(format!("Lỗi xóa tài liệu: {}", e)),
+    }
 }
