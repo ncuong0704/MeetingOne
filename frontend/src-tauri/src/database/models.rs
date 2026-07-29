@@ -21,6 +21,16 @@ impl From<NaiveDateTime> for DateTimeUtc {
     }
 }
 
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct MeetingDocument {
+    pub id: String,
+    pub meeting_id: String,
+    pub filename: String,
+    pub extracted_text: String,
+    pub char_count: i64,
+    pub created_at: DateTimeUtc,
+}
+
 // Renamed from TranscriptSegment to Transcript to match the table name
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct Transcript {
@@ -71,36 +81,31 @@ pub struct Setting {
     pub id: String,
     pub provider: String,
     pub model: String,
-    #[sqlx(rename = "whisperModel")]
-    #[serde(rename = "whisperModel")]
-    pub whisper_model: String,
-    #[sqlx(rename = "groqApiKey")]
-    #[serde(rename = "groqApiKey")]
-    pub groq_api_key: Option<String>,
     #[sqlx(rename = "openaiApiKey")]
     #[serde(rename = "openaiApiKey")]
     pub openai_api_key: Option<String>,
     #[sqlx(rename = "anthropicApiKey")]
     #[serde(rename = "anthropicApiKey")]
     pub anthropic_api_key: Option<String>,
-    #[sqlx(rename = "ollamaApiKey")]
-    #[serde(rename = "ollamaApiKey")]
-    pub ollama_api_key: Option<String>,
     #[sqlx(rename = "openRouterApiKey")]
     #[serde(rename = "openRouterApiKey")]
     pub open_router_api_key: Option<String>,
-    #[sqlx(rename = "ollamaEndpoint")]
-    #[serde(rename = "ollamaEndpoint")]
-    pub ollama_endpoint: Option<String>,
     /// Custom OpenAI-compatible endpoint configuration stored as JSON
     #[sqlx(rename = "customOpenAIConfig")]
     #[serde(rename = "customOpenAIConfig")]
     pub custom_openai_config: Option<String>,
     /// Per-provider fallback model list stored as JSON map
-    /// Format: {"groq": ["model-b", "model-c"], "openai": ["gpt-4o-mini"]}
     #[sqlx(rename = "fallbackModels")]
     #[serde(rename = "fallbackModels")]
     pub fallback_models: Option<String>,
+    /// Custom LLM prompts stored as JSON (PromptConfig). NULL = use built-in defaults.
+    #[sqlx(rename = "promptSettings")]
+    #[serde(rename = "promptSettings")]
+    pub prompt_settings: Option<String>,
+    /// ID of the default template to use for summary generation. NULL = use app default.
+    #[sqlx(rename = "defaultTemplate")]
+    #[serde(rename = "defaultTemplate")]
+    pub default_template: Option<String>,
 }
 
 impl Setting {
@@ -117,19 +122,13 @@ pub struct TranscriptSetting {
     pub id: String,
     pub provider: String,
     pub model: String,
-    #[sqlx(rename = "whisperApiKey")]
-    #[serde(rename = "whisperApiKey")]
-    pub whisper_api_key: Option<String>,
-    #[sqlx(rename = "deepgramApiKey")]
-    #[serde(rename = "deepgramApiKey")]
-    pub deepgram_api_key: Option<String>,
-    #[sqlx(rename = "elevenLabsApiKey")]
-    #[serde(rename = "elevenLabsApiKey")]
-    pub eleven_labs_api_key: Option<String>,
-    #[sqlx(rename = "groqApiKey")]
-    #[serde(rename = "groqApiKey")]
-    pub groq_api_key: Option<String>,
-    #[sqlx(rename = "openaiApiKey")]
-    #[serde(rename = "openaiApiKey")]
-    pub openai_api_key: Option<String>,
+    #[sqlx(rename = "zipformerVariant")]
+    #[serde(rename = "zipformerVariant")]
+    pub zipformer_variant: String,
+    #[sqlx(rename = "decodingMethod")]
+    #[serde(rename = "decodingMethod")]
+    pub decoding_method: String,
+    #[sqlx(rename = "numActivePaths")]
+    #[serde(rename = "numActivePaths")]
+    pub num_active_paths: i32,
 }

@@ -1,4 +1,5 @@
 pub mod meeting;
+pub mod meeting_document;
 pub mod setting;
 pub mod summary;
 pub mod transcript;
