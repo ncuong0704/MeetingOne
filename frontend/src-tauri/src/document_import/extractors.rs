@@ -67,11 +67,11 @@ fn extract_from_pdf(path: &Path) -> Result<String, String> {
 }
 
 fn decode_xml_entities(s: &str) -> String {
-    s.replace("&amp;", "&")
-        .replace("&lt;", "<")
+    s.replace("&lt;", "<")
         .replace("&gt;", ">")
         .replace("&quot;", "\"")
         .replace("&apos;", "'")
+        .replace("&amp;", "&")
 }
 
 /// PPTX is a ZIP archive of per-slide XML files under `ppt/slides/slideN.xml`.
@@ -82,7 +82,7 @@ fn extract_from_pptx(path: &Path) -> Result<String, String> {
 
     let slide_path_re =
         regex::Regex::new(r"^ppt/slides/slide(\d+)\.xml$").expect("static regex is valid");
-    let text_run_re = regex::Regex::new(r"<a:t>(.*?)</a:t>").expect("static regex is valid");
+    let text_run_re = regex::Regex::new(r"<a:t[^>]*>(.*?)</a:t>").expect("static regex is valid");
 
     let mut slide_indices: Vec<(usize, usize)> = Vec::new();
     for i in 0..archive.len() {
@@ -292,6 +292,50 @@ mod tests {
 
         let text = extract_from_pptx(&path).unwrap();
         assert!(text.contains("Q&A session"), "got: {}", text);
+    }
+
+    #[test]
+    fn test_extract_from_pptx_reads_attributed_text_tags() {
+        use std::io::Write;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("attributed.pptx");
+
+        let file = std::fs::File::create(&path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default();
+
+        zip.start_file("ppt/slides/slide1.xml", options).unwrap();
+        zip.write_all(b"<a:r><a:t xml:space=\"preserve\">preserved text</a:t></a:r>")
+            .unwrap();
+        zip.finish().unwrap();
+
+        let text = extract_from_pptx(&path).unwrap();
+        assert!(text.contains("preserved text"), "got: {}", text);
+    }
+
+    #[test]
+    fn test_extract_from_pptx_does_not_double_unescape_nested_entities() {
+        use std::io::Write;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested_entities.pptx");
+
+        let file = std::fs::File::create(&path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default();
+
+        // The correctly-escaped representation of the literal text "&lt;div&gt;".
+        zip.start_file("ppt/slides/slide1.xml", options).unwrap();
+        zip.write_all(b"<a:t>&amp;lt;div&amp;gt;</a:t>").unwrap();
+        zip.finish().unwrap();
+
+        let text = extract_from_pptx(&path).unwrap();
+        assert!(
+            text.contains("&lt;div&gt;"),
+            "should decode to literal '&lt;div&gt;', not double-unescape to '<div>'; got: {}",
+            text
+        );
     }
 
     #[test]
