@@ -3,20 +3,15 @@ use crate::database::repositories::{
 };
 use crate::summary::llm_client::LLMProvider;
 use crate::summary::processor::{extract_meeting_name_from_markdown, generate_meeting_summary};
-use crate::ollama::metadata::ModelMetadataCache;
+use chrono::Utc;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Instant;
+use once_cell::sync::Lazy;
 use tauri::{AppHandle, Manager};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
-use once_cell::sync::Lazy;
-
-// Global cache for model metadata (5 minute TTL)
-static METADATA_CACHE: Lazy<ModelMetadataCache> = Lazy::new(|| {
-    ModelMetadataCache::new(Duration::from_secs(300))
-});
 
 // Global registry for cancellation tokens (thread-safe)
 static CANCELLATION_REGISTRY: Lazy<Arc<Mutex<HashMap<String, CancellationToken>>>> =
@@ -112,8 +107,8 @@ impl SummaryService {
             }
         };
 
-        // Validate and setup api_key, Flexible for Ollama and CustomOpenAI
-        let api_key = if provider == LLMProvider::Ollama || provider == LLMProvider::CustomOpenAI {
+        // Validate and setup api_key, Flexible for CustomOpenAI
+        let api_key = if provider == LLMProvider::CustomOpenAI {
             // These providers don't require API keys from the standard database column
             String::new()
         } else {
@@ -130,20 +125,6 @@ impl SummaryService {
                     return;
                 }
             }
-        };
-
-        // Get Ollama endpoint if provider is Ollama
-        let ollama_endpoint = if provider == LLMProvider::Ollama {
-            match SettingsRepository::get_model_config(&pool).await {
-                Ok(Some(config)) => config.ollama_endpoint,
-                Ok(None) => None,
-                Err(e) => {
-                    info!("Failed to retrieve Ollama endpoint: {}, using default", e);
-                    None
-                }
-            }
-        } else {
-            None
         };
 
         // Get CustomOpenAI config if provider is CustomOpenAI
@@ -182,62 +163,43 @@ impl SummaryService {
             api_key
         };
 
-        // Dynamically fetch context size based on provider and model
-        let token_threshold = if provider == LLMProvider::Ollama {
-            match METADATA_CACHE.get_or_fetch(&model_name, ollama_endpoint.as_deref()).await {
-                Ok(metadata) => {
-                    // Cap at 1500 tokens per chunk so small Ollama models (1.5b–7b)
-                    // can summarize each chunk reliably without losing language/format.
-                    // Large context windows (32k+) cause small models to ignore instructions.
-                    let optimal = metadata.context_size.saturating_sub(300).min(1500);
-                    info!(
-                        "✓ Using dynamic context for {}: {} tokens (chunk size capped: {})",
-                        model_name, metadata.context_size, optimal
-                    );
-                    optimal
-                }
-                Err(e) => {
-                    warn!(
-                        "Failed to fetch context for {}: {}. Using default 3000",
-                        model_name, e
-                    );
-                    3000  // Fallback to safe default
-                }
-            }
-        } else {
-            // Provider-specific safe token thresholds.
-            // Groq has strict TPM (tokens-per-minute) limits on the free tier — chunking is required
-            // for long transcripts. Other cloud providers support large contexts natively.
-            match &provider {
-                LLMProvider::Groq => {
-                    // Free tier limit: ~6000 TPM for most Groq models (e.g. llama-3.1-8b-instant).
-                    // Use 4000 tokens so prompt overhead (~600 tokens) + output (~1400 tokens) fit safely.
-                    info!(
-                        "Groq provider: using token_threshold=4000 to respect TPM limits for model {}",
-                        model_name
-                    );
-                    4000
-                }
-                _ => {
-                    // OpenAI, Claude, OpenRouter, CustomOpenAI support large contexts natively
-                    100_000
-                }
+        let app_data_dir = _app.path().app_data_dir().ok();
+
+        let prompt_config = match SettingsRepository::get_prompt_settings(&pool).await {
+            Ok(Some(config)) => config,
+            Ok(None) => crate::summary::PromptConfig::defaults(),
+            Err(e) => {
+                warn!("Failed to load prompt settings: {}. Using defaults.", e);
+                crate::summary::PromptConfig::defaults()
             }
         };
 
-        // Get app data directory (kept for API compatibility)
-        let app_data_dir = _app.path().app_data_dir().ok();
-
-        // Load fallback models for this provider (same API key, different model names)
         let fallback_models = crate::database::repositories::setting::SettingsRepository::get_fallback_models(
             &pool, &model_provider,
         )
         .await
         .unwrap_or_default();
 
-        // Build ordered list: primary model first, then user-selected fallbacks
         let mut models_to_try = vec![model_name.clone()];
         models_to_try.extend(fallback_models.into_iter().filter(|m| m != &model_name));
+
+        let meeting_created_at = match MeetingsRepository::get_meeting_metadata(&pool, &meeting_id).await {
+            Ok(Some(meeting)) => meeting.created_at.0,
+            Ok(None) => {
+                warn!(
+                    "Meeting {} not found when fetching created_at for prompt timestamp; using now()",
+                    meeting_id
+                );
+                Utc::now()
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to fetch meeting created_at for prompt timestamp: {}. Using now()",
+                    e
+                );
+                Utc::now()
+            }
+        };
 
         let client = reqwest::Client::new();
         let mut result = Err("No models available".to_string());
@@ -257,14 +219,14 @@ impl SummaryService {
                 &text,
                 &custom_prompt,
                 &template_id,
-                token_threshold,
-                ollama_endpoint.as_deref(),
                 custom_openai_endpoint.as_deref(),
                 custom_openai_max_tokens,
                 custom_openai_temperature,
                 custom_openai_top_p,
                 app_data_dir.as_ref(),
                 Some(&cancellation_token),
+                &prompt_config,
+                meeting_created_at,
             )
             .await;
 
@@ -297,8 +259,8 @@ impl SummaryService {
                 }
 
                 info!(
-                    "✓ Successfully processed {} chunks for meeting_id: {}. Duration: {:.2}s",
-                    num_chunks, meeting_id, duration
+                    "✓ Successfully generated summary for meeting_id: {}. Duration: {:.2}s",
+                    meeting_id, duration
                 );
                 info!("final markdown is {}", &final_markdown);
 
