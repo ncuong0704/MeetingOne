@@ -60,7 +60,7 @@ export function TemplateSettings() {
     : undefined;
 
   return (
-    <div className="h-[calc(100vh-180px)] min-h-[400px]">
+    <div className="flex h-[calc(100vh-180px)] min-h-[400px]">
       {state.editorMode === 'idle' ? (
         <TemplateList
           templates={state.templates}
