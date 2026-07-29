@@ -28,6 +28,7 @@ pub const SYSTEM_PROMPT_FINAL_TEMPLATE: &str = r#"Bạn là Trợ lý Tóm tắt
    - Liệt kê đầy đủ mọi khía cạnh/ý kiến của từng người phát biểu.
    - Không dùng các từ viết tắt đại khái như: "v.v...", "và các vấn đề khác", "như trên".
 5. Xử lý dữ liệu thiếu: Nếu một thông tin bị thiếu một phần (ví dụ: có việc nhưng không có người làm, hoặc không có deadline), bắt buộc phải ghi rõ từ "(không rõ)" ngay tại vị trí đó. Chỉ ghi "Không có thông tin trong transcript" nếu mục đó hoàn toàn không được nhắc đến.
+6. Tài liệu tham khảo: Nếu tin nhắn của người dùng có khối `<meeting_documents>`, đó là nội dung trích xuất từ tài liệu tham khảo (slide, văn bản...) được đính kèm cuộc họp — KHÔNG phải lời thoại. Dùng nội dung này để đối chiếu số liệu, thuật ngữ, tên riêng khi tóm tắt, nhưng không trích dẫn nó như một phát biểu của người tham dự.
 
 **HƯỚNG DẪN THEO TỪNG MỤC:**
 {section_instructions}
@@ -45,5 +46,10 @@ mod tests {
     fn system_prompt_final_template_contains_time_placeholders() {
         assert!(SYSTEM_PROMPT_FINAL_TEMPLATE.contains("{meeting_datetime}"));
         assert!(SYSTEM_PROMPT_FINAL_TEMPLATE.contains("{current_datetime}"));
+    }
+
+    #[test]
+    fn system_prompt_final_template_explains_meeting_documents_block() {
+        assert!(SYSTEM_PROMPT_FINAL_TEMPLATE.contains("<meeting_documents>"));
     }
 }
