@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { SectionEditor } from './SectionEditor';
-import type { EditorMode, TemplateData, TemplateInfo, TemplateSection } from './types';
+import type { TemplateData, TemplateInfo, TemplateSection } from './types';
 
 interface TemplateEditorProps {
   mode: 'edit' | 'new';
