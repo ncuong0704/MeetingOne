@@ -1,27 +1,21 @@
 {
-  "name": "Theo mẫu ACT",
-  "description": "Mẫu kết luận giao ban theo chuẩn Công ty Cổ phần Viễn thông ACT, gồm nội dung tiến hành hội nghị và kết luận chung theo từng lĩnh vực.",
+  "name": "Theo mẫu ACT - Có bảng",
+  "description": "Mẫu kết luận giao ban tiêu chuẩn nâng cao của Công ty Cổ phần Viễn thông ACT. Tập trung vào việc tóm tắt toàn diện diễn biến hội nghị, ghi nhận các quyết sách cốt lõi và bóc tách chi tiết kế hoạch hành động kèm minh chứng tham chiếu.",
   "sections": [
     {
       "title": "Thông tin cuộc họp",
-      "instruction": "Trích xuất thông tin: thời gian (giờ, ngày tháng năm), tên cuộc họp, người chủ trì và đơn vị chủ trì. Nếu không có thông tin rõ ràng thì để trống. Viết bằng tiếng Việt.",
+      "instruction": "Trích xuất chính xác và đầy đủ các thông tin sau từ văn bản gốc dưới dạng danh sách. Nếu không có thông tin cho mục nào, ghi 'Không đề cập':\n- Tên chính thức của cuộc họp.\n- Thời gian cụ thể (Giờ bắt đầu - Giờ kết thúc, Ngày/Tháng/Năm).\n- Người chủ trì (Họ tên, Chức vụ).",
       "format": "string"
     },
     {
       "title": "I. NỘI DUNG TIẾN HÀNH TRONG HỘI NGHỊ",
-      "instruction": "Tóm tắt các nội dung được trình bày và thảo luận trong cuộc họp theo thứ tự: (1) Báo cáo kết quả công tác từ đại diện các phòng ban; (2) Ý kiến chỉ đạo của lãnh đạo cấp cao (Chủ tịch HĐQT, Tổng Giám đốc); (3) Ý kiến tham luận, báo cáo của chỉ huy các đơn vị. Mỗi ý kiến ghi rõ họ tên, chức vụ và nội dung chính. Không bỏ sót ý kiến của bất kỳ người nào đã phát biểu. Giữ nguyên các con số, tỷ lệ, số liệu được đề cập. Viết bằng tiếng Việt.",
+      "instruction": "Phân tích diễn biến cuộc họp và bóc tách thành các nội dung/vấn đề trọng tâm được thảo luận. Với mỗi nội dung trọng tâm, viết một đoạn văn ngắn (từ 2-4 câu) tóm tắt cụ thể diễn biến, ý kiến đóng góp và kết quả thảo luận của nội dung đó.\n\nSử dụng cấu trúc Markdown chính xác như sau:\n- **[Tên nội dung trọng tâm 1]:** [Đoạn văn tóm tắt diễn biến...]\n- **[Tên nội dung trọng tâm 2]:** [Đoạn văn tóm tắt diễn biến...]\n(Tiếp tục cho đến khi hết các nội dung trọng tâm).\n\n* RÀNG BUỘC VĂN PHONG DOANH NGHIỆP NGHIÊM NGẶT:\n- Tuyệt đối KHÔNG sử dụng các đại từ mơ hồ, chung chung như: 'họ', 'các bên', 'các thành viên', 'phía đối tác', 'mọi người'...\n- Bắt buộc phải chỉ rõ đích danh Họ tên/Chức vụ của người phát biểu hoặc Tên cụ thể của Phòng/Ban/Khối liên quan.\n- Sử dụng ngôn từ trang trọng, khách quan, chuẩn văn bản hành chính doanh nghiệp.",      
       "format": "paragraph"
     },
     {
       "title": "II. KẾT LUẬN CHUNG",
-      "instruction": "Tổng hợp toàn bộ kết luận và chỉ đạo của người chủ trì, phân nhóm theo từng lĩnh vực công tác (ví dụ: Kỹ thuật & Vận hành, Nhân sự & Tuyển dụng, Quản lý Dự án, Tài chính…). Mỗi nhóm đánh số thứ tự (1, 2, 3…). Trong mỗi nhóm, liệt kê rõ các nội dung chỉ đạo, giao việc cụ thể. Không được bỏ sót bất kỳ chỉ đạo nào. Giữ nguyên tên đơn vị, con số, thời hạn. Viết bằng tiếng Việt.",
+      "instruction": "Hãy phân tích, phân loại toàn bộ kết luận và chỉ đạo trong cuộc họp thành các chủ đề/lĩnh vực cụ thể. Trình bày hoàn toàn dưới dạng văn bản liệt kê từng dòng (KHÔNG SỬ DỤNG BẢNG).\n\nSử dụng cấu trúc Markdown chính xác như sau cho từng chủ đề:\n\n### 1. [Tên Chủ đề/Lĩnh vực A]\n- **Quyết định đã thống nhất / Hướng chỉ đạo chung:** [Tóm tắt ngắn gọn nhận định hoặc quyết định cốt lõi của Chủ trì về lĩnh vực này].\n- **Kế hoạch hành động chi tiết:**\n  - Đơn vị chủ trì & Phối hợp: Giao/Chỉ huy [Tên đơn vị] chủ trì, phối hợp với [Đơn vị phối hợp].\n  - Nội dung & Yêu cầu cụ thể: [Nội dung công việc và các yêu cầu chất lượng, số lượng cụ thể].\n  - Thời hạn hoàn thành: [Ngày/Tháng/Năm hoặc 'Không đề cập'].\n\n*Lưu ý quan trọng cho AI khi liệt kê kế hoạch hành động:*\n- Mục 'Đơn vị chủ trì & Phối hợp': Bắt buộc mở đầu bằng các mẫu câu chỉ định như: 'Giao [Tên đơn vị/Cá nhân] chủ trì, phối hợp với...' hoặc 'Chỉ huy các Khối/đơn vị...'.\n- Mục 'Nội dung & Yêu cầu cụ thể': Phải bóc tách rõ hành động + yêu cầu cụ thể.\n- Lặp lại cấu trúc `### 2. [Tên Chủ đề B]`, `### 3. [Tên Chủ đề C]`... cho đến khi hết các nội dung trong văn bản gốc.",
       "format": "paragraph"
-    },
-    {
-      "title": "Công việc được giao",
-      "instruction": "Liệt kê TẤT CẢ các công việc được giao cụ thể trong cuộc họp — không được bỏ sót bất kỳ đầu việc nào. Mỗi mục phải có: đơn vị/cá nhân được giao, nội dung công việc, thời hạn hoàn thành (nếu có). Nếu thời hạn không rõ, ghi \"(chưa xác định)\". Viết bằng tiếng Việt.",
-      "format": "list",
-      "item_format": "| Đơn vị/Cá nhân | Nội dung công việc | Thời hạn |\n| --- | --- | --- |"
     }
   ]
 }
