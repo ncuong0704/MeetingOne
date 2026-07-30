@@ -7,14 +7,59 @@ import {
   FormattingToolbar,
   FormattingToolbarController,
   BlockTypeSelect,
+  blockTypeSelectItems,
   BasicTextStyleButton,
   NestBlockButton,
   UnnestBlockButton,
+  SuggestionMenuController,
+  getDefaultReactSlashMenuItems,
+  SideMenuController,
+  SideMenu,
+  DragHandleButton,
+  DragHandleMenu,
+  RemoveBlockItem,
 } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/shadcn';
-import { Block, PartialBlock } from '@blocknote/core';
+import { BlockNoteSchema, defaultBlockSpecs, filterSuggestionItems } from '@blocknote/core';
+import type { DefaultReactSuggestionItem } from '@blocknote/react';
 import '@blocknote/shadcn/style.css';
 import '@blocknote/core/fonts/inter.css';
+
+// Restricted schema: only paragraph, heading, and bullet list are valid block
+// types at the data-model level (not just hidden from a menu). Heading itself
+// still nominally allows levels 4-6 / isToggleable in its propSchema (no easy
+// way to trim that without reimplementing the whole block spec), so levels
+// 4-6 and toggle headings are excluded at the UI layer only (BlockTypeSelect
+// items + slash menu items below), not at the schema level.
+const schema = BlockNoteSchema.create({
+  blockSpecs: {
+    paragraph: defaultBlockSpecs.paragraph,
+    heading: defaultBlockSpecs.heading,
+    bulletListItem: defaultBlockSpecs.bulletListItem,
+  },
+});
+
+type EditorBlock = typeof schema.Block;
+type EditorPartialBlock = typeof schema.PartialBlock;
+
+const isAllowedBlockTypeItem = (item: { type: string; props?: Record<string, unknown> }) =>
+  item.type === 'paragraph' ||
+  item.type === 'bulletListItem' ||
+  (item.type === 'heading' &&
+    !item.props?.isToggleable &&
+    typeof item.props?.level === 'number' &&
+    item.props.level <= 3);
+
+const ALLOWED_SLASH_MENU_KEYS = new Set(['paragraph', 'heading', 'heading_2', 'heading_3', 'bullet_list']);
+
+// `getDefaultReactSlashMenuItems` returns items typed as `Omit<DefaultSuggestionItem, "key">`,
+// but at runtime each item is built by spreading the underlying (key-bearing)
+// `DefaultSuggestionItem` — see @blocknote/react's `getDefaultReactSlashMenuItems`
+// implementation, which does `{...item, icon: ...}` on top of
+// `getDefaultSlashMenuItems()` results. So `key` is present on the actual
+// objects even though the public type omits it; we widen the type locally
+// instead of casting to `any`.
+type SlashMenuItemWithKey = DefaultReactSuggestionItem & { key: string };
 
 interface SectionInstructionEditorProps {
   value: string;
@@ -29,12 +74,13 @@ function InnerEditor({
   onChange,
   disabled,
 }: {
-  initialBlocks: Block[];
+  initialBlocks: EditorBlock[];
   onChange: (markdown: string) => void;
   disabled?: boolean;
 }) {
   const editor = useCreateBlockNote({
-    initialContent: initialBlocks.length ? (initialBlocks as PartialBlock[]) : undefined,
+    schema,
+    initialContent: initialBlocks.length ? (initialBlocks as EditorPartialBlock[]) : undefined,
   });
 
   const onChangeRef = useRef(onChange);
@@ -66,16 +112,46 @@ function InnerEditor({
         theme="light"
         spellCheck={false}
         formattingToolbar={false}
+        slashMenu={false}
+        sideMenu={false}
       >
         <FormattingToolbarController
           formattingToolbar={() => (
             <FormattingToolbar>
-              <BlockTypeSelect key="blockTypeSelect" />
+              <BlockTypeSelect
+                key="blockTypeSelect"
+                items={blockTypeSelectItems(editor.dictionary).filter(isAllowedBlockTypeItem)}
+              />
               <BasicTextStyleButton basicTextStyle="bold" key="boldStyleButton" />
               <BasicTextStyleButton basicTextStyle="italic" key="italicStyleButton" />
               <NestBlockButton key="nestBlockButton" />
               <UnnestBlockButton key="unnestBlockButton" />
             </FormattingToolbar>
+          )}
+        />
+        <SuggestionMenuController
+          triggerCharacter="/"
+          getItems={async query =>
+            filterSuggestionItems(
+              (getDefaultReactSlashMenuItems(editor) as SlashMenuItemWithKey[]).filter(item =>
+                ALLOWED_SLASH_MENU_KEYS.has(item.key)
+              ),
+              query
+            )
+          }
+        />
+        <SideMenuController
+          sideMenu={sideMenuProps => (
+            <SideMenu {...sideMenuProps}>
+              <DragHandleButton
+                {...sideMenuProps}
+                dragHandleMenu={dragHandleMenuProps => (
+                  <DragHandleMenu {...dragHandleMenuProps}>
+                    <RemoveBlockItem {...dragHandleMenuProps}>Xóa</RemoveBlockItem>
+                  </DragHandleMenu>
+                )}
+              />
+            </SideMenu>
           )}
         />
       </BlockNoteView>
@@ -90,15 +166,15 @@ export default function SectionInstructionEditor({
 }: SectionInstructionEditorProps) {
   // Parser-only editor — never rendered, only used to turn the stored markdown
   // string into blocks once, the same pattern BlockNoteSummaryView.tsx uses.
-  const parserEditor = useCreateBlockNote({ initialContent: undefined });
-  const [initialBlocks, setInitialBlocks] = useState<Block[] | null>(null);
+  const parserEditor = useCreateBlockNote({ schema, initialContent: undefined });
+  const [initialBlocks, setInitialBlocks] = useState<EditorBlock[] | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const blocks = await parserEditor.tryParseMarkdownToBlocks(value);
-        if (!cancelled) setInitialBlocks(blocks as Block[]);
+        if (!cancelled) setInitialBlocks(blocks as EditorBlock[]);
       } catch (err) {
         console.error('Không parse được nội dung chỉ dẫn thành BlockNote blocks:', err);
         toast.error('Không tải được nội dung chỉ dẫn AI của phần này — vui lòng kiểm tra lại trước khi lưu.');
