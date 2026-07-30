@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import {
   useCreateBlockNote,
   FormattingToolbar,
@@ -100,6 +101,7 @@ export default function SectionInstructionEditor({
         if (!cancelled) setInitialBlocks(blocks as Block[]);
       } catch (err) {
         console.error('Không parse được nội dung chỉ dẫn thành BlockNote blocks:', err);
+        toast.error('Không tải được nội dung chỉ dẫn AI của phần này — vui lòng kiểm tra lại trước khi lưu.');
         if (!cancelled) setInitialBlocks([]);
       }
     })();
