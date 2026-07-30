@@ -15,6 +15,7 @@ import {
   getDefaultReactSlashMenuItems,
   SideMenuController,
   SideMenu,
+  AddBlockButton,
   DragHandleButton,
   DragHandleMenu,
   RemoveBlockItem,
@@ -143,6 +144,7 @@ function InnerEditor({
         <SideMenuController
           sideMenu={sideMenuProps => (
             <SideMenu {...sideMenuProps}>
+              <AddBlockButton {...sideMenuProps} />
               <DragHandleButton
                 {...sideMenuProps}
                 dragHandleMenu={dragHandleMenuProps => (
