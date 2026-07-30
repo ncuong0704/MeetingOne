@@ -43,17 +43,15 @@ function InnerEditor({
   });
 
   useEffect(() => {
-    let debounceTimer: ReturnType<typeof setTimeout>;
+    let cancelled = false;
     const handleChange = () => {
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(async () => {
-        const markdown = await editor.blocksToMarkdownLossy(editor.document);
-        onChangeRef.current(markdown);
-      }, 300);
+      editor.blocksToMarkdownLossy(editor.document).then(markdown => {
+        if (!cancelled) onChangeRef.current(markdown);
+      });
     };
     const unsubscribe = editor.onChange(handleChange);
     return () => {
-      clearTimeout(debounceTimer);
+      cancelled = true;
       if (typeof unsubscribe === 'function') unsubscribe();
     };
   }, [editor]);
