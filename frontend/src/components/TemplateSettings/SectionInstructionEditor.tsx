@@ -44,9 +44,11 @@ function InnerEditor({
 
   useEffect(() => {
     let cancelled = false;
+    let latestSeq = 0;
     const handleChange = () => {
+      const seq = ++latestSeq;
       editor.blocksToMarkdownLossy(editor.document).then(markdown => {
-        if (!cancelled) onChangeRef.current(markdown);
+        if (!cancelled && seq === latestSeq) onChangeRef.current(markdown);
       });
     };
     const unsubscribe = editor.onChange(handleChange);
