@@ -69,6 +69,15 @@ silero_rs = { git = "https://github.com/emotechlab/silero-rs", rev = "26a6460", 
 
 # ZipFormer Vietnamese ASR via sherpa-onnx
 sherpa-onnx = "1.13.0"
+
+# CAPU (punctuation + capitalization restoration) via ONNX Runtime
+# Pinned to rc.10 (not the newer rc.13) because the existing `silero_rs` git
+# dependency already pins `ort = "=2.0.0-rc.10"` for VAD — Cargo can't resolve
+# two versions of the same crate. Verified the API this plan uses is identical
+# between rc.10 and rc.13.
+ort = "2.0.0-rc.10"
+tokenizers = "0.23"
+
 thiserror = "2.0.16"
 
 # Async
