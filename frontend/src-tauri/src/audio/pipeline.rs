@@ -25,7 +25,7 @@ struct AudioMixerRingBuffer {
 impl AudioMixerRingBuffer {
     fn new(sample_rate: u32) -> Self {
         // Use 50ms windows for mixing
-        let window_ms = 600.0;
+        let window_ms = 50.0;
         let window_size_samples = (sample_rate as f32 * window_ms / 1000.0) as usize;
 
         // CRITICAL FIX: Increase max buffer to 400ms for system audio stability
@@ -165,7 +165,7 @@ impl ProfessionalAudioMixer {
             // Pre-scale system audio to 70% to leave headroom
             // This prevents constant soft scaling which can cause pumping artifacts
             // Mic is normalized to -23 LUFS (already optimal), system needs reduction
-            let sys_scaled = sys * 1.0;
+            let sys_scaled = sys * 0.7;
             let _mic_scaled = mic * 0.8;  // Reserved for future mic scaling
 
             // Sum without ducking - mic stays at full volume, system slightly reduced
@@ -719,12 +719,11 @@ impl AudioPipeline {
         // For now, we log it for monitoring and potential optimization
         let _ = (mic_device_name, mic_device_kind, system_device_name, system_device_kind);
 
-        // Create VAD processor with balanced redemption time for speech accumulation
-        // The VAD processor now handles 48kHz->16kHz resampling internally
-        // This bridges natural pauses without excessive fragmentation
-        // For mac os core audio, 900ms, for windows 400ms seems good
-
-        let redemption_time = if cfg!(target_os = "macos") { 400 } else { 400 };
+        // Create VAD processor with redemption time tuned for Vietnamese speech.
+        // Vietnamese has natural clause pauses of 300-700ms; 400ms was too short and
+        // fragmented sentences into context-poor chunks. 1500ms on macOS / 1200ms on
+        // Windows bridges those pauses so ZipFormer receives full-sentence segments.
+        let redemption_time = if cfg!(target_os = "macos") { 1500 } else { 1200 };
 
         let vad_processor = match ContinuousVadProcessor::new(sample_rate, redemption_time) {
             Ok(processor) => {
@@ -837,7 +836,11 @@ impl AudioPipeline {
                                     for segment in speech_segments {
                                         let duration_ms = segment.end_timestamp_ms - segment.start_timestamp_ms;
 
-                                        if segment.samples.len() >= 800 {  // Minimum 50ms at 16kHz - matches Parakeet capability
+                                        // 480 samples = 30ms at 16kHz (one VAD chunk).
+                                        // Lowered from 800 (50ms) to match the reduced
+                                        // min_speech_time (150ms) in VAD — short Vietnamese
+                                        // monosyllables that pass VAD should not be filtered here.
+                                        if segment.samples.len() >= 480 {
                                             info!("📤 Sending VAD segment: {:.1}ms, {} samples",
                                                   duration_ms, segment.samples.len());
 
@@ -855,7 +858,7 @@ impl AudioPipeline {
                                                 self.chunk_id_counter += 1;
                                             }
                                         } else {
-                                            debug!("⏭️ Dropping short VAD segment: {:.1}ms ({} samples < 800)",
+                                            debug!("⏭️ Dropping short VAD segment: {:.1}ms ({} samples < 480)",
                                                    duration_ms, segment.samples.len());
                                         }
                                     }
@@ -906,8 +909,8 @@ impl AudioPipeline {
                 for segment in final_segments {
                     let duration_ms = segment.end_timestamp_ms - segment.start_timestamp_ms;
 
-                    // Send segments >= 50ms (800 samples at 16kHz) - matches main pipeline filter
-                    if segment.samples.len() >= 800 {
+                    // 480 samples = 30ms at 16kHz — consistent with main pipeline filter.
+                    if segment.samples.len() >= 480 {
                         info!("📤 Sending final VAD segment to Whisper: {:.1}ms duration, {} samples",
                               duration_ms, segment.samples.len());
 
@@ -925,7 +928,7 @@ impl AudioPipeline {
                             self.chunk_id_counter += 1;
                         }
                     } else {
-                        info!("⏭️ Skipping short final segment: {:.1}ms ({} samples < 800)",
+                        info!("⏭️ Skipping short final segment: {:.1}ms ({} samples < 480)",
                               duration_ms, segment.samples.len());
                     }
                 }

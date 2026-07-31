@@ -21,6 +21,7 @@ interface RecordingControlsProps {
   onStopInitiated?: () => void; // Called immediately when stop button is clicked
   isRecordingDisabled: boolean;
   isParentProcessing: boolean;
+  canRecordAudio?: boolean;
   selectedDevices?: {
     micDevice: string | null;
     systemDevice: string | null;
@@ -41,6 +42,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
   onStopInitiated,
   isRecordingDisabled,
   isParentProcessing,
+  canRecordAudio = true,
   selectedDevices,
   meetingName,
   hasMicrophoneAccess = false,
@@ -419,24 +421,37 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
 
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <button
-                            onClick={() => {
-                              Analytics.trackButtonClick('start_recording', 'recording_controls');
-                              handleStartRecording();
-                            }}
-                            disabled={isStarting || isProcessing || isRecordingDisabled || isValidatingModel}
-                            className={`w-12 h-12 flex items-center justify-center ${isStarting || isProcessing || isValidatingModel ? 'bg-gray-400' : 'bg-red-500 hover:bg-red-600'
-                              } rounded-full text-white transition-colors relative`}
-                          >
-                            {isValidatingModel ? (
-                              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                            ) : (
-                              <Mic size={20} />
-                            )}
-                          </button>
+                          <span className="inline-flex">
+                            <button
+                              onClick={() => {
+                                Analytics.trackButtonClick('start_recording', 'recording_controls');
+                                handleStartRecording();
+                              }}
+                              disabled={isStarting || isProcessing || isRecordingDisabled || isValidatingModel}
+                              className={`w-12 h-12 flex items-center justify-center rounded-full border-2 transition-colors relative ${isStarting || isProcessing || isValidatingModel || isRecordingDisabled
+                                ? 'bg-gray-100 border-gray-300 cursor-not-allowed'
+                                : 'bg-white border-gray-300 hover:bg-gray-50'
+                                }`}
+                            >
+                              {isValidatingModel ? (
+                                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-500"></div>
+                              ) : (
+                                <span
+                                  className={`absolute inset-[1.5px] rounded-full ${isStarting || isProcessing || isRecordingDisabled ? 'bg-gray-400' : 'bg-red-500'
+                                    }`}
+                                />
+                              )}
+                            </button>
+                          </span>
                         </TooltipTrigger>
                         <TooltipContent>
-                          <p>Bắt đầu ghi âm</p>
+                          <p>
+                            {!canRecordAudio
+                              ? 'Không có thiết bị âm thanh khả dụng. Cần micro hoặc âm thanh hệ thống để ghi âm.'
+                              : isRecordingDisabled
+                                ? 'Không thể ghi âm lúc này'
+                                : 'Bắt đầu ghi âm'}
+                          </p>
                         </TooltipContent>
                       </Tooltip>
                     </div>

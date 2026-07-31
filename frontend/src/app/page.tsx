@@ -19,6 +19,7 @@ import { useRecordingStop } from '@/hooks/useRecordingStop';
 import { useTranscriptRecovery } from '@/hooks/useTranscriptRecovery';
 import { TranscriptRecovery } from '@/components/TranscriptRecovery';
 import { indexedDBService } from '@/services/indexedDBService';
+import { TOUR_TARGETS } from '@/components/UserGuide/tourTargets';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 import { invoke } from '@tauri-apps/api/core';
@@ -42,7 +43,7 @@ export default function Home() {
   const { status, isStopping, isProcessing, isSaving } = recordingState;
 
   // Hooks
-  const { hasMicrophoneAccess } = usePermissionCheck();
+  const { hasMicrophoneAccess, canRecordAudio } = usePermissionCheck();
   const { setIsMeetingActive, isCollapsed: sidebarCollapsed, refetchMeetings } = useSidebar();
   const { modals, messages, showModal, hideModal } = useModalState(transcriptModelConfig);
   const { isRecordingDisabled, setIsRecordingDisabled } = useRecordingStateSync(isRecording, setIsRecordingState, setIsMeetingActive);
@@ -53,6 +54,13 @@ export default function Home() {
       setSessionLiveMicEnabled(null);
     }
   }, [recordingState.isRecording]);
+
+  // No mic device/permission — use system-audio-only mode automatically
+  useEffect(() => {
+    if (!hasMicrophoneAccess && micEnabled) {
+      setMicEnabled(false);
+    }
+  }, [hasMicrophoneAccess, micEnabled, setMicEnabled]);
 
   // Get handleRecordingStop function and setIsStopping (state comes from global context)
   const { handleRecordingStop, setIsStopping } = useRecordingStop(
@@ -233,15 +241,18 @@ export default function Home() {
         {/* Recording controls - always show unless processing/saving */}
         {status !== RecordingStatus.PROCESSING_TRANSCRIPTS &&
           status !== RecordingStatus.SAVING && (
-            <div className="fixed bottom-12 left-0 right-0 z-10">
+            <div className="fixed bottom-12 left-0 right-0 z-10 pointer-events-none">
               <div
-                className="flex justify-center pl-8 transition-[margin] duration-300"
+                className="flex justify-center pl-8 transition-[margin] duration-300 pointer-events-none"
                 style={{
                   marginLeft: sidebarCollapsed ? '4rem' : '16rem'
                 }}
               >
-                <div className="w-2/3 max-w-[750px] flex justify-center">
-                  <div className="bg-white rounded-full shadow-lg flex items-center">
+                <div className="w-2/3 max-w-[750px] flex justify-center pointer-events-auto">
+                  <div
+                    className="bg-white rounded-full shadow-lg flex items-center"
+                    data-tour={TOUR_TARGETS.RECORDING_CONTROLS}
+                  >
                     <RecordingControls
                       isRecording={recordingState.isRecording}
                       onRecordingStop={(callApi = true) => handleRecordingStop(callApi)}
@@ -252,7 +263,8 @@ export default function Home() {
                       onTranscriptionError={(message) => {
                         showModal('errorAlert', message);
                       }}
-                      isRecordingDisabled={isRecordingDisabled}
+                      isRecordingDisabled={isRecordingDisabled || !canRecordAudio}
+                      canRecordAudio={canRecordAudio}
                       isParentProcessing={isProcessingStop}
                       selectedDevices={selectedDevices}
                       meetingName={meetingTitle}

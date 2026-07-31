@@ -1,25 +1,38 @@
 /**
- * Default model names for transcription engines.
- * IMPORTANT: Keep in sync with Rust constants in src-tauri/src/config.rs
+ * Model defaults — keep STT + summary provider constants in one place.
+ * STT: ZipFormer only (hynt/Zipformer-30M-RNNT-6000h).
  */
 
-/**
- * Default Whisper model for transcription when no preference is configured.
- * This is the recommended balance of accuracy and speed.
- */
-export const DEFAULT_WHISPER_MODEL = 'large-v3-turbo';
+import type { ModelConfig } from '@/components/ModelSettingsModal';
 
-/**
- * Default Parakeet model for transcription when no preference is configured.
- * This is the quantized version optimized for speed.
- */
-export const DEFAULT_PARAKEET_MODEL = 'parakeet-tdt-0.6b-v3-int8';
+/** HuggingFace display name for the only supported STT model. */
+export const ZIPFORMER_MODEL_DISPLAY_NAME = 'hynt/Zipformer-30M-RNNT-6000h';
 
-/**
- * Model defaults by provider type
- */
-export const MODEL_DEFAULTS = {
-  whisper: DEFAULT_WHISPER_MODEL,
-  localWhisper: DEFAULT_WHISPER_MODEL,
-  parakeet: DEFAULT_PARAKEET_MODEL,
-} as const;
+/** Internal model id stored in DB (matches Rust ZIPFORMER_MODEL_NAME). */
+export const ZIPFORMER_MODEL_ID = 'zipformer-vi-30m';
+
+/** Default Custom OpenAI-compatible endpoint (Google Gemini OpenAI API). */
+export const DEFAULT_CUSTOM_OPENAI_ENDPOINT =
+  'https://generativelanguage.googleapis.com/v1beta/openai';
+
+/** Default model for Custom OpenAI summary provider. */
+export const DEFAULT_CUSTOM_OPENAI_MODEL = 'gemini-3.1-flash-lite';
+
+export function createDefaultSummaryModelConfig(): ModelConfig {
+  return {
+    provider: 'custom-openai',
+    model: DEFAULT_CUSTOM_OPENAI_MODEL,
+    apiKey: null,
+    customOpenAIEndpoint: DEFAULT_CUSTOM_OPENAI_ENDPOINT,
+    customOpenAIModel: DEFAULT_CUSTOM_OPENAI_MODEL,
+    customOpenAIApiKey: null,
+  };
+}
+
+export function createDefaultTranscriptModelConfig() {
+  return {
+    provider: 'zipformer' as const,
+    model: ZIPFORMER_MODEL_ID,
+    apiKey: null as string | null,
+  };
+}

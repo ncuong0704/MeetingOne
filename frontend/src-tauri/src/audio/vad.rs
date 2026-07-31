@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use silero_rs::{VadConfig, VadSession, VadTransition};
 use log::{debug, info, warn};
+use rubato::{Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
 use std::collections::VecDeque;
 use std::time::Duration;
 
@@ -24,8 +25,11 @@ pub struct ContinuousVadProcessor {
     in_speech: bool,
     processed_samples: usize,
     speech_start_sample: usize,
-    // State tracking for smart logging
     last_logged_state: bool,
+    // High-quality sinc resampler (Rubato) for pitch-preserving downsampling to 16kHz.
+    // Replaces the previous linear interpolation which distorted Vietnamese tones.
+    sinc_resampler: Option<SincFixedIn<f32>>,
+    resample_buffer: Vec<f32>,
 }
 
 impl ContinuousVadProcessor {
@@ -37,26 +41,26 @@ impl ContinuousVadProcessor {
         let mut config = VadConfig::default();
         config.sample_rate = VAD_SAMPLE_RATE as usize;
 
-        // CONTINUOUS SPEECH FIX: Tuned for capturing complete 5+ second utterances
-        // Previous: 0.55/0.40 with 400ms redemption was fragmenting speech into 40ms segments
-        // New: More lenient thresholds + longer redemption for continuous speech
-        config.positive_speech_threshold = 0.50;  // Silero default - good for continuous speech
-        config.negative_speech_threshold = 0.35;  // Silero default - allows natural pauses
+        // Vietnamese-tuned VAD thresholds.
+        // Silero VAD was trained on non-tonal languages; Vietnamese's 6 tones create rapid
+        // F0 variation that causes Silero to underestimate speech probability. Lowering
+        // positive_speech_threshold from 0.50 → 0.35 catches tonal syllables (thanh sắc,
+        // thanh hỏi, thanh ngã) that previously scored below the activation gate.
+        // negative_speech_threshold lowered to 0.20 so VAD stays active through soft
+        // inter-syllable transitions common in Vietnamese.
+        config.positive_speech_threshold = 0.35;
+        config.negative_speech_threshold = 0.20;
 
-        // CRITICAL FIX: Removed redemption_time capping to support long continuous speech
-        // Previous: capped at 400ms, causing VAD to fragment 5-second speech into 40ms segments
-        // New: Use full redemption_time from pipeline (2000ms) to bridge natural pauses
         config.redemption_time = Duration::from_millis(redemption_time_ms as u64);
-        config.pre_speech_pad = Duration::from_millis(300);   // Pre-speech padding for context
-        config.post_speech_pad = Duration::from_millis(400);  // Increased: more context at end
+        config.pre_speech_pad = Duration::from_millis(300);
+        config.post_speech_pad = Duration::from_millis(400);
 
-        // CRITICAL FIX: Increased min_speech_time to prevent tiny 40ms fragments
-        // Previous: 100ms allowed too-short segments that Whisper rejects
-        // New: 250ms ensures segments are substantial enough for Whisper (>100ms requirement)
-        config.min_speech_time = Duration::from_millis(250);  // Prevent tiny fragments
+        // 150ms minimum allows monosyllabic Vietnamese words ("Có", "Không", "Ừ", "Được")
+        // that are typically 80-150ms to pass through to ZipFormer.
+        config.min_speech_time = Duration::from_millis(150);
 
         debug!("Creating VAD session with: sample_rate={}Hz, redemption={}ms, min_speech={}ms, input_rate={}Hz",
-               VAD_SAMPLE_RATE, redemption_time_ms, 250, input_sample_rate);
+               VAD_SAMPLE_RATE, redemption_time_ms, 150, input_sample_rate);
 
         let session = VadSession::new(config)
             .map_err(|e| anyhow!("Failed to create VAD session: {:?}", e))?;
@@ -64,21 +68,51 @@ impl ContinuousVadProcessor {
         // VAD uses 30ms chunks at 16kHz (480 samples)
         let vad_chunk_size = (VAD_SAMPLE_RATE as f32 * 0.03) as usize; // 480 samples
 
+        // Build a persistent Rubato sinc resampler when input rate ≠ 16kHz.
+        // 512-sample input chunks match the pattern used in pipeline.rs (RESAMPLER_CHUNK_SIZE).
+        // Downsampling ratio ≤ 0.5 → anti-aliasing mode (sinc_len=256, Cubic, oversampling=256)
+        // preserves Vietnamese pitch contours better than the previous linear interpolation.
+        const SINC_CHUNK_SIZE: usize = 512;
+        let sinc_resampler = if input_sample_rate != VAD_SAMPLE_RATE {
+            let ratio = VAD_SAMPLE_RATE as f64 / input_sample_rate as f64;
+            let params = SincInterpolationParameters {
+                sinc_len: 256,
+                f_cutoff: 0.95,
+                interpolation: SincInterpolationType::Cubic,
+                oversampling_factor: 256,
+                window: WindowFunction::BlackmanHarris2,
+            };
+            match SincFixedIn::<f32>::new(ratio, 2.0, params, SINC_CHUNK_SIZE, 1) {
+                Ok(r) => {
+                    info!("VAD sinc resampler: {}Hz → {}Hz (ratio={:.4}, chunk={})",
+                          input_sample_rate, VAD_SAMPLE_RATE, ratio, SINC_CHUNK_SIZE);
+                    Some(r)
+                }
+                Err(e) => {
+                    warn!("Failed to create VAD sinc resampler: {} — using linear fallback", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         info!("VAD processor created: input={}Hz, vad={}Hz, chunk_size={} samples",
               input_sample_rate, VAD_SAMPLE_RATE, vad_chunk_size);
 
         Ok(Self {
             session,
             chunk_size: vad_chunk_size,
-            sample_rate: input_sample_rate, // Store input rate for resampling ratio in resample_to_16k()
+            sample_rate: input_sample_rate,
             buffer: Vec::with_capacity(vad_chunk_size * 2),
             speech_segments: VecDeque::new(),
             current_speech: Vec::new(),
             in_speech: false,
             processed_samples: 0,
             speech_start_sample: 0,
-            // Initialize state tracking
             last_logged_state: false,
+            sinc_resampler,
+            resample_buffer: Vec::with_capacity(SINC_CHUNK_SIZE * 2),
         })
     }
 
@@ -109,53 +143,84 @@ impl ContinuousVadProcessor {
         Ok(completed_segments)
     }
 
-    /// Improved resampling from input sample rate to 16kHz with anti-aliasing
-    /// Uses linear interpolation and basic low-pass filtering for better quality
-    fn resample_to_16k(&self, samples: &[f32]) -> Result<Vec<f32>> {
+    /// Resample from input sample rate to 16kHz using Rubato sinc interpolation.
+    /// Falls back to linear interpolation if the sinc resampler is unavailable.
+    fn resample_to_16k(&mut self, samples: &[f32]) -> Result<Vec<f32>> {
         if self.sample_rate == 16000 {
             return Ok(samples.to_vec());
         }
 
-        // Calculate downsampling ratio
+        const SINC_CHUNK_SIZE: usize = 512;
+
+        if self.sinc_resampler.is_none() {
+            return self.resample_to_16k_linear(samples);
+        }
+
+        self.resample_buffer.extend_from_slice(samples);
+        let mut output = Vec::new();
+        let mut error_occurred = false;
+
+        while self.resample_buffer.len() >= SINC_CHUNK_SIZE && !error_occurred {
+            let chunk: Vec<f32> = self.resample_buffer.drain(..SINC_CHUNK_SIZE).collect();
+            let waves_in = vec![chunk];
+            // Borrow ends at the end of this if-let block — no conflict with the
+            // `self.sinc_resampler = None` assignment below (different lexical scope).
+            if let Some(ref mut resampler) = self.sinc_resampler {
+                match resampler.process(&waves_in, None) {
+                    Ok(mut waves_out) => {
+                        if let Some(out_ch) = waves_out.pop() {
+                            output.extend_from_slice(&out_ch);
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Sinc resampler error: {} — disabling and using linear fallback", e);
+                        error_occurred = true;
+                    }
+                }
+            }
+        }
+
+        if error_occurred {
+            self.sinc_resampler = None;
+            self.resample_buffer.clear();
+            return self.resample_to_16k_linear(samples);
+        }
+
+        debug!("Sinc resampled {} samples ({}Hz) → {} samples (16kHz)",
+               samples.len(), self.sample_rate, output.len());
+        Ok(output)
+    }
+
+    /// Linear interpolation fallback resampler (lower quality, used only when sinc fails).
+    fn resample_to_16k_linear(&self, samples: &[f32]) -> Result<Vec<f32>> {
         let ratio = self.sample_rate as f64 / 16000.0;
         let output_len = (samples.len() as f64 / ratio) as usize;
         let mut resampled = Vec::with_capacity(output_len);
 
-        // Apply simple low-pass filter before downsampling to reduce aliasing
-        let cutoff_freq = 0.4; // Normalized frequency (0.4 * Nyquist)
-        let mut filtered_samples = Vec::with_capacity(samples.len());
-        
-        // Simple moving average filter (basic low-pass)
-        let filter_size = (self.sample_rate as f64 / (cutoff_freq * self.sample_rate as f64)) as usize;
-        let filter_size = std::cmp::max(1, std::cmp::min(filter_size, 5)); // Limit filter size
-        
+        // Moving-average low-pass before downsampling
+        let filter_size = std::cmp::max(1, std::cmp::min(
+            (self.sample_rate as f64 / (0.4 * self.sample_rate as f64)) as usize, 5));
+        let mut filtered = Vec::with_capacity(samples.len());
         for i in 0..samples.len() {
             let start = if i >= filter_size { i - filter_size } else { 0 };
             let end = std::cmp::min(i + filter_size + 1, samples.len());
             let sum: f32 = samples[start..end].iter().sum();
-            filtered_samples.push(sum / (end - start) as f32);
+            filtered.push(sum / (end - start) as f32);
         }
 
-        // Linear interpolation downsampling
         for i in 0..output_len {
-            let source_pos = i as f64 * ratio;
-            let source_index = source_pos as usize;
-            let fraction = source_pos - source_index as f64;
-            
-            if source_index + 1 < filtered_samples.len() {
-                // Linear interpolation
-                let sample1 = filtered_samples[source_index];
-                let sample2 = filtered_samples[source_index + 1];
-                let interpolated = sample1 + (sample2 - sample1) * fraction as f32;
-                resampled.push(interpolated);
-            } else if source_index < filtered_samples.len() {
-                resampled.push(filtered_samples[source_index]);
+            let src = i as f64 * ratio;
+            let idx = src as usize;
+            let frac = (src - idx as f64) as f32;
+            if idx + 1 < filtered.len() {
+                resampled.push(filtered[idx] + (filtered[idx + 1] - filtered[idx]) * frac);
+            } else if idx < filtered.len() {
+                resampled.push(filtered[idx]);
             }
         }
 
-        debug!("Resampled from {} samples ({}Hz) to {} samples (16kHz) with anti-aliasing",
+        debug!("Linear resampled {} samples ({}Hz) → {} samples (16kHz)",
                samples.len(), self.sample_rate, resampled.len());
-
         Ok(resampled)
     }
 

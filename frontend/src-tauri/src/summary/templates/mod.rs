@@ -37,15 +37,17 @@
 //!
 //! Custom templates must follow the JSON schema defined in `types::Template`.
 
-mod defaults;
+pub mod defaults;
 mod loader;
 mod types;
 
 // Re-export public API
 pub use loader::{
-    get_template, list_template_ids, list_templates, set_bundled_templates_dir,
-    validate_and_parse_template,
+    get_template, get_bundled_template_json, get_custom_template_json,
+    get_custom_templates_dir_pub, list_template_ids, list_templates,
+    list_templates_with_source, set_bundled_templates_dir, validate_and_parse_template,
 };
+pub use defaults::get_builtin_template;
 pub use types::{Template, TemplateSection};
 
 #[cfg(test)]

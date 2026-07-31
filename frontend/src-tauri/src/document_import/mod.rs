@@ -1,5 +1,5 @@
-// Document import module - extracts text from DOCX/PDF/TXT/SRT/VTT files
-// and turns them into a new meeting, reusing the existing summary pipeline.
+// Document import module - creates meetings from TXT/SRT/VTT transcript files.
 
 pub mod extractors;
 pub mod commands;
+pub mod transcript_parser;

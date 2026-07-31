@@ -1,24 +1,23 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import type { EditorMode, TemplateData, TemplateInfo, TemplateSection } from './types';
+import {
+  deleteCustomTemplate,
+  getDefaultTemplate,
+  getTemplateJson,
+  listTemplates,
+  saveCustomTemplate,
+  setDefaultTemplate,
+} from '@/services/templateService';
+import { generateUniqueTemplateId } from './templateIdUtils';
 
 const EMPTY_SECTION: TemplateSection = {
   title: '',
   instruction: '',
   format: 'paragraph',
 };
-
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9\s_-]/g, '')
-    .trim()
-    .replace(/\s+/g, '_')
-    .slice(0, 40);
-}
 
 function withKeys(data: TemplateData): TemplateData {
   return {
@@ -43,12 +42,11 @@ export function useTemplateSettings() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editorMode, setEditorMode] = useState<EditorMode>('idle');
   const [editorData, setEditorData] = useState<TemplateData | null>(null);
-  const [editingId, setEditingId] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
-    invoke<string>('api_get_default_template')
+    getDefaultTemplate()
       .then(id => setDefaultTemplateId(id))
       .catch(() => {});
   }, []);
@@ -56,7 +54,7 @@ export function useTemplateSettings() {
   const loadTemplates = useCallback(async () => {
     setIsLoadingList(true);
     try {
-      const list = await invoke<TemplateInfo[]>('api_list_templates');
+      const list = await listTemplates();
       setTemplates(list);
     } catch (err) {
       toast.error(`Không tải được danh sách mẫu: ${err}`);
@@ -67,11 +65,10 @@ export function useTemplateSettings() {
 
   const openTemplate = useCallback(async (id: string) => {
     try {
-      const jsonStr = await invoke<string>('api_get_template_json', { templateId: id });
+      const jsonStr = await getTemplateJson(id);
       const parsed: TemplateData = JSON.parse(jsonStr);
       setEditorData(withKeys(parsed));
       setSelectedId(id);
-      setEditingId(id);
       setEditorMode('edit');
     } catch (err) {
       toast.error(`Không mở được mẫu: ${err}`);
@@ -80,12 +77,10 @@ export function useTemplateSettings() {
 
   const cloneTemplate = useCallback(async (id: string) => {
     try {
-      const jsonStr = await invoke<string>('api_get_template_json', { templateId: id });
+      const jsonStr = await getTemplateJson(id);
       const parsed: TemplateData = JSON.parse(jsonStr);
       parsed.name = `${parsed.name} (bản sao)`;
-      const newId = `copy_of_${slugify(id)}`;
       setEditorData(withKeys(parsed));
-      setEditingId(newId);
       setSelectedId(null);
       setEditorMode('new');
     } catch (err) {
@@ -95,7 +90,6 @@ export function useTemplateSettings() {
 
   const startNewTemplate = useCallback(() => {
     setEditorData({ name: '', description: '', sections: [{ ...EMPTY_SECTION, _key: crypto.randomUUID() }] });
-    setEditingId('');
     setSelectedId(null);
     setEditorMode('new');
   }, []);
@@ -118,34 +112,44 @@ export function useTemplateSettings() {
   }, []);
 
   const saveTemplate = useCallback(async () => {
-    if (!editorData || !editingId) {
-      toast.error('Thiếu thông tin mẫu hoặc ID');
+    if (!editorData) {
+      toast.error('Thiếu thông tin mẫu');
       return;
+    }
+
+    let templateId: string;
+    if (editorMode === 'edit' && selectedId) {
+      templateId = selectedId;
+    } else {
+      templateId = generateUniqueTemplateId(
+        editorData.name,
+        templates.map((t) => t.id),
+      );
+      if (!templateId) {
+        toast.error('Tên mẫu không hợp lệ — cần ít nhất một chữ cái hoặc số');
+        return;
+      }
     }
 
     const templateJson = JSON.stringify(stripKeys(editorData), null, 2);
 
     setIsSaving(true);
     try {
-      await invoke('api_save_custom_template', {
-        templateId: editingId,
-        templateJson,
-      });
+      await saveCustomTemplate(templateId, templateJson);
       toast.success('Đã lưu mẫu thành công');
       await loadTemplates();
-      // Re-open to sync state
-      await openTemplate(editingId);
+      await openTemplate(templateId);
     } catch (err) {
       toast.error(`Lưu mẫu thất bại: ${err}`);
     } finally {
       setIsSaving(false);
     }
-  }, [editorData, editingId, loadTemplates, openTemplate]);
+  }, [editorData, editorMode, selectedId, templates, loadTemplates, openTemplate]);
 
   const deleteTemplate = useCallback(async (id: string) => {
     setIsDeleting(true);
     try {
-      await invoke('api_delete_custom_template', { templateId: id });
+      await deleteCustomTemplate(id);
       toast.success('Đã xóa mẫu tùy chỉnh');
       setEditorData(null);
       setSelectedId(null);
@@ -168,6 +172,17 @@ export function useTemplateSettings() {
     setEditorData(prev => {
       if (!prev) return prev;
       return { ...prev, sections: [...prev.sections, { ...EMPTY_SECTION, _key: crypto.randomUUID() }] };
+    });
+  }, []);
+
+  const ensureMinSections = useCallback((min: number) => {
+    setEditorData(prev => {
+      if (!prev) return prev;
+      const sections = [...prev.sections];
+      while (sections.length < min) {
+        sections.push({ ...EMPTY_SECTION, _key: crypto.randomUUID() });
+      }
+      return { ...prev, sections };
     });
   }, []);
 
@@ -203,7 +218,7 @@ export function useTemplateSettings() {
   const setAsDefault = useCallback(async (id: string, name: string) => {
     setIsSettingDefault(true);
     try {
-      await invoke('api_set_default_template', { templateId: id });
+      await setDefaultTemplate(id);
       setDefaultTemplateId(id);
       toast.success(`Đã đặt «${name}» làm mẫu mặc định`);
     } catch (err) {
@@ -223,8 +238,6 @@ export function useTemplateSettings() {
     selectedId,
     editorMode,
     editorData,
-    editingId,
-    setEditingId,
     isSaving,
     isDeleting,
     openTemplate,
@@ -236,6 +249,7 @@ export function useTemplateSettings() {
     deleteTemplate,
     updateMeta,
     addSection,
+    ensureMinSections,
     removeSection,
     moveSection,
     updateSection,

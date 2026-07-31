@@ -216,76 +216,58 @@ export function useDownloadProgressToast() {
     });
   }, [downloads, dismissedModels, showDownloadToast]);
 
-  // Listen to Parakeet download events
+  // Listen to ZipFormer download events
   useEffect(() => {
-    const unlistenProgress = listen<{
-      modelName: string;
-      progress: number;
-      downloaded_mb?: number;
-      total_mb?: number;
-      speed_mbps?: number;
-      status?: string;
-    }>('parakeet-model-download-progress', (event) => {
-      const { modelName, progress, downloaded_mb, total_mb, speed_mbps, status } = event.payload;
+    const modelName = 'zipformer-vi-30m';
+    const displayName = 'Mô hình nhận dạng ZipFormer';
 
-      const downloadData: DownloadProgress = {
-        modelName,
-        displayName: 'Transcription Model (Parakeet)',
-        progress,
-        downloadedMb: downloaded_mb ?? 0,
-        totalMb: total_mb ?? 670,
-        speedMbps: speed_mbps ?? 0,
-        status: status === 'cancelled'
-          ? 'cancelled'
-          : status === 'completed' || progress >= 100
-          ? 'completed'
-          : 'downloading',
-      };
-
-      updateDownload(modelName, downloadData);
-
-      // Clean up cancelled downloads after delay to auto-dismiss toast
-      if (downloadData.status === 'cancelled') {
-        cleanupDownload(modelName, 6000); // 5s toast + 1s buffer
-      }
-      // Removed direct showDownloadToast call here, handled by effect
-    });
-
-    const unlistenComplete = listen<{ modelName: string }>(
-      'parakeet-model-download-complete',
+    const unlistenProgress = listen<{ progress: number }>(
+      'zipformer-model-download-progress',
       (event) => {
-        const { modelName } = event.payload;
+        const progress = event.payload.progress;
         const downloadData: DownloadProgress = {
           modelName,
-          displayName: 'Transcription Model (Parakeet)',
-          progress: 100,
-          downloadedMb: 670,
-          totalMb: 670,
+          displayName,
+          progress,
+          downloadedMb: 0,
+          totalMb: 30,
           speedMbps: 0,
-          status: 'completed',
+          status: progress >= 100 ? 'completed' : 'downloading',
         };
+
         updateDownload(modelName, downloadData);
-        // Clean up after 4 seconds (completion toast duration is 3s + 1s buffer)
-        cleanupDownload(modelName, 4000);
       }
     );
 
-    const unlistenError = listen<{ modelName: string; error: string }>(
-      'parakeet-model-download-error',
+    const unlistenComplete = listen('zipformer-model-download-complete', () => {
+      const downloadData: DownloadProgress = {
+        modelName,
+        displayName,
+        progress: 100,
+        downloadedMb: 30,
+        totalMb: 30,
+        speedMbps: 0,
+        status: 'completed',
+      };
+      updateDownload(modelName, downloadData);
+      cleanupDownload(modelName, 4000);
+    });
+
+    const unlistenError = listen<{ error: string }>(
+      'zipformer-model-download-error',
       (event) => {
-        const { modelName, error } = event.payload;
+        const { error } = event.payload;
         const downloadData: DownloadProgress = {
           modelName,
-          displayName: 'Transcription Model (Parakeet)',
+          displayName,
           progress: 0,
           downloadedMb: 0,
-          totalMb: 670,
+          totalMb: 30,
           speedMbps: 0,
           status: 'error',
           error: categorizeError(error),
         };
         updateDownload(modelName, downloadData);
-        // Clean up after 11 seconds (error toast duration is 10s + 1s buffer)
         cleanupDownload(modelName, 11000);
       }
     );

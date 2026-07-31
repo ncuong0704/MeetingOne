@@ -199,9 +199,14 @@ pub async fn set_recording_preferences<R: Runtime>(
 }
 
 #[tauri::command]
-pub async fn get_default_recordings_folder_path() -> Result<String, String> {
-    let path = get_default_recordings_folder();
-    Ok(path.to_string_lossy().to_string())
+pub async fn get_default_recordings_folder_path<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<String, String> {
+    let preferences = load_recording_preferences(&app)
+        .await
+        .map_err(|e| format!("Failed to load preferences: {}", e))?;
+
+    Ok(preferences.save_folder.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -246,13 +251,24 @@ pub async fn open_recordings_folder<R: Runtime>(app: AppHandle<R>) -> Result<(),
 
 #[tauri::command]
 pub async fn select_recording_folder<R: Runtime>(
-    _app: AppHandle<R>,
+    app: AppHandle<R>,
 ) -> Result<Option<String>, String> {
-    // Use Tauri's dialog to select folder
-    // For now, return None - this would need to be implemented with tauri-plugin-dialog
-    // when it's available in the Cargo.toml
-    warn!("Folder selection not yet implemented - using dialog plugin");
-    Ok(None)
+    use tauri_plugin_dialog::DialogExt;
+
+    let folder_path = app
+        .dialog()
+        .file()
+        .set_title("Chọn thư mục lưu ghi âm và transcript")
+        .blocking_pick_folder();
+
+    if let Some(path) = folder_path {
+        let path_str = path.to_string();
+        info!("User selected recordings folder: {}", path_str);
+        Ok(Some(path_str))
+    } else {
+        info!("User cancelled folder selection");
+        Ok(None)
+    }
 }
 
 // Backend selection commands

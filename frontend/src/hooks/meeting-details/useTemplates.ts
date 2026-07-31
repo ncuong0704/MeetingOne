@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { invoke as invokeTauri } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import Analytics from '@/lib/analytics';
+import { getDefaultTemplate, listTemplates } from '@/services/templateService';
 
 export function useTemplates() {
   const [availableTemplates, setAvailableTemplates] = useState<Array<{
@@ -9,24 +9,23 @@ export function useTemplates() {
     name: string;
     description: string;
   }>>([]);
-  const [selectedTemplate, setSelectedTemplate] = useState<string>('theo_mau_act');
+  const [selectedTemplate, setSelectedTemplate] = useState<string>('theo_mau_act_no_table');
 
-  // Fetch available templates on mount
+  // Fetch available templates and saved default on mount
   useEffect(() => {
-    const fetchTemplates = async () => {
+    const init = async () => {
       try {
-        const templates = await invokeTauri('api_list_templates') as Array<{
-          id: string;
-          name: string;
-          description: string;
-        }>;
-        console.log('Available templates:', templates);
+        const [templates, defaultId] = await Promise.all([
+          listTemplates(),
+          getDefaultTemplate(),
+        ]);
         setAvailableTemplates(templates);
+        setSelectedTemplate(defaultId);
       } catch (error) {
         console.error('Failed to fetch templates:', error);
       }
     };
-    fetchTemplates();
+    init();
   }, []);
 
   // Handle template selection

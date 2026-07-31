@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import type { TemplateSection } from './types';
+import { TableColumnsEditor } from './TableColumnsEditor';
 
 const SectionInstructionEditor = dynamic(() => import('./SectionInstructionEditor'), {
   ssr: false,
@@ -29,6 +30,12 @@ interface SectionEditorProps {
   index: number;
   total: number;
   disabled?: boolean;
+  tourTargets?: {
+    section?: string;
+    title?: string;
+    instruction?: string;
+    format?: string;
+  };
   onChange: (field: keyof TemplateSection, value: string) => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
@@ -40,13 +47,17 @@ export function SectionEditor({
   index,
   total,
   disabled = false,
+  tourTargets,
   onChange,
   onMoveUp,
   onMoveDown,
   onRemove,
 }: SectionEditorProps) {
   return (
-    <div className="border border-gray-200 rounded-lg p-4 bg-white space-y-3">
+    <div
+      className="border border-gray-200 rounded-lg p-4 bg-white space-y-3"
+      data-tour={tourTargets?.section}
+    >
       {/* Header row */}
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
@@ -97,7 +108,7 @@ export function SectionEditor({
       </div>
 
       {/* Title */}
-      <div className="space-y-1">
+      <div className="space-y-1" data-tour={tourTargets?.title}>
         <label className="text-xs font-medium text-gray-600">Tiêu đề</label>
         <Input
           value={section.title}
@@ -115,6 +126,7 @@ export function SectionEditor({
           value={section.instruction}
           onChange={md => onChange('instruction', md)}
           disabled={disabled}
+          dataTour={tourTargets?.instruction}
         />
       </div>
 
@@ -126,12 +138,12 @@ export function SectionEditor({
           onValueChange={val => onChange('format', val)}
           disabled={disabled}
         >
-          <SelectTrigger className="text-sm h-9">
+          <SelectTrigger className="text-sm h-9" data-tour={tourTargets?.format}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="paragraph">Đoạn văn (paragraph)</SelectItem>
-            <SelectItem value="list">Danh sách (list)</SelectItem>
+            <SelectItem value="list">Bảng (table)</SelectItem>
             <SelectItem value="string">Chuỗi ngắn (string)</SelectItem>
           </SelectContent>
         </Select>
@@ -140,15 +152,13 @@ export function SectionEditor({
       {/* item_format — only when format=list */}
       {section.format === 'list' && (
         <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-600">
-            Định dạng mục (item_format)
-            <span className="ml-1 font-normal text-gray-400">— tùy chọn</span>
-          </label>
-          <Input
-            value={section.item_format ?? ''}
-            onChange={e => onChange('item_format', e.target.value)}
-            placeholder="VD: | Nội dung | Người thực hiện | Deadline |"
-            className="text-sm font-mono"
+          <label className="text-xs font-medium text-gray-600">Cột bảng</label>
+          <p className="text-xs text-gray-400">
+            Thêm các cột và đặt tiêu đề — AI sẽ điền nội dung theo cấu trúc bảng này.
+          </p>
+          <TableColumnsEditor
+            value={section.item_format ?? section.example_item_format ?? ''}
+            onChange={itemFormat => onChange('item_format', itemFormat)}
             disabled={disabled}
           />
         </div>

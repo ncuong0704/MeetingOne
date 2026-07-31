@@ -5,6 +5,8 @@ import { Plus, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { TemplateInfo } from './types';
+import { TOUR_TARGETS } from '@/components/UserGuide/tourTargets';
+import { BUILTIN_ACT_TEMPLATE_ID } from '@/components/UserGuide/templateTourNavigation';
 
 interface TemplateListProps {
   templates: TemplateInfo[];
@@ -17,28 +19,6 @@ interface TemplateListProps {
   onSetDefault: (id: string, name: string) => void;
 }
 
-function TemplateBadge({ info }: { info: TemplateInfo }) {
-  if (info.has_custom_override) {
-    return (
-      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium whitespace-nowrap">
-        Đã tuỳ chỉnh
-      </span>
-    );
-  }
-  if (info.is_custom) {
-    return (
-      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium whitespace-nowrap">
-        Tùy chỉnh
-      </span>
-    );
-  }
-  return (
-    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium whitespace-nowrap">
-      Mặc định
-    </span>
-  );
-}
-
 export function TemplateList({
   templates,
   selectedId,
@@ -49,15 +29,28 @@ export function TemplateList({
   onNew,
   onSetDefault,
 }: TemplateListProps) {
+  const firstNonDefaultId = templates.find((t) => t.id !== defaultTemplateId)?.id;
+  const firstClonedId = templates.find((t) => t.name.includes('(bản sao)'))?.id;
+
   return (
     <div className="flex flex-col w-full min-h-0 border border-gray-200 rounded-xl overflow-hidden bg-white">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-        <span className="text-sm font-semibold text-gray-700">Danh sách mẫu</span>
+        <span
+          className="text-sm font-semibold text-gray-700"
+          data-tour={
+            templates.length > 0 && !firstNonDefaultId
+              ? TOUR_TARGETS.SETTINGS_TEMPLATE_SET_DEFAULT
+              : undefined
+          }
+        >
+          Danh sách mẫu
+        </span>
         <Button
           variant="blue"
           size="sm"
           onClick={onNew}
+          data-tour={TOUR_TARGETS.TEMPLATE_CREATE}
           className="h-7 px-2 text-xs gap-1"
         >
           <Plus className="w-3.5 h-3.5" />
@@ -70,17 +63,39 @@ export function TemplateList({
         {isLoading ? (
           <div className="px-4 py-8 text-center text-sm text-gray-400">Đang tải...</div>
         ) : templates.length === 0 ? (
-          <div className="px-4 py-8 text-center text-sm text-gray-400">Chưa có mẫu nào</div>
+          <div
+            className="px-4 py-8 text-center text-sm text-gray-400"
+            data-tour={TOUR_TARGETS.SETTINGS_TEMPLATE_ITEM}
+          >
+            Chưa có mẫu nào
+          </div>
         ) : (
           <div className="p-2 space-y-1">
-            {templates.map(t => {
+            {templates.map((t, index) => {
               const isActive = selectedId === t.id;
               const isDefault = defaultTemplateId === t.id;
               return (
-                <div key={t.id} className="group/item relative">
+                <div
+                  key={t.id}
+                  className="group/item relative"
+                  data-tour={
+                    t.id === firstNonDefaultId
+                      ? TOUR_TARGETS.SETTINGS_TEMPLATE_SET_DEFAULT
+                      : undefined
+                  }
+                >
                   <button
                     type="button"
                     onClick={() => onSelect(t.id)}
+                    data-tour={
+                      t.id === BUILTIN_ACT_TEMPLATE_ID
+                        ? TOUR_TARGETS.TEMPLATE_BUILTIN_ACT
+                        : t.id === firstClonedId
+                          ? TOUR_TARGETS.TEMPLATE_CLONED_ITEM
+                          : index === 0
+                            ? TOUR_TARGETS.SETTINGS_TEMPLATE_ITEM
+                            : undefined
+                    }
                     className={cn(
                       'w-full text-left px-3 py-2.5 rounded-lg transition-colors',
                       isActive
@@ -102,7 +117,6 @@ export function TemplateList({
                           {t.name}
                         </span>
                       </div>
-                      <TemplateBadge info={t} />
                     </div>
                     {isDefault && (
                       <p className="text-[10px] text-amber-600 font-medium mt-0.5">
@@ -114,7 +128,7 @@ export function TemplateList({
                     </p>
                   </button>
 
-                  {/* Set-as-default button — shown on hover or when already default */}
+                  {/* Set-as-default button — shown on hover */}
                   {!isDefault && (
                     <button
                       type="button"
@@ -124,7 +138,7 @@ export function TemplateList({
                         onSetDefault(t.id, t.name);
                       }}
                       className={cn(
-                        'absolute right-2 bottom-2 opacity-0 group-hover/item:opacity-100 transition-opacity',
+                        'absolute right-2 bottom-2 opacity-0 group-hover/item:opacity-100 transition-opacity z-10',
                         'text-[10px] px-1.5 py-0.5 rounded-full border border-gray-200',
                         'bg-white text-gray-500 hover:text-amber-600 hover:border-amber-300',
                         'flex items-center gap-1 whitespace-nowrap',

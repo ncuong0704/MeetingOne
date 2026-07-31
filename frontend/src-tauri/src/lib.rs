@@ -48,6 +48,7 @@ pub mod openrouter;
 pub mod report_export;
 pub mod state;
 pub mod summary;
+pub mod sso;
 pub mod tray;
 pub mod utils;
 pub mod zipformer_engine;
@@ -210,31 +211,6 @@ fn get_transcription_status() -> TranscriptionStatus {
         is_processing: false,
         last_activity_ms: 0,
     }
-}
-
-#[tauri::command]
-fn check_file_exists(file_path: String) -> bool {
-    std::path::Path::new(&file_path).exists()
-}
-
-#[tauri::command]
-async fn save_transcript(file_path: String, content: String) -> Result<(), String> {
-    log_info!("Saving transcript to: {}", file_path);
-
-    // Ensure parent directory exists
-    if let Some(parent) = std::path::Path::new(&file_path).parent() {
-        if !parent.exists() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create directory: {}", e))?;
-        }
-    }
-
-    // Write content to file
-    std::fs::write(&file_path, content)
-        .map_err(|e| format!("Failed to write transcript: {}", e))?;
-
-    log_info!("Transcript saved successfully");
-    Ok(())
 }
 
 // Audio level monitoring commands
@@ -457,8 +433,6 @@ pub fn run() {
             stop_recording,
             is_recording,
             get_transcription_status,
-            check_file_exists,
-            save_transcript,
             analytics::commands::init_analytics,
             analytics::commands::disable_analytics,
             analytics::commands::track_event,
@@ -530,14 +504,9 @@ pub fn run() {
             anthropic::anthropic::get_anthropic_models,
             api::api_get_meetings,
             api::api_search_transcripts,
-            api::api_get_profile,
-            api::api_save_profile,
-            api::api_update_profile,
             api::api_get_model_config,
             api::api_save_model_config,
             api::api_get_api_key,
-            // api::api_get_auto_generate_setting,
-            // api::api_save_auto_generate_setting,
             api::api_get_transcript_config,
             api::api_save_transcript_config,
             api::api_get_transcript_api_key,
@@ -549,8 +518,6 @@ pub fn run() {
             api::api_save_meeting_title,
             api::api_save_transcript,
             api::open_meeting_folder,
-            api::test_backend_connection,
-            api::debug_backend_connection,
             api::open_external_url,
             // Custom OpenAI commands
             api::api_save_custom_openai_config,
@@ -625,9 +592,12 @@ pub fn run() {
             database::commands::open_database_folder,
             // Onboarding commands
             onboarding::get_onboarding_status,
-            onboarding::save_onboarding_status_cmd,
             onboarding::reset_onboarding_status_cmd,
             onboarding::complete_onboarding,
+            // SSO commands
+            sso::get_sso_session,
+            sso::sso_login,
+            sso::sso_logout,
             // System settings commands
             #[cfg(target_os = "macos")]
             utils::open_system_settings,

@@ -2,16 +2,11 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode, useRef } from 'react';
 import { TranscriptModelProps } from '@/components/TranscriptSettings';
+import { createDefaultTranscriptModelConfig } from '@/constants/modelDefaults';
 import { SelectedDevices } from '@/components/DeviceSelection';
 import { configService, ModelConfig } from '@/services/configService';
 import { invoke } from '@tauri-apps/api/core';
-
-export interface OllamaModel {
-  name: string;
-  id: string;
-  size: string;
-  modified: string;
-}
+import { createDefaultSummaryModelConfig, DEFAULT_CUSTOM_OPENAI_ENDPOINT, DEFAULT_CUSTOM_OPENAI_MODEL, ZIPFORMER_MODEL_ID } from '@/constants/modelDefaults';
 
 export interface StorageLocations {
   database: string;
@@ -65,10 +60,7 @@ interface ConfigContextType {
   showConfidenceIndicator: boolean;
   toggleConfidenceIndicator: (checked: boolean) => void;
 
-  // Ollama models
-  models: OllamaModel[];
   modelOptions: Record<ModelConfig['provider'], string[]>;
-  error: string;
 
   // Summary configuration
   isAutoSummary: boolean;
@@ -77,7 +69,6 @@ interface ConfigContextType {
   // Provider-specific API keys
   providerApiKeys: {
     claude: string | null;
-    groq: string | null;
     openai: string | null;
     openrouter: string | null;
   };
@@ -96,37 +87,24 @@ const ConfigContext = createContext<ConfigContextType | undefined>(undefined);
 
 export function ConfigProvider({ children }: { children: ReactNode }) {
   // Model configuration state
-  const [modelConfig, setModelConfig] = useState<ModelConfig>({
-    provider: 'ollama',
-    model: 'llama3.2:latest',
-    whisperModel: 'large-v3',
-    ollamaEndpoint: null
-  });
+  const [modelConfig, setModelConfig] = useState<ModelConfig>(createDefaultSummaryModelConfig());
 
   // Transcript model configuration state
-  const [transcriptModelConfig, setTranscriptModelConfig] = useState<TranscriptModelProps>({
-    provider: 'zipformer',
-    model: 'zipformer-vi-30m',
-    apiKey: null
-  });
+  const [transcriptModelConfig, setTranscriptModelConfig] = useState<TranscriptModelProps>(
+    createDefaultTranscriptModelConfig()
+  );
 
   // Provider-specific API keys (loaded once at startup)
   // Note: Gemini omitted for now - add when UI support is added
   const [providerApiKeys, setProviderApiKeys] = useState<{
     claude: string | null;
-    groq: string | null;
     openai: string | null;
     openrouter: string | null;
   }>({
     claude: null,
-    groq: null,
     openai: null,
     openrouter: null,
   });
-
-  // Ollama models list and error state
-  const [models, setModels] = useState<OllamaModel[]>([]);
-  const [error, setError] = useState<string>('');
 
   // Device configuration state
   const [selectedDevices, setSelectedDevices] = useState<SelectedDevices>({
@@ -171,22 +149,6 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   const preferencesLoadedRef = useRef(false);
   const isLoadingRef = useRef(false);
 
-  // Load Ollama models (uses saved endpoint, re-runs when endpoint changes after config load)
-  useEffect(() => {
-    const loadModels = async () => {
-      try {
-        const endpoint = modelConfig.ollamaEndpoint || null;
-        const modelList = await invoke<OllamaModel[]>('get_ollama_models', { endpoint });
-        setModels(modelList);
-        setError('');
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load Ollama models');
-        console.error('Error loading models:', err);
-      }
-    };
-    loadModels();
-  }, [modelConfig.ollamaEndpoint]);
-
   // Load transcript configuration on mount
   useEffect(() => {
     const loadTranscriptConfig = async () => {
@@ -195,9 +157,9 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
         if (config) {
           console.log('[ConfigContext] Loaded saved transcript config:', config);
           setTranscriptModelConfig({
-            provider: (config.provider as 'zipformer') || 'zipformer',
-            model: config.model || 'zipformer-vi-30m',
-            apiKey: config.apiKey || null
+            provider: 'zipformer',
+            model: config.model || ZIPFORMER_MODEL_ID,
+            apiKey: config.apiKey || null,
           });
         }
       } catch (error) {
@@ -215,8 +177,13 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
       try {
         const data = await configService.getModelConfig();
         if (data && data.provider) {
+          // Configs saved before 'ollama'/'groq' were removed as providers may still
+          // hold those legacy values on disk, even though the type no longer allows them.
+          const isLegacyProvider = data.provider as string === 'ollama' || data.provider as string === 'groq';
+          const normalizedProvider = isLegacyProvider ? 'custom-openai' : data.provider;
+          const normalizedModel = isLegacyProvider ? DEFAULT_CUSTOM_OPENAI_MODEL : data.model;
           // If provider is custom-openai, fetch the additional config
-          if (data.provider === 'custom-openai') {
+          if (normalizedProvider === 'custom-openai') {
             try {
               const customConfig = await configService.getCustomOpenAIConfig();
               if (customConfig) {
@@ -225,17 +192,15 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
                   endpoint: customConfig.endpoint,
                   model: customConfig.model,
                 });
-                const resolvedModel = customConfig.model || data.model || '';
+                const resolvedModel = customConfig.model || data.model || DEFAULT_CUSTOM_OPENAI_MODEL;
                 setModelConfig(prev => ({
                   ...prev,
-                  provider: data.provider,
+                  provider: normalizedProvider,
                   model: resolvedModel || prev.model,
-                  whisperModel: data.whisperModel || prev.whisperModel,
-                  ollamaEndpoint: data.ollamaEndpoint,
                   apiKey: data.apiKey ?? prev.apiKey,
                   fallbackModels: data.fallbackModels ?? prev.fallbackModels,
-                  customOpenAIEndpoint: customConfig.endpoint,
-                  customOpenAIModel: customConfig.model,
+                  customOpenAIEndpoint: customConfig.endpoint || DEFAULT_CUSTOM_OPENAI_ENDPOINT,
+                  customOpenAIModel: customConfig.model || DEFAULT_CUSTOM_OPENAI_MODEL,
                   customOpenAIApiKey: customConfig.apiKey,
                   maxTokens: customConfig.maxTokens,
                   temperature: customConfig.temperature,
@@ -245,7 +210,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
                 // Seed per-provider model cache from DB
                 if (resolvedModel) {
                   const map = JSON.parse(localStorage.getItem('providerModelMap') || '{}');
-                  map[data.provider] = resolvedModel;
+                  map[normalizedProvider] = resolvedModel;
                   localStorage.setItem('providerModelMap', JSON.stringify(map));
                 }
 
@@ -254,16 +219,23 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
             } catch (err) {
               console.error('[ConfigContext] Failed to fetch custom OpenAI config:', err);
             }
+
+            setModelConfig(prev => ({
+              ...prev,
+              provider: normalizedProvider,
+              model: data.model || DEFAULT_CUSTOM_OPENAI_MODEL,
+              fallbackModels: data.fallbackModels ?? prev.fallbackModels,
+              customOpenAIEndpoint: DEFAULT_CUSTOM_OPENAI_ENDPOINT,
+              customOpenAIModel: DEFAULT_CUSTOM_OPENAI_MODEL,
+            }));
+            return;
           }
 
           // Load API key for cloud providers when not included in model config response
-          if (
-            data.provider !== 'ollama' &&
-            data.provider !== 'custom-openai' &&
-            !data.apiKey
-          ) {
+          // (normalizedProvider is never 'custom-openai' here — that case returned above)
+          if (!data.apiKey) {
             try {
-              data.apiKey = await invoke<string>('api_get_api_key', { provider: data.provider });
+              data.apiKey = await invoke<string>('api_get_api_key', { provider: normalizedProvider });
             } catch {
               // no key stored yet
             }
@@ -272,18 +244,16 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
           // For non-custom-openai providers, set base config (keep apiKey from DB when present)
           setModelConfig(prev => ({
             ...prev,
-            provider: data.provider,
-            model: data.model || prev.model,
-            whisperModel: data.whisperModel || prev.whisperModel,
-            ollamaEndpoint: data.ollamaEndpoint,
+            provider: normalizedProvider as ModelConfig['provider'],
+            model: normalizedModel || prev.model,
             apiKey: data.apiKey ?? prev.apiKey,
             fallbackModels: data.fallbackModels ?? prev.fallbackModels,
           }));
 
           // Seed per-provider model cache from DB
-          if (data.model) {
+          if (normalizedModel) {
             const map = JSON.parse(localStorage.getItem('providerModelMap') || '{}');
-            map[data.provider] = data.model;
+            map[normalizedProvider] = normalizedModel;
             localStorage.setItem('providerModelMap', JSON.stringify(map));
           }
         }
@@ -298,19 +268,18 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const loadAllApiKeys = async () => {
       try {
-        const providers = ['claude', 'groq', 'openai', 'openrouter'];
+        const providers = ['claude', 'openai', 'openrouter'];
         const keys = await Promise.all(
           providers.map(p =>
             invoke<string>('api_get_api_key', { provider: p })
-              .catch(() => null) // Gracefully handle missing keys
+              .catch(() => null)
           )
         );
 
         const loaded = {
           claude: keys[0],
-          groq: keys[1],
-          openai: keys[2],
-          openrouter: keys[3],
+          openai: keys[1],
+          openrouter: keys[2],
         };
         setProviderApiKeys(loaded);
         console.log('[ConfigContext] Loaded provider API keys');
@@ -367,11 +336,9 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
 
   // Calculate model options based on available models
   const modelOptions: Record<ModelConfig['provider'], string[]> = {
-    ollama: models.map(model => model.name),
     claude: ['claude-3-5-sonnet-latest'],
-    groq: ['llama-3.3-70b-versatile'],
     openrouter: [],
-    openai: ['gpt-4', 'gpt-4-turbo', 'gpt-3.5-turbo'],
+    openai: ['gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo'],
     'custom-openai': [],
   };
 
@@ -483,9 +450,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     setSelectedLanguage: handleSetSelectedLanguage,
     showConfidenceIndicator,
     toggleConfidenceIndicator,
-    models,
     modelOptions,
-    error,
     notificationSettings,
     storageLocations,
     isLoadingPreferences,
@@ -504,9 +469,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     handleSetSelectedLanguage,
     showConfidenceIndicator,
     toggleConfidenceIndicator,
-    models,
     modelOptions,
-    error,
     notificationSettings,
     storageLocations,
     isLoadingPreferences,

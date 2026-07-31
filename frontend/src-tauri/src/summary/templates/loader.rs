@@ -208,6 +208,54 @@ pub fn list_template_ids() -> Vec<String> {
     ids
 }
 
+/// Get the raw JSON content of a custom template (if it exists on disk)
+pub fn get_custom_template_json(template_id: &str) -> Option<String> {
+    load_custom_template(template_id)
+}
+
+/// Get the raw JSON content of a bundled template (if it exists on disk)
+pub fn get_bundled_template_json(template_id: &str) -> Option<String> {
+    load_bundled_template(template_id)
+}
+
+/// Get the user's custom templates directory path (public wrapper)
+pub fn get_custom_templates_dir_pub() -> Option<PathBuf> {
+    get_custom_templates_dir()
+}
+
+/// List all available templates with their metadata and source information
+///
+/// Returns a list of (id, name, description, is_custom, has_custom_override) tuples:
+/// - is_custom: file chỉ nằm trong custom_dir (không phải built-in)
+/// - has_custom_override: là built-in nhưng bị ghi đè bởi file trong custom_dir
+pub fn list_templates_with_source() -> Vec<(String, String, String, bool, bool)> {
+    let builtin_ids: Vec<&str> = super::defaults::list_builtin_template_ids();
+    let custom_dir = get_custom_templates_dir();
+
+    let mut templates = Vec::new();
+
+    for id in list_template_ids() {
+        let is_builtin = builtin_ids.contains(&id.as_str());
+        let custom_file_exists = custom_dir.as_ref().map_or(false, |dir| {
+            dir.join(format!("{}.json", id)).exists()
+        });
+
+        let is_custom = custom_file_exists && !is_builtin;
+        let has_custom_override = custom_file_exists && is_builtin;
+
+        match get_template(&id) {
+            Ok(template) => {
+                templates.push((id, template.name, template.description, is_custom, has_custom_override));
+            }
+            Err(e) => {
+                warn!("Failed to load template '{}': {}", id, e);
+            }
+        }
+    }
+
+    templates
+}
+
 /// List all available templates with their metadata
 ///
 /// Returns a list of (id, name, description) tuples
@@ -254,6 +302,10 @@ mod tests {
         assert!(ids.contains(&"daily_standup".to_string()));
         assert!(ids.contains(&"standard_meeting".to_string()));
         assert!(ids.contains(&"theo_mau_act".to_string()));
+        assert!(ids.contains(&"theo_mau_act_no_table".to_string()));
+        assert!(ids.contains(&"project_sync".to_string()));
+        assert!(ids.contains(&"retrospective".to_string()));
+        assert!(ids.contains(&"sales_marketing_client_call".to_string()));
     }
 
     #[test]

@@ -75,7 +75,7 @@ export function TranscriptPanel({
   }, []);
 
   return (
-    <div className="relative hidden h-full min-h-0 w-full min-w-0 flex-col bg-white md:flex">
+    <div className="relative flex h-full min-h-0 w-full min-w-0 flex-col bg-white">
       {/* Header */}
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-gray-100 px-4 py-3 min-w-0">
         <div className="flex items-center gap-2 shrink-0">

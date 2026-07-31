@@ -51,7 +51,7 @@ pub async fn validate_transcription_model_ready<R: Runtime>(
         return Err(format!("Failed to initialize speech recognition: {}", e));
     }
 
-    match crate::zipformer_engine::commands::zipformer_validate_model_ready(app.clone()).await {
+    match crate::zipformer_engine::commands::zipformer_validate_model_ready(app.clone(), None, None, None).await {
         Ok(name) => {
             info!("✅ ZipFormer model ready: {}", name);
             Ok(())
@@ -72,7 +72,10 @@ pub async fn get_or_init_transcription_engine<R: Runtime>(
     let engine = crate::zipformer_engine::commands::get_engine_arc()?;
 
     if !engine.is_model_loaded().await {
-        engine.load_model().await.map_err(|e| {
+        let variant = engine.get_current_variant().await;
+        let dm = engine.get_decoding_method().await;
+        let paths = engine.get_num_active_paths().await;
+        engine.load_model(variant, dm, paths).await.map_err(|e| {
             format!("Failed to load ZipFormer model: {}", e)
         })?;
     }

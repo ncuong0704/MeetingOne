@@ -75,12 +75,8 @@ export function useTranscriptStreaming(
         charIndex += charsPerTick;
 
         if (charIndex >= fullText.length) {
-          // Streaming complete - show full text
-          setStreamingSegment({
-            id: latestSegment.id,
-            fullText,
-            visibleText: fullText,
-          });
+          // Streaming complete — clear state so the segment becomes editable immediately
+          setStreamingSegment(null);
 
           // Clear interval
           if (streamingIntervalRef.current) {

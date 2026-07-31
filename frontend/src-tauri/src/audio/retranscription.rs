@@ -1,5 +1,6 @@
 // Retranscription module - re-processes stored audio with the ZipFormer Vietnamese ASR engine.
 
+use crate::audio::audio_processing::{HighPassFilter, LoudnessNormalizer};
 use crate::audio::decoder::decode_audio_file;
 use crate::audio::vad::get_speech_chunks_with_progress;
 use super::common::{create_transcript_segments, split_segment_at_silence, write_transcripts_json};
@@ -169,6 +170,20 @@ async fn run_retranscription<R: Runtime>(
         .map_err(|e| anyhow!("Resample task panicked: {}", e))?;
     info!("Converted to 16kHz mono: {} samples", audio_samples.len());
 
+    // Noise reduction pipeline at 16kHz (RNNoise requires 48kHz so not applicable here)
+    let audio_samples = {
+        let mut hpf = HighPassFilter::new(16000, 80.0);
+        let filtered = hpf.process(&audio_samples);
+        match LoudnessNormalizer::new(1, 16000) {
+            Ok(mut normalizer) => normalizer.normalize_loudness(&filtered),
+            Err(e) => {
+                warn!("Failed to create loudness normalizer for retranscription: {}, skipping normalization", e);
+                filtered
+            }
+        }
+    };
+    info!("Noise reduction applied: high-pass filter (80Hz) + EBU R128 normalization");
+
     emit_progress(&app, &meeting_id, "vad", 20, "Detecting speech segments...");
 
     if RETRANSCRIPTION_CANCELLED.load(Ordering::SeqCst) {
@@ -214,7 +229,10 @@ async fn run_retranscription<R: Runtime>(
     let engine = crate::zipformer_engine::commands::get_engine_arc()
         .map_err(|e| anyhow!("{}", e))?;
     if !engine.is_model_loaded().await {
-        engine.load_model().await?;
+        let variant = engine.get_current_variant().await;
+        let dm = engine.get_decoding_method().await;
+        let paths = engine.get_num_active_paths().await;
+        engine.load_model(variant, dm, paths).await?;
     }
 
     const MAX_SEGMENT_SAMPLES: usize = 25 * 16000;

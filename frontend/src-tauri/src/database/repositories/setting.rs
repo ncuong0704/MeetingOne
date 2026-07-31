@@ -6,12 +6,8 @@ use sqlx::SqlitePool;
 pub struct SaveModelConfigRequest {
     pub provider: String,
     pub model: String,
-    #[serde(rename = "whisperModel")]
-    pub whisper_model: String,
     #[serde(rename = "apiKey")]
     pub api_key: Option<String>,
-    #[serde(rename = "ollamaEndpoint")]
-    pub ollama_endpoint: Option<String>,
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -20,12 +16,18 @@ pub struct SaveTranscriptConfigRequest {
     pub model: String,
     #[serde(rename = "apiKey")]
     pub api_key: Option<String>,
+    #[serde(rename = "zipformerVariant")]
+    pub zipformer_variant: Option<String>,
+    #[serde(rename = "decodingMethod")]
+    pub decoding_method: Option<String>,
+    #[serde(rename = "numActivePaths")]
+    pub num_active_paths: Option<i32>,
 }
 
 pub struct SettingsRepository;
 
-// Transcript providers: localWhisper, deepgram, elevenLabs, groq, openai
-// Summary providers: openai, claude, ollama, groq, added openrouter
+// Transcript providers: zipformer only
+// Summary providers: openai, claude, openrouter, custom-openai
 // NOTE: Handle data exclusion in the higher layer as this is database abstraction layer(using SELECT *)
 
 impl SettingsRepository {
@@ -42,27 +44,20 @@ impl SettingsRepository {
         pool: &SqlitePool,
         provider: &str,
         model: &str,
-        whisper_model: &str,
-        ollama_endpoint: Option<&str>,
         fallback_models_json: Option<&str>,
     ) -> std::result::Result<(), sqlx::Error> {
-        // Using id '1' for backward compatibility
         sqlx::query(
             r#"
-            INSERT INTO settings (id, provider, model, whisperModel, ollamaEndpoint, fallbackModels)
-            VALUES ('1', $1, $2, $3, $4, $5)
+            INSERT INTO settings (id, provider, model, fallbackModels)
+            VALUES ('1', $1, $2, $3)
             ON CONFLICT(id) DO UPDATE SET
                 provider = excluded.provider,
                 model = excluded.model,
-                whisperModel = excluded.whisperModel,
-                ollamaEndpoint = excluded.ollamaEndpoint,
                 fallbackModels = COALESCE(excluded.fallbackModels, settings.fallbackModels)
             "#,
         )
         .bind(provider)
         .bind(model)
-        .bind(whisper_model)
-        .bind(ollama_endpoint)
         .bind(fallback_models_json)
         .execute(pool)
         .await?;
@@ -110,8 +105,6 @@ impl SettingsRepository {
         let api_key_column = match provider {
             "openai" => "openaiApiKey",
             "claude" => "anthropicApiKey",
-            "ollama" => "ollamaApiKey",
-            "groq" => "groqApiKey",
             "openrouter" => "openRouterApiKey",
             _ => {
                 return Err(sqlx::Error::Protocol(
@@ -122,8 +115,8 @@ impl SettingsRepository {
 
         let query = format!(
             r#"
-            INSERT INTO settings (id, provider, model, whisperModel, "{}")
-            VALUES ('1', 'openai', 'gpt-4o-2024-11-20', 'large-v3', $1)
+            INSERT INTO settings (id, provider, model, "{}")
+            VALUES ('1', 'openai', 'gpt-4o-2024-11-20', $1)
             ON CONFLICT(id) DO UPDATE SET
                 "{}" = $1
             "#,
@@ -146,8 +139,6 @@ impl SettingsRepository {
 
         let api_key_column = match provider {
             "openai" => "openaiApiKey",
-            "ollama" => "ollamaApiKey",
-            "groq" => "groqApiKey",
             "claude" => "anthropicApiKey",
             "openrouter" => "openRouterApiKey",
             _ => {
@@ -180,18 +171,28 @@ impl SettingsRepository {
         pool: &SqlitePool,
         provider: &str,
         model: &str,
+        zipformer_variant: &str,
+        decoding_method: &str,
+        num_active_paths: i32,
     ) -> std::result::Result<(), sqlx::Error> {
         sqlx::query(
             r#"
-            INSERT INTO transcript_settings (id, provider, model)
-            VALUES ('1', $1, $2)
+            INSERT INTO transcript_settings
+                (id, provider, model, zipformerVariant, decodingMethod, numActivePaths)
+            VALUES ('1', $1, $2, $3, $4, $5)
             ON CONFLICT(id) DO UPDATE SET
                 provider = excluded.provider,
-                model = excluded.model
+                model = excluded.model,
+                zipformerVariant = excluded.zipformerVariant,
+                decodingMethod = excluded.decodingMethod,
+                numActivePaths = excluded.numActivePaths
             "#,
         )
         .bind(provider)
         .bind(model)
+        .bind(zipformer_variant)
+        .bind(decoding_method)
+        .bind(num_active_paths)
         .execute(pool)
         .await?;
 
@@ -199,60 +200,28 @@ impl SettingsRepository {
     }
 
     pub async fn save_transcript_api_key(
-        pool: &SqlitePool,
+        _pool: &SqlitePool,
         provider: &str,
-        api_key: &str,
+        _api_key: &str,
     ) -> std::result::Result<(), sqlx::Error> {
-        let api_key_column = match provider {
-            "zipformer" => return Ok(()), // ZipFormer is local — no API key needed
-            "deepgram" => "deepgramApiKey",
-            "elevenLabs" => "elevenLabsApiKey",
-            "groq" => "groqApiKey",
-            "openai" => "openaiApiKey",
-            _ => {
-                return Err(sqlx::Error::Protocol(
-                    format!("Invalid provider: {}", provider).into(),
-                ))
-            }
-        };
-
-        let query = format!(
-            r#"
-            INSERT INTO transcript_settings (id, provider, model, "{}")
-            VALUES ('1', 'zipformer', '{}', $1)
-            ON CONFLICT(id) DO UPDATE SET
-                "{}" = $1
-            "#,
-            api_key_column, crate::config::ZIPFORMER_MODEL_NAME, api_key_column
-        );
-        sqlx::query(&query).bind(api_key).execute(pool).await?;
-
+        if provider != "zipformer" {
+            return Err(sqlx::Error::Protocol(
+                format!("Unsupported transcript provider: {}. Only zipformer is supported.", provider).into(),
+            ));
+        }
         Ok(())
     }
 
     pub async fn get_transcript_api_key(
-        pool: &SqlitePool,
+        _pool: &SqlitePool,
         provider: &str,
     ) -> std::result::Result<Option<String>, sqlx::Error> {
-        let api_key_column = match provider {
-            "zipformer" => return Ok(None), // ZipFormer is local — no API key
-            "deepgram" => "deepgramApiKey",
-            "elevenLabs" => "elevenLabsApiKey",
-            "groq" => "groqApiKey",
-            "openai" => "openaiApiKey",
-            _ => {
-                return Err(sqlx::Error::Protocol(
-                    format!("Invalid provider: {}", provider).into(),
-                ))
-            }
-        };
-
-        let query = format!(
-            "SELECT {} FROM transcript_settings WHERE id = '1' LIMIT 1",
-            api_key_column
-        );
-        let api_key = sqlx::query_scalar(&query).fetch_optional(pool).await?;
-        Ok(api_key)
+        if provider != "zipformer" {
+            return Err(sqlx::Error::Protocol(
+                format!("Unsupported transcript provider: {}. Only zipformer is supported.", provider).into(),
+            ));
+        }
+        Ok(None)
     }
 
     pub async fn delete_api_key(
@@ -269,8 +238,6 @@ impl SettingsRepository {
 
         let api_key_column = match provider {
             "openai" => "openaiApiKey",
-            "ollama" => "ollamaApiKey",
-            "groq" => "groqApiKey",
             "claude" => "anthropicApiKey",
             "openrouter" => "openRouterApiKey",
             _ => {
@@ -355,8 +322,8 @@ impl SettingsRepository {
         // Upsert into settings table
         sqlx::query(
             r#"
-            INSERT INTO settings (id, provider, model, whisperModel, customOpenAIConfig)
-            VALUES ('1', 'custom-openai', $1, 'large-v3', $2)
+            INSERT INTO settings (id, provider, model, customOpenAIConfig)
+            VALUES ('1', 'custom-openai', $1, $2)
             ON CONFLICT(id) DO UPDATE SET
                 customOpenAIConfig = excluded.customOpenAIConfig
             "#,
@@ -366,6 +333,101 @@ impl SettingsRepository {
         .execute(pool)
         .await?;
 
+        Ok(())
+    }
+
+    // ===== PROMPT SETTINGS METHODS =====
+
+    /// Retrieves custom prompt settings from the database.
+    /// Returns `Ok(None)` when no custom prompts have been saved yet (use built-in defaults).
+    pub async fn get_prompt_settings(
+        pool: &SqlitePool,
+    ) -> std::result::Result<Option<crate::summary::PromptConfig>, sqlx::Error> {
+        use sqlx::Row;
+
+        let row = sqlx::query("SELECT promptSettings FROM settings WHERE id = '1' LIMIT 1")
+            .fetch_optional(pool)
+            .await?;
+
+        match row {
+            Some(record) => {
+                let json: Option<String> = record.get("promptSettings");
+                match json {
+                    Some(j) => {
+                        let config: crate::summary::PromptConfig = serde_json::from_str(&j)
+                            .map_err(|e| sqlx::Error::Protocol(
+                                format!("Invalid JSON in promptSettings: {}", e).into()
+                            ))?;
+                        Ok(Some(config))
+                    }
+                    None => Ok(None),
+                }
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Saves custom prompt settings as JSON.
+    pub async fn save_prompt_settings(
+        pool: &SqlitePool,
+        config: &crate::summary::PromptConfig,
+    ) -> std::result::Result<(), sqlx::Error> {
+        let json = serde_json::to_string(config)
+            .map_err(|e| sqlx::Error::Protocol(
+                format!("Failed to serialize prompt settings: {}", e).into()
+            ))?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO settings (id, provider, model, promptSettings)
+            VALUES ('1', 'openai', 'gpt-4o-2024-11-20', $1)
+            ON CONFLICT(id) DO UPDATE SET
+                promptSettings = excluded.promptSettings
+            "#,
+        )
+        .bind(json)
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Resets custom prompt settings to built-in defaults by clearing the stored JSON.
+    pub async fn reset_prompt_settings(
+        pool: &SqlitePool,
+    ) -> std::result::Result<(), sqlx::Error> {
+        sqlx::query("UPDATE settings SET promptSettings = NULL WHERE id = '1'")
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Retrieves the ID of the user's chosen default template. Returns None when not set.
+    pub async fn get_default_template(
+        pool: &SqlitePool,
+    ) -> std::result::Result<Option<String>, sqlx::Error> {
+        use sqlx::Row;
+        let row = sqlx::query("SELECT defaultTemplate FROM settings WHERE id = '1' LIMIT 1")
+            .fetch_optional(pool)
+            .await?;
+        Ok(row.and_then(|r| r.get("defaultTemplate")))
+    }
+
+    /// Persists the user's chosen default template ID.
+    pub async fn save_default_template(
+        pool: &SqlitePool,
+        template_id: &str,
+    ) -> std::result::Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            INSERT INTO settings (id, provider, model, defaultTemplate)
+            VALUES ('1', 'openai', 'gpt-4o-2024-11-20', $1)
+            ON CONFLICT(id) DO UPDATE SET defaultTemplate = excluded.defaultTemplate
+            "#,
+        )
+        .bind(template_id)
+        .execute(pool)
+        .await?;
         Ok(())
     }
 }

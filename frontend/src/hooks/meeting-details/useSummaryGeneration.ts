@@ -5,7 +5,6 @@ import { CurrentMeeting, useSidebar } from '@/components/Sidebar/SidebarProvider
 import { invoke as invokeTauri } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import Analytics from '@/lib/analytics';
-import { isOllamaNotInstalledError } from '@/lib/utils';
 
 type SummaryStatus = 'idle' | 'processing' | 'summarizing' | 'regenerating' | 'completed' | 'error';
 
@@ -196,7 +195,7 @@ export function useSummaryGeneration({
           // Show error toast
           toast.error(`${isRegeneration ? 'Không tạo lại được' : 'Không tạo được'} tóm tắt`, {
             description: errorMessage.includes('Connection refused')
-              ? 'Không kết nối được dịch vụ LLM. Hãy đảm bảo Ollama hoặc nhà cung cấp LLM đã cấu hình đang chạy.'
+              ? 'Không kết nối được dịch vụ LLM. Hãy đảm bảo nhà cung cấp LLM đã cấu hình đang hoạt động.'
               : errorMessage,
           });
 
@@ -415,47 +414,6 @@ export function useSummaryGeneration({
       model: modelConfig.model,
       template: selectedTemplate
     });
-
-    // Check if Ollama provider has models available
-    if (modelConfig.provider === 'ollama') {
-      try {
-        const endpoint = modelConfig.ollamaEndpoint || null;
-        const models = await invokeTauri('get_ollama_models', { endpoint }) as any[];
-
-        if (!models || models.length === 0) {
-          toast.error(
-            'Không tìm thấy mô hình Ollama. Vui lòng tải gemma3:1b trong Cài đặt mô hình.',
-            { duration: 5000 }
-          );
-          return;
-        }
-      } catch (error) {
-        console.error('Error checking Ollama models:', error);
-        const errorMessage = error instanceof Error ? error.message : String(error);
-
-        if (isOllamaNotInstalledError(errorMessage)) {
-          // Ollama is not installed - show specific message with download link
-          toast.error(
-            'Chưa cài Ollama',
-            {
-              description: 'Vui lòng tải và cài Ollama để dùng mô hình cục bộ.',
-              duration: 7000,
-              action: {
-                label: 'Tải xuống',
-                onClick: () => invokeTauri('open_external_url', { url: 'https://ollama.com/download' })
-              }
-            }
-          );
-        } else {
-          // Other error - generic message
-          toast.error(
-            'Không kiểm tra được mô hình Ollama. Đảm bảo Ollama đang chạy và đã tải mô hình trong Cài đặt.',
-            { duration: 5000 }
-          );
-        }
-        return;
-      }
-    }
 
     // Format timestamps as recording-relative [MM:SS] instead of wall-clock time
     const formatTime = (seconds: number | undefined, fallbackTimestamp: string): string => {

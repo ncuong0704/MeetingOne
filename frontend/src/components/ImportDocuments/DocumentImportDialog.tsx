@@ -94,12 +94,12 @@ export function DocumentImportDialog({ open, onOpenChange }: DocumentImportDialo
             ) : (
               <>
                 <Upload className="h-5 w-5 text-blue-600" />
-                Tải tài liệu lên
+                Tải file transcript lên
               </>
             )}
           </DialogTitle>
           <DialogDescription>
-            Chọn một hoặc nhiều file PDF, DOCX, TXT, SRT hoặc VTT để tạo cuộc họp mới từ nội dung có sẵn
+            Chọn một hoặc nhiều file TXT, SRT hoặc VTT để tạo cuộc họp mới từ nội dung có sẵn.
           </DialogDescription>
         </DialogHeader>
 
@@ -144,11 +144,11 @@ export function DocumentImportDialog({ open, onOpenChange }: DocumentImportDialo
                 ) : (
                   <>
                     <Upload className="h-4 w-4 mr-2" />
-                    Chọn tài liệu
+                    Chọn file transcript
                   </>
                 )}
               </Button>
-              <p className="text-sm text-gray-500 mt-2">PDF, DOCX, TXT, SRT, VTT</p>
+              <p className="text-sm text-gray-500 mt-2">TXT, SRT, VTT</p>
             </div>
           )}
         </div>

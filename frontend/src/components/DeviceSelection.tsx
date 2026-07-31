@@ -7,6 +7,7 @@ import { AudioBackendSelector } from './AudioBackendSelector';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import Analytics from '@/lib/analytics';
+import { TOUR_TARGETS } from '@/components/UserGuide/tourTargets';
 
 export interface AudioDevice {
   name: string;
@@ -259,7 +260,7 @@ export function DeviceSelection({ selectedDevices, onDeviceChange, disabled = fa
         </div>
       )}
 
-      <div className="space-y-3">
+      <div className="space-y-3" data-tour={TOUR_TARGETS.SETTINGS_DEVICES}>
         {/* Microphone Selection */}
         <div className="space-y-2">
           <div className="flex items-center gap-2">

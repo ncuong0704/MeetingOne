@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Switch } from '@/components/ui/switch';
-import { FolderOpen, HardDrive, Bell, Info, AlertTriangle } from 'lucide-react';
+import { FolderOpen, HardDrive, Bell, Info, AlertTriangle, FolderInput } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { DeviceSelection, SelectedDevices } from '@/components/DeviceSelection';
 import Analytics from '@/lib/analytics';
 import { toast } from 'sonner';
+import { TOUR_TARGETS } from '@/components/UserGuide/tourTargets';
 
 export interface RecordingPreferences {
   save_folder: string;
@@ -30,7 +31,6 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
   const [saving, setSaving] = useState(false);
   const [showRecordingNotification, setShowRecordingNotification] = useState(true);
 
-  // Load recording preferences on component mount
   useEffect(() => {
     const loadPreferences = async () => {
       try {
@@ -38,7 +38,6 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
         setPreferences(prefs);
       } catch (error) {
         console.error('Failed to load recording preferences:', error);
-        // If loading fails, get default folder path
         try {
           const defaultPath = await invoke<string>('get_default_recordings_folder_path');
           setPreferences(prev => ({ ...prev, save_folder: defaultPath }));
@@ -53,7 +52,6 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
     loadPreferences();
   }, []);
 
-  // Load recording notification preference
   useEffect(() => {
     const loadNotificationPref = async () => {
       try {
@@ -71,9 +69,8 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
   const handleAutoSaveToggle = async (enabled: boolean) => {
     const newPreferences = { ...preferences, auto_save: enabled };
     setPreferences(newPreferences);
-    await savePreferences(newPreferences);
+    await savePreferences(newPreferences, 'Đã lưu tùy chọn lưu file');
 
-    // Track auto-save setting change
     await Analytics.track('auto_save_recording_toggled', {
       enabled: enabled.toString()
     });
@@ -86,10 +83,10 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
       preferred_system_device: devices.systemDevice
     };
     setPreferences(newPreferences);
-    await savePreferences(newPreferences);
+    await savePreferences(newPreferences, 'Đã lưu thiết bị âm thanh', {
+      description: `Micro: ${devices.micDevice || 'Mặc định'}, Âm thanh hệ thống: ${devices.systemDevice || 'Mặc định'}`
+    });
 
-    // Track default device preference changes
-    // Note: Individual device selection analytics are tracked in DeviceSelection component
     await Analytics.track('default_devices_changed', {
       has_preferred_microphone: (!!devices.micDevice).toString(),
       has_preferred_system_audio: (!!devices.systemDevice).toString()
@@ -99,8 +96,30 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
   const handleOpenFolder = async () => {
     try {
       await invoke('open_recordings_folder');
+      await Analytics.track('storage_folder_opened', { folder_type: 'recordings' });
     } catch (error) {
       console.error('Failed to open recordings folder:', error);
+      toast.error('Không mở được thư mục');
+    }
+  };
+
+  const handleSelectFolder = async () => {
+    try {
+      const selectedPath = await invoke<string | null>('select_recording_folder');
+      if (!selectedPath) return;
+
+      const newPreferences = { ...preferences, save_folder: selectedPath };
+      setPreferences(newPreferences);
+      await savePreferences(newPreferences, 'Đã cập nhật thư mục lưu', {
+        description: selectedPath
+      });
+
+      await Analytics.track('recording_folder_changed', { folder_path: selectedPath });
+    } catch (error) {
+      console.error('Failed to select recordings folder:', error);
+      toast.error('Không chọn được thư mục', {
+        description: error instanceof Error ? error.message : String(error)
+      });
     }
   };
 
@@ -121,21 +140,19 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
     }
   };
 
-  const savePreferences = async (prefs: RecordingPreferences) => {
+  const savePreferences = async (
+    prefs: RecordingPreferences,
+    successMessage: string,
+    options?: { description?: string }
+  ) => {
     setSaving(true);
     try {
       await invoke('set_recording_preferences', { preferences: prefs });
       onSave?.(prefs);
-
-      // Show success toast with device details
-      const micDevice = prefs.preferred_mic_device || 'Mặc định';
-      const systemDevice = prefs.preferred_system_device || 'Mặc định';
-      toast.success('Đã lưu thiết bị âm thanh', {
-        description: `Micro: ${micDevice}, Âm thanh hệ thống: ${systemDevice}`
-      });
+      toast.success(successMessage, options?.description ? { description: options.description } : undefined);
     } catch (error) {
       console.error('Failed to save recording preferences:', error);
-      toast.error('Không lưu được thiết bị âm thanh', {
+      toast.error('Không lưu được cài đặt', {
         description: error instanceof Error ? error.message : String(error)
       });
     } finally {
@@ -155,6 +172,60 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
   return (
     <div className="space-y-4">
 
+      {/* ── Thư mục lưu trữ ──────────────────────────────────────────── */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-50">
+          <h3 className="text-base font-semibold text-gray-900">Thư mục lưu trữ</h3>
+          <p className="text-sm text-gray-500 mt-1">
+            Chọn nơi lưu file ghi âm, transcript và metadata của mỗi cuộc họp.
+          </p>
+        </div>
+
+        <div className="px-5 py-4 space-y-3">
+          <div className="flex items-start gap-3 p-4 rounded-lg bg-gray-50 border border-gray-100">
+            <div className="w-9 h-9 rounded-lg bg-white border border-gray-200 flex items-center justify-center shrink-0 shadow-sm">
+              <HardDrive className="w-4.5 h-4.5 text-gray-500" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-base font-medium text-gray-700 mb-1">Thư mục lưu</p>
+              <p className="text-sm text-gray-500 font-mono break-all leading-relaxed">
+                {preferences.save_folder || 'Thư mục mặc định'}
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+              <button
+                onClick={handleSelectFolder}
+                disabled={saving}
+                data-tour={TOUR_TARGETS.SETTINGS_SELECT_FOLDER}
+                className="flex items-center justify-center gap-2 px-3.5 py-2 text-sm font-medium text-white bg-[#16478e] border border-[#16478e] rounded-lg hover:bg-[#123a75] transition-colors shadow-sm disabled:opacity-50"
+              >
+                <FolderInput className="w-4 h-4" />
+                Chọn thư mục
+              </button>
+              <button
+                onClick={handleOpenFolder}
+                data-tour={TOUR_TARGETS.SETTINGS_OPEN_FOLDER}
+                className="flex items-center justify-center gap-2 px-3.5 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors shadow-sm"
+              >
+                <FolderOpen className="w-4 h-4" />
+                Mở
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-3 bg-blue-50 border border-blue-100 rounded-lg px-4 py-3">
+            <Info className="w-4 h-4 text-[#16478e] shrink-0 mt-0.5" />
+            <p className="text-sm text-[#16478e] leading-relaxed">
+              Mỗi cuộc họp được lưu trong một thư mục riêng, chứa <span className="font-semibold">transcripts.json</span>
+              {preferences.auto_save && (
+                <> và file âm thanh <span className="font-mono">audio.{preferences.file_format}</span></>
+              )}
+              . Cơ sở dữ liệu và mô hình AI được lưu trong thư mục dữ liệu ứng dụng.
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* ── Lưu file âm thanh ────────────────────────────────────────── */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-50">
@@ -162,11 +233,13 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
           <p className="text-sm text-gray-500 mt-1">Cấu hình cách lưu file âm thanh sau cuộc họp.</p>
         </div>
 
-        {/* Auto save toggle */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-50">
+        <div
+          className="flex items-center justify-between px-5 py-4 border-b border-gray-50"
+          data-tour={TOUR_TARGETS.SETTINGS_AUTO_SAVE}
+        >
           <div>
             <p className="text-base font-medium text-gray-800">Tự động lưu</p>
-            <p className="text-sm text-gray-500 mt-0.5">Tự động lưu file âm thanh khi dừng ghi</p>
+            <p className="text-sm text-gray-500 mt-0.5">Tự động lưu file âm thanh khi dừng ghi (transcript luôn được lưu)</p>
           </div>
           <Switch
             checked={preferences.auto_save}
@@ -175,42 +248,12 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
           />
         </div>
 
-        {/* Folder location */}
-        {preferences.auto_save ? (
-          <div className="px-5 py-4 space-y-3">
-            <div className="flex items-start gap-3 p-4 rounded-lg bg-gray-50 border border-gray-100">
-              <div className="w-9 h-9 rounded-lg bg-white border border-gray-200 flex items-center justify-center shrink-0 shadow-sm">
-                <HardDrive className="w-4.5 h-4.5 text-gray-500" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-base font-medium text-gray-700 mb-1">Thư mục lưu</p>
-                <p className="text-sm text-gray-500 font-mono break-all leading-relaxed">
-                  {preferences.save_folder || 'Thư mục mặc định'}
-                </p>
-              </div>
-              <button
-                onClick={handleOpenFolder}
-                className="shrink-0 flex items-center gap-2 px-3.5 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors shadow-sm"
-              >
-                <FolderOpen className="w-4 h-4" />
-                Mở
-              </button>
-            </div>
-
-            <div className="flex items-start gap-3 bg-blue-50 border border-blue-100 rounded-lg px-4 py-3">
-              <Info className="w-4 h-4 text-[#16478e] shrink-0 mt-0.5" />
-              <p className="text-sm text-[#16478e]">
-                <span className="font-semibold">Định dạng:</span> {preferences.file_format.toUpperCase()} ·{' '}
-                Lưu với dấu thời gian: <span className="font-mono">YYYYMMDD_HHMMSS.{preferences.file_format}</span>
-              </p>
-            </div>
-          </div>
-        ) : (
+        {!preferences.auto_save && (
           <div className="px-5 py-4">
             <div className="flex items-start gap-3 bg-amber-50 border border-amber-100 rounded-lg px-4 py-3">
               <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
               <p className="text-sm text-amber-700">
-                Lưu file đang tắt. Bật <span className="font-semibold">Tự động lưu</span> để lưu âm thanh cuộc họp sau khi ghi.
+                Lưu file âm thanh đang tắt. Transcript vẫn được lưu vào thư mục đã chọn ở trên.
               </p>
             </div>
           </div>

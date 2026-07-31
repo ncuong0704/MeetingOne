@@ -51,7 +51,7 @@ export function useRecordingStart(
   }, []);
 
   // Check if ZipFormer Vietnamese ASR model is ready
-  const checkParakeetReady = useCallback(async (): Promise<boolean> => {
+  const checkZipformerReady = useCallback(async (): Promise<boolean> => {
     try {
       await invoke('zipformer_init');
       return await invoke<boolean>('zipformer_is_model_loaded');
@@ -75,11 +75,11 @@ export function useRecordingStart(
   // Handle manual recording start (from button click)
   const handleRecordingStart = useCallback(async () => {
     try {
-      console.log('handleRecordingStart called - checking Parakeet model status');
+      console.log('handleRecordingStart called - checking ZipFormer model status');
 
-      // Check if Parakeet transcription model is ready before starting
-      const parakeetReady = await checkParakeetReady();
-      if (!parakeetReady) {
+      // Check if ZipFormer transcription model is ready before starting
+      const zipformerReady = await checkZipformerReady();
+      if (!zipformerReady) {
         const isDownloading = await checkIfModelDownloading();
         if (isDownloading) {
           toast.info('Đang tải mô hình', {
@@ -99,7 +99,7 @@ export function useRecordingStart(
         return;
       }
 
-      console.log('Parakeet ready - setting up meeting title and state');
+      console.log('ZipFormer ready - setting up meeting title and state');
 
       const randomTitle = generateMeetingTitle();
       setMeetingTitle(randomTitle);
@@ -107,14 +107,15 @@ export function useRecordingStart(
       // Set STARTING status before initiating backend recording
       setStatus(RecordingStatus.STARTING, 'Đang khởi tạo ghi âm...');
 
-      // Backend `mic_enabled` must follow Config `micEnabled` only. Do not AND with
-      // `hasMicrophoneAccess` (one-shot mount check can be wrong after a session); Rust still resolves default mic.
-      const micDeviceArg = micEnabled ? (selectedDevices?.micDevice || null) : null;
+      const effectiveMicEnabled = micEnabled && hasMicrophoneAccess;
+      const micDeviceArg = effectiveMicEnabled ? (selectedDevices?.micDevice || null) : null;
       console.log(
         'Starting backend recording with meeting:',
         randomTitle,
         'micEnabled(pref):',
         micEnabled,
+        'effectiveMicEnabled:',
+        effectiveMicEnabled,
         'hasMicAccess:',
         hasMicrophoneAccess
       );
@@ -122,7 +123,7 @@ export function useRecordingStart(
         micDeviceArg,
         selectedDevices?.systemDevice || null,
         randomTitle,
-        micEnabled
+        effectiveMicEnabled
       );
       console.log('Backend recording started successfully');
 
@@ -144,7 +145,7 @@ export function useRecordingStart(
       // Re-throw so RecordingControls can handle device-specific errors
       throw error;
     }
-  }, [generateMeetingTitle, setMeetingTitle, setIsRecording, clearTranscripts, setIsMeetingActive, checkParakeetReady, checkIfModelDownloading, selectedDevices, micEnabled, hasMicrophoneAccess, showModal, setStatus]);
+  }, [generateMeetingTitle, setMeetingTitle, setIsRecording, clearTranscripts, setIsMeetingActive, checkZipformerReady, checkIfModelDownloading, selectedDevices, micEnabled, hasMicrophoneAccess, showModal, setStatus]);
 
   // Check for autoStartRecording flag and start recording automatically
   useEffect(() => {
@@ -156,9 +157,9 @@ export function useRecordingStart(
           setIsAutoStarting(true);
           sessionStorage.removeItem('autoStartRecording'); // Clear the flag
 
-          // Check if Parakeet transcription model is ready before starting
-          const parakeetReady = await checkParakeetReady();
-          if (!parakeetReady) {
+          // Check if ZipFormer transcription model is ready before starting
+          const zipformerReady = await checkZipformerReady();
+          if (!zipformerReady) {
             const isDownloading = await checkIfModelDownloading();
             if (isDownloading) {
               toast.info('Đang tải mô hình', {
@@ -187,12 +188,15 @@ export function useRecordingStart(
             // Set STARTING status before initiating backend recording
             setStatus(RecordingStatus.STARTING, 'Đang khởi tạo ghi âm...');
 
-            const micDeviceArg = micEnabled ? (selectedDevices?.micDevice || null) : null;
+            const effectiveMicEnabled = micEnabled && hasMicrophoneAccess;
+            const micDeviceArg = effectiveMicEnabled ? (selectedDevices?.micDevice || null) : null;
             console.log(
               'Auto-starting backend recording with meeting:',
               generatedMeetingTitle,
               'micEnabled(pref):',
               micEnabled,
+              'effectiveMicEnabled:',
+              effectiveMicEnabled,
               'hasMicAccess:',
               hasMicrophoneAccess
             );
@@ -200,7 +204,7 @@ export function useRecordingStart(
               micDeviceArg,
               selectedDevices?.systemDevice || null,
               generatedMeetingTitle,
-              micEnabled
+              effectiveMicEnabled
             );
             console.log('Auto-start backend recording result:', result);
 
@@ -238,7 +242,7 @@ export function useRecordingStart(
     setIsRecording,
     clearTranscripts,
     setIsMeetingActive,
-    checkParakeetReady,
+    checkZipformerReady,
     checkIfModelDownloading,
     showModal,
     setStatus,
@@ -252,12 +256,12 @@ export function useRecordingStart(
         return;
       }
 
-      console.log('Direct start from sidebar - checking Parakeet model status');
+      console.log('Direct start from sidebar - checking ZipFormer model status');
       setIsAutoStarting(true);
 
-      // Check if Parakeet transcription model is ready before starting
-      const parakeetReady = await checkParakeetReady();
-      if (!parakeetReady) {
+      // Check if ZipFormer transcription model is ready before starting
+      const zipformerReady = await checkZipformerReady();
+      if (!zipformerReady) {
         const isDownloading = await checkIfModelDownloading();
         if (isDownloading) {
           toast.info('Đang tải mô hình', {
@@ -285,12 +289,15 @@ export function useRecordingStart(
         // Set STARTING status before initiating backend recording
         setStatus(RecordingStatus.STARTING, 'Đang khởi tạo ghi âm...');
 
-        const micDeviceArg = micEnabled ? (selectedDevices?.micDevice || null) : null;
+        const effectiveMicEnabled = micEnabled && hasMicrophoneAccess;
+        const micDeviceArg = effectiveMicEnabled ? (selectedDevices?.micDevice || null) : null;
         console.log(
           'Starting backend recording with meeting:',
           generatedMeetingTitle,
           'micEnabled(pref):',
           micEnabled,
+          'effectiveMicEnabled:',
+          effectiveMicEnabled,
           'hasMicAccess:',
           hasMicrophoneAccess
         );
@@ -298,7 +305,7 @@ export function useRecordingStart(
           micDeviceArg,
           selectedDevices?.systemDevice || null,
           generatedMeetingTitle,
-          micEnabled
+          effectiveMicEnabled
         );
         console.log('Backend recording result:', result);
 
@@ -338,7 +345,7 @@ export function useRecordingStart(
     setIsRecording,
     clearTranscripts,
     setIsMeetingActive,
-    checkParakeetReady,
+    checkZipformerReady,
     checkIfModelDownloading,
     showModal,
     setStatus,

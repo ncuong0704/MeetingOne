@@ -13,18 +13,22 @@ import { listen, UnlistenFn } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { RecordingStateProvider } from '@/contexts/RecordingStateContext'
-import { OllamaDownloadProvider } from '@/contexts/OllamaDownloadContext'
 import { TranscriptProvider } from '@/contexts/TranscriptContext'
 import { ConfigProvider } from '@/contexts/ConfigContext'
 import { OnboardingProvider } from '@/contexts/OnboardingContext'
 import { OnboardingFlow } from '@/components/onboarding'
 import { DownloadProgressToastProvider } from '@/components/shared/DownloadProgressToast'
+import { AppUpdateNotifierGate } from '@/components/shared/AppUpdateNotifier'
 import { RecordingPostProcessingProvider } from '@/contexts/RecordingPostProcessingProvider'
 import { ImportAudioDialog, ImportDropOverlay } from '@/components/ImportAudio'
 import { ImportDialogProvider } from '@/contexts/ImportDialogContext'
 import { DocumentImportDialog } from '@/components/ImportDocuments'
 import { DocumentImportDialogProvider } from '@/contexts/DocumentImportDialogContext'
 import { isAudioExtension, getAudioFormatsDisplayList } from '@/constants/audioFormats'
+import { getBrowserOnboardingCompleted, isTauriRuntime } from '@/lib/tauriRuntime'
+import { AuthProvider, useAuth } from '@/contexts/AuthContext'
+import { LoginPage } from '@/components/auth/LoginPage'
+import { UserGuideProvider } from '@/contexts/UserGuideContext'
 
 
 const sourceSans3 = Source_Sans_3({
@@ -76,8 +80,23 @@ export default function RootLayout({
 }: {
   children: React.ReactNode
 }) {
+  return (
+    <html lang="vi">
+      <body className={`${sourceSans3.variable} font-sans antialiased`}>
+        <AuthProvider>
+          <AppRoot>{children}</AppRoot>
+        </AuthProvider>
+        <Toaster position="bottom-center" richColors closeButton />
+      </body>
+    </html>
+  )
+}
+
+function AppRoot({ children }: { children: React.ReactNode }) {
+  const { user, loading, authRequired } = useAuth()
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [onboardingCompleted, setOnboardingCompleted] = useState(false)
+  const [onboardingReady, setOnboardingReady] = useState(false)
 
   // Import audio state
   const [showDropOverlay, setShowDropOverlay] = useState(false)
@@ -86,26 +105,43 @@ export default function RootLayout({
   const [showDocumentImportDialog, setShowDocumentImportDialog] = useState(false)
 
   useEffect(() => {
-    // Check onboarding status first
+    if (loading || (authRequired && !user)) {
+      setShowOnboarding(false)
+      setOnboardingCompleted(false)
+      setOnboardingReady(false)
+      return
+    }
+
+    setOnboardingReady(false)
+
+    if (!isTauriRuntime()) {
+      const isComplete = getBrowserOnboardingCompleted()
+      setOnboardingCompleted(isComplete)
+      setShowOnboarding(!isComplete)
+      setOnboardingReady(true)
+      console.log('[Layout] Browser dev mode — onboarding completed:', isComplete)
+      return
+    }
+
     invoke<{ completed: boolean } | null>('get_onboarding_status')
       .then((status) => {
         const isComplete = status?.completed ?? false
         setOnboardingCompleted(isComplete)
+        setShowOnboarding(!isComplete)
 
         if (!isComplete) {
           console.log('[Layout] Onboarding not completed, showing onboarding flow')
-          setShowOnboarding(true)
         } else {
           console.log('[Layout] Onboarding completed, showing main app')
         }
       })
       .catch((error) => {
         console.error('[Layout] Failed to check onboarding status:', error)
-        // Default to showing onboarding if we can't check
         setShowOnboarding(true)
         setOnboardingCompleted(false)
       })
-  }, [])
+      .finally(() => setOnboardingReady(true))
+  }, [authRequired, loading, user])
 
   // Disable context menu in production
   useEffect(() => {
@@ -228,66 +264,68 @@ export default function RootLayout({
   }, []);
 
   const handleOnboardingComplete = () => {
-    console.log('[Layout] Onboarding completed, reloading app')
+    console.log('[Layout] Onboarding completed')
     setShowOnboarding(false)
     setOnboardingCompleted(true)
-    // Optionally reload the window to ensure all state is fresh
-    window.location.reload()
+    if (isTauriRuntime()) {
+      window.location.reload()
+    }
   }
 
   return (
-    <html lang="vi">
-      <body className={`${sourceSans3.variable} font-sans antialiased`}>
-        <AnalyticsProvider>
-          <RecordingStateProvider>
-            <TranscriptProvider>
-              <ConfigProvider>
-                <OllamaDownloadProvider>
-                    <OnboardingProvider>
-                      <SidebarProvider>
-                        <TooltipProvider>
-                          <RecordingPostProcessingProvider>
-                            <ImportDialogProvider onOpen={handleOpenImportDialog}>
-                            <DocumentImportDialogProvider onOpen={handleOpenDocumentImportDialog}>
-                              {/* Download progress toast provider - listens for background downloads */}
-                              <DownloadProgressToastProvider />
+    <AnalyticsProvider>
+      <RecordingStateProvider>
+        <TranscriptProvider>
+          <ConfigProvider>
+            <OnboardingProvider>
+              <SidebarProvider>
+                <TooltipProvider>
+                  <UserGuideProvider>
+                  <RecordingPostProcessingProvider>
+                    <ImportDialogProvider onOpen={handleOpenImportDialog}>
+                      <DocumentImportDialogProvider onOpen={handleOpenDocumentImportDialog}>
+                        <DownloadProgressToastProvider />
 
-                              {/* Show onboarding or main app */}
-                              {showOnboarding ? (
-                                <OnboardingFlow onComplete={handleOnboardingComplete} />
-                              ) : (
-                                <div className="flex">
-                                  <Sidebar />
-                                  <MainContent>{children}</MainContent>
-                                </div>
-                              )}
-                              {/* Import audio overlay and dialog */}
-                              <ImportDropOverlay visible={showDropOverlay} />
-                              <ConditionalImportDialog
-                                showImportDialog={showImportDialog}
-                                handleImportDialogClose={handleImportDialogClose}
-                                importFilePath={importFilePath}
-                              />
-                              {/* Document import dialog */}
-                              <ConditionalDocumentImportDialog
-                                showDocumentImportDialog={showDocumentImportDialog}
-                                handleDocumentImportDialogClose={handleDocumentImportDialogClose}
-                              />
-                            </DocumentImportDialogProvider>
-                            </ImportDialogProvider>
-                          </RecordingPostProcessingProvider>
-                        </TooltipProvider>
-                      </SidebarProvider>
-                  </OnboardingProvider>
+                        {loading ? (
+                          <div className="login-page">
+                            <div className="login-card">Đang tải ứng dụng…</div>
+                          </div>
+                        ) : authRequired && !user ? (
+                          <LoginPage />
+                        ) : !onboardingReady ? (
+                          <div className="login-page">
+                            <div className="login-card">Đang tải ứng dụng…</div>
+                          </div>
+                        ) : showOnboarding ? (
+                          <OnboardingFlow onComplete={handleOnboardingComplete} />
+                        ) : (
+                          <div className="flex">
+                            <AppUpdateNotifierGate />
+                            <Sidebar />
+                            <MainContent>{children}</MainContent>
+                          </div>
+                        )}
 
-                </OllamaDownloadProvider>
-              </ConfigProvider>
-            </TranscriptProvider>
-          </RecordingStateProvider>
-        </AnalyticsProvider>
-
-        <Toaster position="bottom-center" richColors closeButton />
-      </body>
-    </html>
+                        <ImportDropOverlay visible={showDropOverlay} />
+                        <ConditionalImportDialog
+                          showImportDialog={showImportDialog}
+                          handleImportDialogClose={handleImportDialogClose}
+                          importFilePath={importFilePath}
+                        />
+                        <ConditionalDocumentImportDialog
+                          showDocumentImportDialog={showDocumentImportDialog}
+                          handleDocumentImportDialogClose={handleDocumentImportDialogClose}
+                        />
+                      </DocumentImportDialogProvider>
+                    </ImportDialogProvider>
+                  </RecordingPostProcessingProvider>
+                  </UserGuideProvider>
+                </TooltipProvider>
+              </SidebarProvider>
+            </OnboardingProvider>
+          </ConfigProvider>
+        </TranscriptProvider>
+      </RecordingStateProvider>
+    </AnalyticsProvider>
   )
 }

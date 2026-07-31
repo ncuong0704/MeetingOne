@@ -1,18 +1,17 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Image from 'next/image';
-import { invoke } from '@tauri-apps/api/core';
-import type { Update } from '@tauri-apps/plugin-updater';
 import { BRAND_NAME, BRAND_LOGO_PATH } from '@/constants/brand';
 import {
-  fetchLatestGitHubRelease,
-  getGithubReleaseRepo,
-  getGithubUpdaterLatestJsonUrl,
-  isRemoteVersionNewer,
-} from '@/lib/githubRelease';
+  checkForAppUpdate,
+  clearPendingAppUpdate,
+  getPendingAppUpdate,
+  installPendingAppUpdate,
+  openReleaseUrl,
+  resolveAppVersion,
+} from '@/lib/appUpdate';
 import { Lock, Cpu, Banknote, Globe, Shield, RefreshCw } from 'lucide-react';
-import pkg from '../../package.json';
 
 const features = [
   {
@@ -54,19 +53,9 @@ type CheckState =
   | { status: 'available'; latestTag: string; releaseUrl: string }
   | { status: 'error'; message: string };
 
-async function resolveAppVersion(): Promise<string> {
-  try {
-    const { getVersion } = await import('@tauri-apps/api/app');
-    return await getVersion();
-  } catch {
-    return pkg.version;
-  }
-}
-
 export function About() {
-  const [appVersion, setAppVersion] = useState<string>(pkg.version);
+  const [appVersion, setAppVersion] = useState<string>('');
   const [check, setCheck] = useState<CheckState>({ status: 'idle' });
-  const pendingUpdateRef = useRef<Update | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -78,88 +67,69 @@ export function About() {
     };
   }, []);
 
-  const runGithubFallback = useCallback(async () => {
-    const repo = getGithubReleaseRepo();
-    const release = await fetchLatestGitHubRelease(repo);
-    if (isRemoteVersionNewer(release.tag_name, appVersion)) {
-      setCheck({
-        status: 'available',
-        latestTag: release.tag_name,
-        releaseUrl: release.html_url,
-      });
-    } else {
-      setCheck({ status: 'uptodate', latestTag: release.tag_name });
-    }
-  }, [appVersion]);
-
   const handleCheck = useCallback(async () => {
     setCheck({ status: 'loading' });
-    pendingUpdateRef.current = null;
-    try {
-      const { check } = await import('@tauri-apps/plugin-updater');
-      const update = await check();
-      if (update) {
-        pendingUpdateRef.current = update;
-        setCheck({
-          status: 'updater_available',
-          version: update.version,
-          notes: update.body,
-        });
-        return;
-      }
-    } catch (e) {
-      // Dev (không phải Tauri), hoặc endpoint / chữ ký chưa cấu hình — thử GitHub API.
-      console.error('[About] Tauri updater check() thất bại:', e);
+    clearPendingAppUpdate();
+
+    const version = appVersion || await resolveAppVersion();
+    const result = await checkForAppUpdate(version);
+
+    if (result.kind === 'updater') {
+      setCheck({
+        status: 'updater_available',
+        version: result.version,
+        notes: result.notes,
+      });
+      return;
     }
 
-    try {
-      await runGithubFallback();
-    } catch (e) {
-      const message = e instanceof Error ? e.message : 'Không kiểm tra được cập nhật.';
-      console.error('[About] Kiểm tra cập nhật (GitHub fallback) thất bại:', e);
-      setCheck({ status: 'error', message });
+    if (result.kind === 'github') {
+      setCheck({
+        status: 'available',
+        latestTag: result.latestTag,
+        releaseUrl: result.releaseUrl,
+      });
+      return;
     }
-  }, [runGithubFallback]);
+
+    if (result.kind === 'none') {
+      setCheck({ status: 'uptodate', latestTag: result.latestTag ?? version });
+      return;
+    }
+
+    setCheck({ status: 'error', message: result.message });
+  }, [appVersion]);
 
   const handleDownloadAndInstall = useCallback(async () => {
-    const update = pendingUpdateRef.current;
-    if (!update) {
-      console.warn('[About] Tải/cài đặt: không có bản cập nhật đang chờ (pendingUpdateRef rỗng).');
+    if (!getPendingAppUpdate()) {
+      console.warn('[About] Tải/cài đặt: không có bản cập nhật đang chờ.');
       return;
     }
 
     setCheck({ status: 'updater_downloading', downloaded: 0, total: undefined });
     try {
-      let downloaded = 0;
-      let total: number | undefined;
-      await update.downloadAndInstall((event) => {
-        if (event.event === 'Started') {
-          total = event.data.contentLength;
-          setCheck({ status: 'updater_downloading', downloaded: 0, total });
-        } else if (event.event === 'Progress') {
-          downloaded += event.data.chunkLength;
-          setCheck((prev) =>
-            prev.status === 'updater_downloading'
-              ? { status: 'updater_downloading', downloaded, total: prev.total ?? total }
-              : prev
-          );
-        }
+      const result = await installPendingAppUpdate((progress) => {
+        setCheck((prev) =>
+          prev.status === 'updater_downloading'
+            ? {
+                status: 'updater_downloading',
+                downloaded: progress.downloaded,
+                total: progress.total ?? prev.total,
+              }
+            : prev
+        );
       });
-      pendingUpdateRef.current = null;
-      const { relaunch } = await import('@tauri-apps/plugin-process');
-      await relaunch();
+      if (result === 'installed') {
+        setCheck({
+          status: 'error',
+          message:
+            'Trình cài đặt đang chạy. Vui lòng hoàn tất cửa sổ cài đặt (nếu có) rồi mở lại ứng dụng.',
+        });
+      }
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Cài đặt cập nhật thất bại.';
-      console.error('[About] downloadAndInstall / relaunch thất bại:', e);
+      console.error('[About] downloadAndInstall thất bại:', e);
       setCheck({ status: 'error', message });
-    }
-  }, []);
-
-  const openRelease = useCallback(async (url: string) => {
-    try {
-      await invoke('open_external_url', { url });
-    } catch {
-      window.open(url, '_blank', 'noopener,noreferrer');
     }
   }, []);
 
@@ -170,8 +140,6 @@ export function About() {
 
   return (
     <div className="flex flex-col h-[80vh] overflow-y-auto bg-gray-50">
-
-      {/* ── Hero ──────────────────────────────────────────────────────── */}
       <div className="bg-white border-b border-gray-100 px-6 pb-8 text-center space-y-4">
         <Image
           src={BRAND_LOGO_PATH}
@@ -184,11 +152,10 @@ export function About() {
         <div className="space-y-1">
           <h1 className="text-2xl font-bold text-gray-900">{BRAND_NAME}</h1>
           <p className="text-sm text-gray-500 max-w-sm mx-auto leading-relaxed">
-          AI thư ký cuộc họp — tự động tóm tắt và phân tích nội dung sau khi cuộc họp kết thúc.
+            AI thư ký cuộc họp — tự động tóm tắt và phân tích nội dung sau khi cuộc họp kết thúc.
           </p>
         </div>
 
-        {/* Badges */}
         <div className="flex items-center justify-center gap-2 flex-wrap">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-600">
             <Shield className="w-3 h-3" />
@@ -201,7 +168,6 @@ export function About() {
         </div>
       </div>
 
-      {/* ── Phiên bản / cập nhật ─────────────────────────────────────── */}
       <div className="px-5 pt-5">
         <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm space-y-3">
           <div className="flex items-center justify-between gap-2">
@@ -209,7 +175,7 @@ export function About() {
               <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">
                 Phiên bản
               </p>
-              <p className="text-sm font-medium text-gray-900 tabular-nums">{appVersion}</p>
+              <p className="text-sm font-medium text-gray-900 tabular-nums">{appVersion || '…'}</p>
             </div>
           </div>
           <button
@@ -262,7 +228,7 @@ export function About() {
               </p>
               <button
                 type="button"
-                onClick={() => openRelease(check.releaseUrl)}
+                onClick={() => openReleaseUrl(check.releaseUrl)}
                 className="w-full rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900 hover:bg-amber-100"
               >
                 Mở trang tải bản phát hành
@@ -272,18 +238,9 @@ export function About() {
           {check.status === 'error' && (
             <p className="text-xs text-red-600 leading-relaxed">{check.message}</p>
           )}
-
-          {/* <p className="text-[10px] text-gray-400 leading-relaxed border-t border-gray-100 pt-2">
-            Cập nhật tự động đọc <code className="text-gray-500">latest.json</code> tại{' '}
-            <span className="break-all">{getGithubUpdaterLatestJsonUrl()}</span>. Mỗi release cần ký bằng{' '}
-            <code className="text-gray-500">TAURI_SIGNING_PRIVATE_KEY</code> (hoặc{' '}
-            <code className="text-gray-500">TAURI_SIGNING_PRIVATE_KEY_PATH</code>) khi build; fork repo khác cần sửa
-            endpoint trong <code className="text-gray-500">tauri.conf.json</code>.
-          </p> */}
         </div>
       </div>
 
-      {/* ── Features ──────────────────────────────────────────────────── */}
       <div className="px-5 py-5 space-y-2.5">
         <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 px-1">Tính năng nổi bật</p>
         <div className="grid grid-cols-2 gap-2.5">
@@ -301,7 +258,6 @@ export function About() {
           ))}
         </div>
       </div>
-
     </div>
   );
 }

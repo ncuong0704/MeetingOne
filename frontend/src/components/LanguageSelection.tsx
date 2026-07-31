@@ -11,7 +11,7 @@ interface LanguageSelectionProps {
   selectedLanguage: string;
   onLanguageChange: (language: string) => void;
   disabled?: boolean;
-  provider?: 'zipformer' | 'deepgram' | 'elevenLabs' | 'groq' | 'openai';
+  provider?: 'zipformer';
 }
 
 export function LanguageSelection({

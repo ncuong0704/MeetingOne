@@ -1,28 +1,46 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Settings2, Mic, Database as DatabaseIcon, SparkleIcon } from 'lucide-react';
+import { ArrowLeft, Settings2, Database as DatabaseIcon, SparkleIcon, LayoutTemplate, MessageSquareText } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { invoke } from '@tauri-apps/api/core';
 import { motion, AnimatePresence } from 'framer-motion';
-import { TranscriptSettings } from '@/components/TranscriptSettings';
+import { createDefaultTranscriptModelConfig, ZIPFORMER_MODEL_ID } from '@/constants/modelDefaults';
 import { RecordingSettings } from '@/components/RecordingSettings';
-import { PreferenceSettings } from '@/components/PreferenceSettings';
+import { TranscriptSettings } from '@/components/TranscriptSettings';
 import { SummaryModelSettings } from '@/components/SummaryModelSettings';
+import { TemplateSettings } from '@/components/TemplateSettings';
+import { PromptSettings } from '@/components/PromptSettings';
 import { useConfig } from '@/contexts/ConfigContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
+import { TOUR_TARGETS } from '@/components/UserGuide/tourTargets';
+import {
+  SETTINGS_TOUR_TAB_EVENT,
+  type SettingsTourTab,
+} from '@/components/UserGuide/settingsTourNavigation';
 
 const TABS = [
-  { value: 'general',            label: 'Chung',      icon: Settings2,   desc: 'Lưu trữ & tùy chọn' },
-  { value: 'recording',          label: 'Ghi âm',     icon: Mic,         desc: 'Thiết bị & lưu file' },
-  { value: 'Transcriptionmodels',label: 'Nhận dạng',  icon: DatabaseIcon, desc: 'Mô hình giọng nói' },
-  { value: 'summaryModels',      label: 'Tóm tắt AI', icon: SparkleIcon, desc: 'Mô hình tóm tắt' },
+  { value: 'general',            label: 'Chung',      icon: Settings2,      desc: 'Ghi âm, lưu trữ & tùy chọn' },
+  { value: 'Transcriptionmodels',label: 'Nhận dạng',  icon: DatabaseIcon,   desc: 'Mô hình giọng nói' },
+  { value: 'summaryModels',      label: 'Tóm tắt AI', icon: SparkleIcon,    desc: 'Mô hình tóm tắt' },
+  { value: 'templates',          label: 'Mẫu',        icon: LayoutTemplate,      desc: 'Tùy chỉnh mẫu tóm tắt' },
+  { value: 'promptSettings',     label: 'Prompt AI',  icon: MessageSquareText,   desc: 'Tùy chỉnh prompt gửi AI' },
 ] as const;
 
 type TabValue = typeof TABS[number]['value'];
 
+function getTabTourTarget(value: TabValue): string | undefined {
+  if (value === 'general') return TOUR_TARGETS.SETTINGS_TAB_GENERAL;
+  if (value === 'summaryModels') return TOUR_TARGETS.SETTINGS_TAB_SUMMARY;
+  if (value === 'templates') return TOUR_TARGETS.SETTINGS_TAB_TEMPLATES;
+  if (value === 'promptSettings') return TOUR_TARGETS.SETTINGS_TAB_PROMPT;
+  return undefined;
+}
+
 export default function SettingsPage() {
   const router = useRouter();
+  const { user, logout, authRequired } = useAuth();
   const { transcriptModelConfig, setTranscriptModelConfig } = useConfig();
   const [activeTab, setActiveTab] = useState<TabValue>('general');
 
@@ -32,8 +50,8 @@ export default function SettingsPage() {
         const config = await invoke('api_get_transcript_config') as any;
         if (config) {
           setTranscriptModelConfig({
-            provider: config.provider || 'localWhisper',
-            model: config.model || 'large-v3',
+            ...createDefaultTranscriptModelConfig(),
+            model: config.model || ZIPFORMER_MODEL_ID,
             apiKey: config.apiKey || null,
           });
         }
@@ -43,6 +61,18 @@ export default function SettingsPage() {
     };
     loadTranscriptConfig();
   }, [setTranscriptModelConfig]);
+
+  useEffect(() => {
+    const handleTourTab = (event: Event) => {
+      const tab = (event as CustomEvent<{ tab: SettingsTourTab }>).detail?.tab;
+      if (tab) {
+        setActiveTab(tab);
+      }
+    };
+
+    window.addEventListener(SETTINGS_TOUR_TAB_EVENT, handleTourTab);
+    return () => window.removeEventListener(SETTINGS_TOUR_TAB_EVENT, handleTourTab);
+  }, []);
 
   return (
     <div className="h-screen bg-gray-50 flex flex-col overflow-hidden">
@@ -71,6 +101,7 @@ export default function SettingsPage() {
                 <button
                   key={value}
                   onClick={() => setActiveTab(value)}
+                  data-tour={getTabTourTarget(value)}
                   className={cn(
                     'relative flex items-center gap-2 px-5 py-3 text-base font-medium rounded-t-lg transition-colors duration-150 border border-transparent',
                     isActive
@@ -105,8 +136,7 @@ export default function SettingsPage() {
               exit={{ opacity: 0, y: -4 }}
               transition={{ duration: 0.18, ease: 'easeOut' }}
             >
-              {activeTab === 'general'             && <PreferenceSettings />}
-              {activeTab === 'recording'           && <RecordingSettings />}
+              {activeTab === 'general'             && <RecordingSettings />}
               {activeTab === 'Transcriptionmodels' && (
                 <TranscriptSettings
                   transcriptModelConfig={transcriptModelConfig}
@@ -114,8 +144,26 @@ export default function SettingsPage() {
                 />
               )}
               {activeTab === 'summaryModels'       && <SummaryModelSettings />}
+              {activeTab === 'templates'           && <TemplateSettings />}
+              {activeTab === 'promptSettings'      && <PromptSettings />}
             </motion.div>
           </AnimatePresence>
+
+          {authRequired && user && (
+            <div className="mt-8 pt-6 border-t border-gray-100 flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-gray-900 truncate">{user.fullName}</p>
+                <p className="text-xs text-gray-500 truncate">{user.email}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => { void logout(); }}
+                className="shrink-0 px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Đăng xuất
+              </button>
+            </div>
+          )}
         </div>
       </main>
     </div>

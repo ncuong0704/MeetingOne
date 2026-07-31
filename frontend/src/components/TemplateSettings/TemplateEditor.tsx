@@ -5,18 +5,16 @@ import { Plus, Save, Trash2, Copy, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { SectionEditor } from './SectionEditor';
 import type { TemplateData, TemplateInfo, TemplateSection } from './types';
+import { TOUR_TARGETS } from '@/components/UserGuide/tourTargets';
 
 interface TemplateEditorProps {
   mode: 'edit' | 'new';
   data: TemplateData | null;
-  editingId: string;
   selectedInfo: TemplateInfo | undefined;
   isSaving: boolean;
   isDeleting: boolean;
-  onEditingIdChange: (id: string) => void;
   onUpdateMeta: (field: 'name' | 'description', value: string) => void;
   onAddSection: () => void;
   onRemoveSection: (index: number) => void;
@@ -29,43 +27,12 @@ interface TemplateEditorProps {
   onBack: () => void;
 }
 
-function IdField({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  const isValid = /^[a-zA-Z0-9_-]*$/.test(value);
-  return (
-    <div className="space-y-1">
-      <label className="text-xs font-medium text-gray-600">
-        ID mẫu
-        <span className="ml-1 font-normal text-gray-400">
-          — dùng làm tên file, chỉ dùng chữ/số/gạch dưới/gạch ngang
-        </span>
-      </label>
-      <Input
-        value={value}
-        onChange={e => onChange(e.target.value.toLowerCase().replace(/\s/g, '_'))}
-        placeholder="vd: mau_ket_luan_hop"
-        className={`text-sm font-mono ${!isValid && value ? 'border-red-400 focus-visible:ring-red-400' : ''}`}
-      />
-      {!isValid && value && (
-        <p className="text-xs text-red-500">ID chỉ được chứa chữ cái, số, dấu gạch dưới hoặc dấu gạch ngang</p>
-      )}
-    </div>
-  );
-}
-
 export function TemplateEditor({
   mode,
   data,
-  editingId,
   selectedInfo,
   isSaving,
   isDeleting,
-  onEditingIdChange,
   onUpdateMeta,
   onAddSection,
   onRemoveSection,
@@ -79,14 +46,7 @@ export function TemplateEditor({
 }: TemplateEditorProps) {
   if (!data) return null;
 
-  const isBuiltin = selectedInfo
-    ? !selectedInfo.is_custom && !selectedInfo.has_custom_override
-    : false;
-  const hasOverride = selectedInfo?.has_custom_override ?? false;
-  const isCustomOnly = selectedInfo?.is_custom ?? false;
-
-  const idValid = /^[a-zA-Z0-9_-]+$/.test(editingId);
-  const canSave = idValid && data.name.trim() && data.description.trim() && data.sections.length > 0;
+  const canSave = data.name.trim() && data.description.trim() && data.sections.length > 0;
 
   return (
     <div className="flex-1 flex flex-col border border-gray-200 rounded-xl overflow-hidden bg-white min-w-0">
@@ -96,6 +56,7 @@ export function TemplateEditor({
           <button
             type="button"
             onClick={onBack}
+            data-tour={TOUR_TARGETS.TEMPLATE_BACK}
             className="p-1 rounded hover:bg-gray-100 transition-colors"
             title="Quay lại danh sách"
           >
@@ -118,6 +79,7 @@ export function TemplateEditor({
                 size="sm"
                 onClick={onSave}
                 disabled={!canSave || isSaving}
+                data-tour={TOUR_TARGETS.TEMPLATE_SAVE_NEW}
                 className="text-xs gap-1"
               >
                 <Save className="w-3.5 h-3.5" />
@@ -126,31 +88,18 @@ export function TemplateEditor({
             </>
           )}
 
-          {mode === 'edit' && isBuiltin && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => selectedInfo && onClone(selectedInfo.id)}
-              className="text-xs gap-1"
-            >
-              <Copy className="w-3.5 h-3.5" />
-              Sao chép & Chỉnh sửa
-            </Button>
-          )}
-
-          {mode === 'edit' && (hasOverride || isCustomOnly) && (
+          {mode === 'edit' && (
             <>
-              {hasOverride && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => selectedInfo && onClone(selectedInfo.id)}
-                  className="text-xs gap-1"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                  Sao chép
-                </Button>
-              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => selectedInfo && onClone(selectedInfo.id)}
+                data-tour={TOUR_TARGETS.TEMPLATE_CLONE}
+                className="text-xs gap-1"
+              >
+                <Copy className="w-3.5 h-3.5" />
+                Sao chép
+              </Button>
               <Button
                 variant="destructive"
                 size="sm"
@@ -159,13 +108,14 @@ export function TemplateEditor({
                 className="text-xs gap-1"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                {isDeleting ? 'Đang xóa...' : hasOverride ? 'Xóa bản tuỳ chỉnh' : 'Xóa'}
+                {isDeleting ? 'Đang xóa...' : 'Xóa'}
               </Button>
               <Button
                 variant="blue"
                 size="sm"
                 onClick={onSave}
                 disabled={!canSave || isSaving}
+                data-tour={TOUR_TARGETS.TEMPLATE_SAVE_NEW}
                 className="text-xs gap-1"
               >
                 <Save className="w-3.5 h-3.5" />
@@ -176,42 +126,28 @@ export function TemplateEditor({
         </div>
       </div>
 
-      {/* Note for built-in view-only */}
-      {mode === 'edit' && isBuiltin && (
-        <div className="mx-5 mt-3 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-500">
-          Đây là mẫu mặc định (không thể xóa). Dùng &quot;Sao chép & Chỉnh sửa&quot; để tạo bản tùy chỉnh.
-        </div>
-      )}
-
       {/* Form */}
-      <ScrollArea className="flex-1">
+      <div className="flex-1 min-h-0 overflow-y-auto">
         <div className="px-5 py-4 space-y-4">
-          {/* ID — only in new mode */}
-          {mode === 'new' && (
-            <IdField value={editingId} onChange={onEditingIdChange} />
-          )}
-
           {/* Name */}
-          <div className="space-y-1">
+          <div className="space-y-1" data-tour={TOUR_TARGETS.TEMPLATE_NAME}>
             <label className="text-xs font-medium text-gray-600">Tên mẫu</label>
             <Input
               value={data.name}
               onChange={e => onUpdateMeta('name', e.target.value)}
               placeholder="VD: Mẫu kết luận giao ban ACT"
               className="text-sm"
-              disabled={mode === 'edit' && isBuiltin}
             />
           </div>
 
           {/* Description */}
-          <div className="space-y-1">
+          <div className="space-y-1" data-tour={TOUR_TARGETS.TEMPLATE_DESCRIPTION}>
             <label className="text-xs font-medium text-gray-600">Mô tả</label>
             <Textarea
               value={data.description}
               onChange={e => onUpdateMeta('description', e.target.value)}
               placeholder="Mô tả ngắn về mục đích của mẫu này..."
               className="text-sm min-h-[60px] resize-y"
-              disabled={mode === 'edit' && isBuiltin}
             />
           </div>
 
@@ -221,17 +157,16 @@ export function TemplateEditor({
               <label className="text-xs font-medium text-gray-600">
                 Các phần ({data.sections.length})
               </label>
-              {!(mode === 'edit' && isBuiltin) && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={onAddSection}
-                  className="text-xs h-7 px-2 gap-1"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  Thêm phần
-                </Button>
-              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onAddSection}
+                data-tour={TOUR_TARGETS.TEMPLATE_ADD_SECTION}
+                className="text-xs h-7 px-2 gap-1"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Thêm phần
+              </Button>
             </div>
 
             <div className="space-y-2">
@@ -241,7 +176,18 @@ export function TemplateEditor({
                   section={section}
                   index={idx}
                   total={data.sections.length}
-                  disabled={mode === 'edit' && isBuiltin}
+                  tourTargets={
+                    idx === 0
+                      ? {
+                          section: TOUR_TARGETS.TEMPLATE_SECTION_FIRST,
+                          title: TOUR_TARGETS.TEMPLATE_SECTION_TITLE,
+                          instruction: TOUR_TARGETS.TEMPLATE_SECTION_INSTRUCTION,
+                          format: TOUR_TARGETS.TEMPLATE_SECTION_FORMAT,
+                        }
+                      : idx === 1
+                        ? { section: TOUR_TARGETS.TEMPLATE_SECTION_SECOND }
+                        : undefined
+                  }
                   onChange={(field, value) => onUpdateSection(idx, field, value)}
                   onMoveUp={() => onMoveSection(idx, 'up')}
                   onMoveDown={() => onMoveSection(idx, 'down')}
@@ -257,7 +203,7 @@ export function TemplateEditor({
             )}
           </div>
         </div>
-      </ScrollArea>
+      </div>
     </div>
   );
 }

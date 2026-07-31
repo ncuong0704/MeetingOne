@@ -24,6 +24,12 @@ out/
 target/
 **/target-*/
 
+# Release build staging/output (installers, signatures, update manifests)
+.release-debug/
+.release-temp/
+.release-temp-verify/
+.release-v*/
+
 # Tauri
 frontend/src-tauri/binaries/
 frontend/.tauri/

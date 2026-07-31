@@ -9,8 +9,20 @@ pub const DAILY_STANDUP: &str = include_str!("../../../templates/daily_standup.j
 /// Standard meeting notes template
 pub const STANDARD_MEETING: &str = include_str!("../../../templates/standard_meeting.json");
 
-/// ACT-format meeting conclusions template (Công ty Cổ phần Viễn thông ACT)
+/// ACT-format meeting conclusions template with tables
 pub const THEO_MAU_ACT: &str = include_str!("../../../templates/theo_mau_act.json");
+
+/// ACT-format meeting conclusions template without tables
+pub const THEO_MAU_ACT_NO_TABLE: &str = include_str!("../../../templates/theo_mau_act_no_table.json");
+
+/// Project sync / progress update template
+pub const PROJECT_SYNC: &str = include_str!("../../../templates/project_sync.json");
+
+/// Sprint retrospective template
+pub const RETROSPECTIVE: &str = include_str!("../../../templates/retrospective.json");
+
+/// Sales & marketing client call template
+pub const SALES_MARKETING_CLIENT_CALL: &str = include_str!("../../../templates/sales_marketing_client_call.json");
 
 /// Registry of all built-in templates
 ///
@@ -20,6 +32,10 @@ pub fn get_builtin_templates() -> Vec<(&'static str, &'static str)> {
         ("daily_standup", DAILY_STANDUP),
         ("standard_meeting", STANDARD_MEETING),
         ("theo_mau_act", THEO_MAU_ACT),
+        ("theo_mau_act_no_table", THEO_MAU_ACT_NO_TABLE),
+        ("project_sync", PROJECT_SYNC),
+        ("retrospective", RETROSPECTIVE),
+        ("sales_marketing_client_call", SALES_MARKETING_CLIENT_CALL),
     ]
 }
 
@@ -35,13 +51,25 @@ pub fn get_builtin_template(id: &str) -> Option<&'static str> {
         "daily_standup" => Some(DAILY_STANDUP),
         "standard_meeting" => Some(STANDARD_MEETING),
         "theo_mau_act" => Some(THEO_MAU_ACT),
+        "theo_mau_act_no_table" => Some(THEO_MAU_ACT_NO_TABLE),
+        "project_sync" => Some(PROJECT_SYNC),
+        "retrospective" => Some(RETROSPECTIVE),
+        "sales_marketing_client_call" => Some(SALES_MARKETING_CLIENT_CALL),
         _ => None,
     }
 }
 
 /// List all built-in template identifiers
 pub fn list_builtin_template_ids() -> Vec<&'static str> {
-    vec!["daily_standup", "standard_meeting", "theo_mau_act"]
+    vec![
+        "daily_standup",
+        "standard_meeting",
+        "theo_mau_act",
+        "theo_mau_act_no_table",
+        "project_sync",
+        "retrospective",
+        "sales_marketing_client_call",
+    ]
 }
 
 #[cfg(test)]

@@ -10,6 +10,7 @@ import { usePermissionCheck } from '@/hooks/usePermissionCheck';
 import { ModalType } from '@/hooks/useModalState';
 import { useIsLinux } from '@/hooks/usePlatform';
 import { useMemo, useCallback } from 'react';
+import { TOUR_TARGETS } from '@/components/UserGuide/tourTargets';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 
@@ -36,7 +37,7 @@ export function TranscriptPanel({
   const { transcripts, transcriptContainerRef, copyTranscript, updateTranscriptBySequenceId } = useTranscripts();
   const { transcriptModelConfig } = useConfig();
   const { isRecording, isPaused } = useRecordingState();
-  const { checkPermissions, isChecking, hasSystemAudio, hasMicrophone } = usePermissionCheck();
+  const { checkPermissions, isChecking, hasSystemAudio, hasMicrophone, hasMicrophoneAccess } = usePermissionCheck();
   const isLinux = useIsLinux();
 
   // Convert transcripts to segments for virtualized view
@@ -73,7 +74,10 @@ export function TranscriptPanel({
   );
 
   return (
-    <div ref={transcriptContainerRef} className="w-full border-r border-gray-200 bg-white flex flex-col overflow-y-auto">
+    <div
+      ref={transcriptContainerRef}
+      className="w-full border-r border-gray-200 bg-white flex flex-col overflow-y-auto"
+    >
       {/* Title area - Sticky header */}
       <div className="sticky top-0 z-10 bg-white p-4 border-gray-200">
         <div className="flex flex-col space-y-3">
@@ -99,33 +103,34 @@ export function TranscriptPanel({
         </div>
       </div>
 
-      {/* Permission Warning - Not needed on Linux */}
-      {!isRecording && !isChecking && !isLinux && (
-        <div className="flex justify-center px-4 pt-4">
-          <PermissionWarning
-            hasMicrophone={hasMicrophone}
-            hasSystemAudio={hasSystemAudio}
-            onRecheck={checkPermissions}
-            isRechecking={isChecking}
-          />
-        </div>
-      )}
-
       {/* Transcript content */}
-      <div className="pb-20">
-        <div className="flex justify-center">
-          <div className="w-2/3 max-w-[750px]">
-            <VirtualizedTranscriptView
-              segments={segments}
-              onSegmentEdit={handleSegmentEdit}
-              isRecording={isRecording}
-              isPaused={isPaused}
-              isProcessing={isProcessingStop}
-              isStopping={isStopping}
-              enableStreaming={isRecording}
-              showConfidence={true}
-            />
-          </div>
+      <div className="pb-20 flex justify-center px-4">
+        <div
+          className="w-full max-w-[750px] min-h-[200px]"
+          data-tour={TOUR_TARGETS.MAIN_CONTENT}
+        >
+          {!isRecording && !isChecking && !isLinux && (
+            <div className="flex justify-center pt-4">
+              <PermissionWarning
+                hasMicrophone={hasMicrophone}
+                hasMicrophoneAccess={hasMicrophoneAccess}
+                hasSystemAudio={hasSystemAudio}
+                onRecheck={checkPermissions}
+                isRechecking={isChecking}
+              />
+            </div>
+          )}
+
+          <VirtualizedTranscriptView
+            segments={segments}
+            onSegmentEdit={handleSegmentEdit}
+            isRecording={isRecording}
+            isPaused={isPaused}
+            isProcessing={isProcessingStop}
+            isStopping={isStopping}
+            enableStreaming={isRecording}
+            showConfidence={true}
+          />
         </div>
       </div>
     </div>

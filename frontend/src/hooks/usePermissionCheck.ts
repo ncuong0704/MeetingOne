@@ -85,10 +85,15 @@ export function usePermissionCheck() {
     checkPermissions();
   }, []);
 
+  const hasMicrophoneAccess = status.hasMicrophone && status.micPermissionGranted;
+  const canRecordAudio = status.hasSystemAudio || hasMicrophoneAccess;
+
   return {
     ...status,
     // Derived: mic is usable only when device exists AND OS permission granted
-    hasMicrophoneAccess: status.hasMicrophone && status.micPermissionGranted,
+    hasMicrophoneAccess,
+    // Recording works with system audio alone when no microphone is available
+    canRecordAudio,
     checkPermissions,
     requestPermissions,
   };

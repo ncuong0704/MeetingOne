@@ -18,13 +18,16 @@ import {
   AddBlockButton,
   DragHandleButton,
   DragHandleMenu,
-  RemoveBlockItem,
+  useComponentsContext,
+  useBlockNoteEditor,
+  type DragHandleMenuProps,
 } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/shadcn';
 import { BlockNoteSchema, defaultBlockSpecs, filterSuggestionItems } from '@blocknote/core';
 import type { DefaultReactSuggestionItem } from '@blocknote/react';
 import '@blocknote/shadcn/style.css';
 import '@blocknote/core/fonts/inter.css';
+import { blocknoteShadcnPortalOverrides } from '@/lib/blocknotePortalOverrides';
 
 // Restricted schema: only paragraph, heading, and bullet list are valid block
 // types at the data-model level (not just hidden from a menu). Heading itself
@@ -66,6 +69,21 @@ interface SectionInstructionEditorProps {
   value: string;
   onChange: (markdown: string) => void;
   disabled?: boolean;
+  dataTour?: string;
+}
+
+function TemplateRemoveBlockItem(props: DragHandleMenuProps) {
+  const Components = useComponentsContext()!;
+  const editor = useBlockNoteEditor();
+
+  return (
+    <Components.Generic.Menu.Item
+      className="bn-menu-item template-block-delete-item"
+      onClick={() => editor.removeBlocks([props.block])}
+    >
+      Xóa
+    </Components.Generic.Menu.Item>
+  );
 }
 
 /** Renders once `initialBlocks` is parsed — a fresh BlockNote instance per mount,
@@ -74,10 +92,12 @@ function InnerEditor({
   initialBlocks,
   onChange,
   disabled,
+  dataTour,
 }: {
   initialBlocks: EditorBlock[];
   onChange: (markdown: string) => void;
   disabled?: boolean;
+  dataTour?: string;
 }) {
   const editor = useCreateBlockNote({
     schema,
@@ -106,7 +126,10 @@ function InnerEditor({
   }, [editor]);
 
   return (
-    <div className="border border-gray-200 rounded-md min-h-[80px] text-sm [&_.bn-editor]:px-2 [&_.bn-editor]:py-1.5">
+    <div
+      className="template-settings-blocknote border border-gray-200 rounded-md min-h-[80px] text-sm overflow-visible [&_.bn-editor]:px-2 [&_.bn-editor]:py-1.5"
+      data-tour={dataTour}
+    >
       <BlockNoteView
         editor={editor}
         editable={!disabled}
@@ -115,6 +138,7 @@ function InnerEditor({
         formattingToolbar={false}
         slashMenu={false}
         sideMenu={false}
+        shadCNComponents={blocknoteShadcnPortalOverrides}
       >
         <FormattingToolbarController
           formattingToolbar={() => (
@@ -149,7 +173,7 @@ function InnerEditor({
                 {...sideMenuProps}
                 dragHandleMenu={dragHandleMenuProps => (
                   <DragHandleMenu {...dragHandleMenuProps}>
-                    <RemoveBlockItem {...dragHandleMenuProps}>Xóa</RemoveBlockItem>
+                    <TemplateRemoveBlockItem {...dragHandleMenuProps} />
                   </DragHandleMenu>
                 )}
               />
@@ -165,6 +189,7 @@ export default function SectionInstructionEditor({
   value,
   onChange,
   disabled = false,
+  dataTour,
 }: SectionInstructionEditorProps) {
   // Parser-only editor — never rendered, only used to turn the stored markdown
   // string into blocks once, the same pattern BlockNoteSummaryView.tsx uses.
@@ -199,5 +224,5 @@ export default function SectionInstructionEditor({
     );
   }
 
-  return <InnerEditor initialBlocks={initialBlocks} onChange={onChange} disabled={disabled} />;
+  return <InnerEditor initialBlocks={initialBlocks} onChange={onChange} disabled={disabled} dataTour={dataTour} />;
 }

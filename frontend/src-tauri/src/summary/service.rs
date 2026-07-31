@@ -167,8 +167,7 @@ impl SummaryService {
         let app_data_dir = _app.path().app_data_dir().ok();
 
         let prompt_config = match SettingsRepository::get_prompt_settings(&pool).await {
-            Ok(Some(config)) => config,
-            Ok(None) => crate::summary::PromptConfig::defaults(),
+            Ok(custom) => crate::summary::PromptConfig::resolve_with_defaults(custom),
             Err(e) => {
                 warn!("Failed to load prompt settings: {}. Using defaults.", e);
                 crate::summary::PromptConfig::defaults()

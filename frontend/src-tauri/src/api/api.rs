@@ -1,9 +1,7 @@
 use log::{debug as log_debug, error as log_error, info as log_info, warn as log_warn};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
 use tauri::{AppHandle, Runtime};
-use tauri_plugin_store::StoreExt;
 
 use crate::{
     database::{
@@ -17,9 +15,6 @@ use crate::{
     state::AppState,
     summary::CustomOpenAIConfig,
 };
-
-// Hardcoded server URL
-const APP_SERVER_URL: &str = "http://localhost:5167";
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ApiResponse<T> {
@@ -49,36 +44,11 @@ pub struct TranscriptSearchResult {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct ProfileRequest {
-    pub email: String,
-    pub license_key: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SaveProfileRequest {
-    pub id: String,
-    pub email: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct UpdateProfileRequest {
-    pub email: String,
-    pub license_key: String,
-    pub company: String,
-    pub position: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 pub struct ModelConfig {
     pub provider: String,
     pub model: String,
-    #[serde(rename = "whisperModel")]
-    pub whisper_model: String,
     #[serde(rename = "apiKey")]
     pub api_key: Option<String>,
-    #[serde(rename = "ollamaEndpoint")]
-    pub ollama_endpoint: Option<String>,
-    /// Per-provider fallback models as JSON map: {"groq": ["model-b"], "openai": []}
     #[serde(rename = "fallbackModels")]
     pub fallback_models: Option<String>,
 }
@@ -87,12 +57,8 @@ pub struct ModelConfig {
 pub struct SaveModelConfigRequest {
     pub provider: String,
     pub model: String,
-    #[serde(rename = "whisperModel")]
-    pub whisper_model: String,
     #[serde(rename = "apiKey")]
     pub api_key: Option<String>,
-    #[serde(rename = "ollamaEndpoint")]
-    pub ollama_endpoint: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -106,6 +72,12 @@ pub struct TranscriptConfig {
     pub model: String,
     #[serde(rename = "apiKey")]
     pub api_key: Option<String>,
+    #[serde(rename = "zipformerVariant")]
+    pub zipformer_variant: Option<String>,
+    #[serde(rename = "decodingMethod")]
+    pub decoding_method: Option<String>,
+    #[serde(rename = "numActivePaths")]
+    pub num_active_paths: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -195,132 +167,6 @@ pub struct TranscriptSegment {
     pub duration: Option<f64>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Profile {
-    pub id: String,
-    pub name: Option<String>,
-    pub email: String,
-    pub license_key: String,
-    pub company: Option<String>,
-    pub position: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-    pub is_licensed: bool,
-}
-
-// Helper function to get auth token from store (optional)
-#[allow(dead_code)]
-async fn get_auth_token<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
-    let store = match app.store("store.json") {
-        Ok(store) => store,
-        Err(_) => return None,
-    };
-
-    match store.get("authToken") {
-        Some(token) => {
-            if let Some(token_str) = token.as_str() {
-                let truncated = token_str.chars().take(20).collect::<String>();
-                log_info!("Found auth token: {}", truncated);
-                Some(token_str.to_string())
-            } else {
-                log_warn!("Auth token is not a string");
-                None
-            }
-        }
-        None => {
-            log_warn!("No auth token found in store");
-            None
-        }
-    }
-}
-
-// Helper function to get server address - now hardcoded
-async fn get_server_address<R: Runtime>(_app: &AppHandle<R>) -> Result<String, String> {
-    log_info!("Using hardcoded server URL: {}", APP_SERVER_URL);
-    Ok(APP_SERVER_URL.to_string())
-}
-
-// Generic API call function with optional authentication
-async fn make_api_request<R: Runtime, T: for<'de> Deserialize<'de>>(
-    app: &AppHandle<R>,
-    endpoint: &str,
-    method: &str,
-    body: Option<&str>,
-    additional_headers: Option<HashMap<String, String>>,
-    auth_token: Option<String>, // Pass auth token from frontend
-) -> Result<T, String> {
-    let client = reqwest::Client::new();
-    let server_url = get_server_address(app).await?;
-
-    let url = format!("{}{}", server_url, endpoint);
-    log_info!("Making {} request to: {}", method, url);
-
-    let mut request = match method.to_uppercase().as_str() {
-        "GET" => client.get(&url),
-        "POST" => client.post(&url),
-        "PUT" => client.put(&url),
-        "DELETE" => client.delete(&url),
-        _ => return Err(format!("Unsupported HTTP method: {}", method)),
-    };
-
-    // Add authorization header if auth token is provided
-    if let Some(token) = auth_token {
-        log_info!("Adding authorization header");
-        request = request.header("Authorization", format!("Bearer {}", token));
-    } else {
-        log_warn!("No auth token provided, making unauthenticated request");
-    }
-
-    request = request.header("Content-Type", "application/json");
-
-    // Add additional headers if provided
-    if let Some(headers) = additional_headers {
-        for (key, value) in headers {
-            request = request.header(&key, &value);
-        }
-    }
-
-    // Add body if provided
-    if let Some(body_str) = body {
-        request = request.body(body_str.to_string());
-    }
-
-    let response = request.send().await.map_err(|e| {
-        let error_msg = format!("Request failed: {}", e);
-        log_error!("{}", error_msg);
-        error_msg
-    })?;
-
-    let status = response.status();
-    log_info!("Response status: {}", status);
-
-    if !status.is_success() {
-        let error_text = response
-            .text()
-            .await
-            .unwrap_or_else(|_| "Unknown error".to_string());
-        let error_msg = format!("HTTP {}: {}", status, error_text);
-        log_error!("{}", error_msg);
-        return Err(error_msg);
-    }
-
-    let response_text = response.text().await.map_err(|e| {
-        let error_msg = format!("Failed to read response: {}", e);
-        log_error!("{}", error_msg);
-        error_msg
-    })?;
-
-    // Safely truncate response for logging, respecting UTF-8 character boundaries
-    let truncated = response_text.chars().take(200).collect::<String>();
-    log_info!("Response body: {}", truncated);
-
-    serde_json::from_str(&response_text).map_err(|e| {
-        let error_msg = format!("Failed to parse JSON: {}", e);
-        log_error!("{}", error_msg);
-        error_msg
-    })
-}
-
 // API Commands for Tauri
 
 #[tauri::command]
@@ -388,87 +234,6 @@ pub async fn api_search_transcripts<R: Runtime>(
 }
 
 #[tauri::command]
-pub async fn api_get_profile<R: Runtime>(
-    app: AppHandle<R>,
-    email: String,
-    license_key: String,
-    auth_token: Option<String>,
-) -> Result<Profile, String> {
-    log_info!(
-        "api_get_profile called for email: {}, auth_token: {}",
-        email,
-        auth_token.is_some()
-    );
-
-    let profile_request = ProfileRequest { email, license_key };
-    let body = serde_json::to_string(&profile_request).map_err(|e| e.to_string())?;
-
-    make_api_request::<R, Profile>(&app, "/get-profile", "POST", Some(&body), None, auth_token)
-        .await
-}
-
-#[tauri::command]
-pub async fn api_save_profile<R: Runtime>(
-    app: AppHandle<R>,
-    id: String,
-    email: String,
-    auth_token: Option<String>,
-) -> Result<serde_json::Value, String> {
-    log_info!(
-        "api_save_profile called for email: {}, auth_token: {}",
-        email,
-        auth_token.is_some()
-    );
-
-    let save_request = SaveProfileRequest { id, email };
-    let body = serde_json::to_string(&save_request).map_err(|e| e.to_string())?;
-
-    make_api_request::<R, serde_json::Value>(
-        &app,
-        "/save-profile",
-        "POST",
-        Some(&body),
-        None,
-        auth_token,
-    )
-    .await
-}
-
-#[tauri::command]
-pub async fn api_update_profile<R: Runtime>(
-    app: AppHandle<R>,
-    email: String,
-    license_key: String,
-    company: String,
-    position: String,
-    auth_token: Option<String>,
-) -> Result<serde_json::Value, String> {
-    log_info!(
-        "api_update_profile called for email: {}, auth_token: {}",
-        email,
-        auth_token.is_some()
-    );
-
-    let update_request = UpdateProfileRequest {
-        email,
-        license_key,
-        company,
-        position,
-    };
-    let body = serde_json::to_string(&update_request).map_err(|e| e.to_string())?;
-
-    make_api_request::<R, serde_json::Value>(
-        &app,
-        "/update-profile",
-        "POST",
-        Some(&body),
-        None,
-        auth_token,
-    )
-    .await
-}
-
-#[tauri::command]
 pub async fn api_get_model_config<R: Runtime>(
     _app: AppHandle<R>,
     state: tauri::State<'_, AppState>,
@@ -479,22 +244,25 @@ pub async fn api_get_model_config<R: Runtime>(
 
     match SettingsRepository::get_model_config(pool).await {
         Ok(Some(config)) => {
+            let (provider, model) = match config.provider.as_str() {
+                "ollama" | "groq" => (
+                    "custom-openai".to_string(),
+                    "gemini-3.1-flash-lite".to_string(),
+                ),
+                _ => (config.provider.clone(), config.model.clone()),
+            };
             log_info!(
-                "✅ Found model config in database: provider={}, model={}, whisperModel={}, ollamaEndpoint={:?}",
-                &config.provider,
-                &config.model,
-                &config.whisper_model,
-                &config.ollama_endpoint
+                "✅ Found model config in database: provider={}, model={}",
+                &provider,
+                &model,
             );
-            match SettingsRepository::get_api_key(pool, &config.provider).await {
+            match SettingsRepository::get_api_key(pool, &provider).await {
                 Ok(api_key) => {
                     log_info!("Successfully retrieved model config and API key.");
                     Ok(Some(ModelConfig {
-                        provider: config.provider,
-                        model: config.model,
-                        whisper_model: config.whisper_model,
+                        provider,
+                        model,
                         api_key,
-                        ollama_endpoint: config.ollama_endpoint,
                         fallback_models: config.fallback_models,
                     }))
                 }
@@ -525,27 +293,25 @@ pub async fn api_save_model_config<R: Runtime>(
     state: tauri::State<'_, AppState>,
     provider: String,
     model: String,
-    whisper_model: String,
     api_key: Option<String>,
-    ollama_endpoint: Option<String>,
     fallback_models_json: Option<String>,
     _auth_token: Option<String>,
 ) -> Result<serde_json::Value, String> {
     log_info!(
-        "💾 api_save_model_config called (native): provider='{}', model='{}', whisperModel='{}', ollamaEndpoint={:?}",
+        "💾 api_save_model_config called (native): provider='{}', model='{}'",
         &provider,
         &model,
-        &whisper_model,
-        &ollama_endpoint
     );
     let pool = state.db_manager.pool();
+
+    if provider == "ollama" || provider == "groq" {
+        return Err("Nhà cung cấp này không còn được hỗ trợ. Vui lòng chọn nhà cung cấp đám mây khác.".to_string());
+    }
 
     if let Err(e) = SettingsRepository::save_model_config(
         pool,
         &provider,
         &model,
-        &whisper_model,
-        ollama_endpoint.as_deref(),
         fallback_models_json.as_deref(),
     )
     .await
@@ -627,6 +393,9 @@ pub async fn api_get_transcript_config<R: Runtime>(
                 provider,
                 model,
                 api_key: None,
+                zipformer_variant: Some(config.zipformer_variant.clone()),
+                decoding_method: Some(config.decoding_method.clone()),
+                num_active_paths: Some(config.num_active_paths),
             }))
         }
         Ok(None) => {
@@ -635,6 +404,9 @@ pub async fn api_get_transcript_config<R: Runtime>(
                 provider: "zipformer".to_string(),
                 model: crate::config::ZIPFORMER_MODEL_NAME.to_string(),
                 api_key: None,
+                zipformer_variant: Some("int8".to_string()),
+                decoding_method: Some("modified_beam_search".to_string()),
+                num_active_paths: Some(15),
             }))
         }
         Err(e) => {
@@ -649,8 +421,11 @@ pub async fn api_save_transcript_config<R: Runtime>(
     _app: AppHandle<R>,
     state: tauri::State<'_, AppState>,
     provider: String,
-    model: String,
+    _model: String,
     api_key: Option<String>,
+    zipformer_variant: Option<String>,
+    decoding_method: Option<String>,
+    num_active_paths: Option<i32>,
     _auth_token: Option<String>,
 ) -> Result<serde_json::Value, String> {
     log_info!(
@@ -659,7 +434,20 @@ pub async fn api_save_transcript_config<R: Runtime>(
     );
     let pool = state.db_manager.pool();
 
-    if let Err(e) = SettingsRepository::save_transcript_config(pool, &provider, &model).await {
+    if provider != "zipformer" {
+        return Err("Chỉ hỗ trợ nhận dạng ZipFormer (zipformer).".to_string());
+    }
+
+    let model = crate::config::ZIPFORMER_MODEL_NAME.to_string();
+    let variant = zipformer_variant.as_deref().unwrap_or("int8");
+    let dm = decoding_method.as_deref().unwrap_or("modified_beam_search");
+    let paths = num_active_paths.unwrap_or(15);
+
+    if let Err(e) = SettingsRepository::save_transcript_config(
+        pool, "zipformer", &model, variant, dm, paths,
+    )
+    .await
+    {
         log_error!("Failed to save transcript config: {}", e);
         return Err(e.to_string());
     }
@@ -703,33 +491,6 @@ pub async fn api_get_transcript_api_key<R: Runtime>(
         Err(e) => {
             log_error!(
                 "Failed to get transcript API key for provider '{}': {}",
-                &provider,
-                e
-            );
-            Err(e.to_string())
-        }
-    }
-}
-
-#[tauri::command]
-pub async fn api_delete_api_key<R: Runtime>(
-    _app: AppHandle<R>,
-    state: tauri::State<'_, AppState>,
-    provider: String,
-    _auth_token: Option<String>,
-) -> Result<(), String> {
-    log_info!(
-        "log_api_delete_api_key called (native) for provider '{}'",
-        &provider
-    );
-    match SettingsRepository::delete_api_key(&state.db_manager.pool(), &provider).await {
-        Ok(_) => {
-            log_info!("Successfully deleted API key for provider '{}'.", &provider);
-            Ok(())
-        }
-        Err(e) => {
-            log_error!(
-                "Failed to delete API key for provider '{}': {}",
                 &provider,
                 e
             );
@@ -1087,77 +848,6 @@ pub async fn open_meeting_folder<R: Runtime>(
     }
 }
 
-// Simple test command to check backend connectivity
-#[tauri::command]
-pub async fn test_backend_connection<R: Runtime>(
-    app: AppHandle<R>,
-    auth_token: Option<String>,
-) -> Result<String, String> {
-    log_debug!("Testing backend connection...");
-
-    let client = reqwest::Client::new();
-    let server_url = get_server_address(&app).await?;
-
-    log_debug!("Testing connection to: {}", server_url);
-
-    let mut request = client.get(&format!("{}/docs", server_url));
-
-    if let Some(token) = auth_token {
-        request = request.header("Authorization", format!("Bearer {}", token));
-    }
-
-    match request.send().await {
-        Ok(response) => {
-            let status = response.status();
-            log_debug!("Backend responded with status: {}", status);
-            Ok(format!("Backend is reachable. Status: {}", status))
-        }
-        Err(e) => {
-            let error_msg = format!("Failed to connect to backend: {}", e);
-            log_debug!("{}", error_msg);
-            Err(error_msg)
-        }
-    }
-}
-
-#[tauri::command]
-pub async fn debug_backend_connection<R: Runtime>(app: AppHandle<R>) -> Result<String, String> {
-    log_debug!("=== DEBUG: Testing backend connection ===");
-
-    // Test 1: Check server address from store
-    let server_url = match get_server_address(&app).await {
-        Ok(url) => {
-            log_debug!("✓ Server URL from store: {}", url);
-            url
-        }
-        Err(e) => {
-            log_error!("✗ Failed to get server URL: {}", e);
-            return Err(format!("Failed to get server URL: {}", e));
-        }
-    };
-
-    // Test 2: Make a simple HTTP request to the backend
-    let client = reqwest::Client::new();
-    let test_url = format!("{}/docs", server_url); // Try the docs endpoint which should be public
-
-    log_debug!("Testing connection to: {}", test_url);
-
-    match client.get(&test_url).send().await {
-        Ok(response) => {
-            let status = response.status();
-            log_debug!("✓ Backend responded with status: {}", status);
-            Ok(format!(
-                "Backend connection successful! Status: {}, URL: {}",
-                status, server_url
-            ))
-        }
-        Err(e) => {
-            log_error!("✗ Backend connection failed: {}", e);
-            Err(format!("Backend connection failed: {}", e))
-        }
-    }
-}
-
 #[tauri::command]
 pub async fn open_external_url(url: String) -> Result<(), String> {
     use std::process::Command;
@@ -1393,6 +1083,63 @@ pub async fn api_test_custom_openai_connection<R: Runtime>(
             }
         }
     }
+}
+
+// ===== PROMPT SETTINGS COMMANDS =====
+
+/// Returns the current prompt settings.
+/// If the user has not saved custom prompts, returns the built-in defaults.
+#[tauri::command]
+pub async fn api_get_prompt_settings<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+) -> Result<crate::summary::PromptConfig, String> {
+    let pool = state.db_manager.pool();
+    let custom = SettingsRepository::get_prompt_settings(&pool)
+        .await
+        .map_err(|e| format!("Không thể tải cài đặt prompt: {}", e))?;
+    let previous_template = custom
+        .as_ref()
+        .map(|c| c.system_prompt_final_template.clone());
+    let config = crate::summary::PromptConfig::resolve_with_defaults(custom);
+    if let Some(prev) = previous_template {
+        if prev != config.system_prompt_final_template {
+            SettingsRepository::save_prompt_settings(&pool, &config)
+                .await
+                .map_err(|e| format!("Không thể cập nhật prompt: {}", e))?;
+        }
+    }
+    Ok(config)
+}
+
+/// Saves custom prompt settings to the database.
+#[tauri::command]
+pub async fn api_save_prompt_settings<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+    settings: crate::summary::PromptConfig,
+) -> Result<serde_json::Value, String> {
+    let pool = state.db_manager.pool();
+    SettingsRepository::save_prompt_settings(&pool, &settings)
+        .await
+        .map_err(|e| format!("Không thể lưu cài đặt prompt: {}", e))?;
+    log_info!("✅ Prompt settings saved successfully");
+    Ok(serde_json::json!({"status": "success", "message": "Đã lưu cài đặt prompt"}))
+}
+
+/// Resets prompt settings to built-in defaults by clearing the stored JSON.
+/// Returns the default PromptConfig so the frontend can update its state immediately.
+#[tauri::command]
+pub async fn api_reset_prompt_settings<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+) -> Result<crate::summary::PromptConfig, String> {
+    let pool = state.db_manager.pool();
+    SettingsRepository::reset_prompt_settings(&pool)
+        .await
+        .map_err(|e| format!("Không thể đặt lại prompt: {}", e))?;
+    log_info!("✅ Prompt settings reset to defaults");
+    Ok(crate::summary::PromptConfig::defaults())
 }
 
 #[derive(Debug, Serialize, Deserialize)]

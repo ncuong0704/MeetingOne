@@ -2,8 +2,11 @@ use std::path::Path;
 
 use super::transcript_parser;
 
-/// File extensions this module knows how to extract text from.
+/// File extensions this module knows how to extract text from (meeting document attachments).
 pub const SUPPORTED_EXTENSIONS: &[&str] = &["pdf", "docx", "pptx", "txt", "srt", "vtt"];
+
+/// Extensions allowed when creating a meeting from transcript files.
+pub const TRANSCRIPT_IMPORT_EXTENSIONS: &[&str] = &["txt", "srt", "vtt"];
 
 /// Minimum number of characters (after trimming) a file must yield to be
 /// considered "has real text content" rather than empty/scanned/corrupt.
@@ -141,20 +144,21 @@ pub fn parse_file_segments(path: &Path) -> Result<Vec<transcript_parser::ParsedS
         .unwrap_or_default();
 
     let text = match extension.as_str() {
-        "pdf" => extract_from_pdf(path)?,
-        "docx" => extract_from_docx(path)?,
-        "pptx" => extract_from_pptx(path)?,
         "txt" | "srt" | "vtt" => {
             std::fs::read_to_string(path).map_err(|e| format!("Lỗi đọc file: {}", e))?
         }
-        other => return Err(format!("Định dạng .{} không được hỗ trợ", other)),
+        other => {
+            return Err(format!(
+                "Định dạng .{} không được hỗ trợ. Chỉ chấp nhận TXT, SRT hoặc VTT",
+                other
+            ));
+        }
     };
 
     let trimmed = text.trim();
     if trimmed.chars().count() < MIN_CONTENT_LENGTH {
         return Err(
-            "Không trích xuất được nội dung văn bản (có thể là file PDF dạng scan/ảnh, hoặc file rỗng)"
-                .to_string(),
+            "Không trích xuất được nội dung văn bản (file rỗng hoặc quá ngắn)".to_string(),
         );
     }
 

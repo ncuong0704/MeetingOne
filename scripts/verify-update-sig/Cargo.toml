@@ -1,0 +1,10 @@
+[package]
+name = "verify-update-sig"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+minisign-verify = "0.2"
+base64 = "0.22"

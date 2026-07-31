@@ -13,10 +13,9 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
 
-use super::audio_processing::create_meeting_folder;
+use super::audio_processing::{create_meeting_folder, HighPassFilter, LoudnessNormalizer};
 use super::common::{create_transcript_segments, split_segment_at_silence, write_transcripts_json};
 use super::constants::AUDIO_EXTENSIONS;
-use super::recording_preferences::get_default_recordings_folder;
 
 /// Global flag to track if import is in progress
 static IMPORT_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
@@ -324,7 +323,10 @@ async fn run_import<R: Runtime>(
     }
 
     // Create meeting folder
-    let base_folder = get_default_recordings_folder();
+    let base_folder = super::recording_preferences::load_recording_preferences(&app)
+        .await
+        .map(|prefs| prefs.save_folder)
+        .unwrap_or_else(|_| super::recording_preferences::get_default_recordings_folder());
     let meeting_folder = create_meeting_folder(&base_folder, &title, false)?;
 
     // Copy audio file to meeting folder
@@ -403,6 +405,20 @@ async fn run_import<R: Runtime>(
         "Converted to 16kHz mono format: {} samples",
         audio_samples.len()
     );
+
+    // Noise reduction pipeline at 16kHz (RNNoise requires 48kHz so not applicable here)
+    let audio_samples = {
+        let mut hpf = HighPassFilter::new(16000, 80.0);
+        let filtered = hpf.process(&audio_samples);
+        match LoudnessNormalizer::new(1, 16000) {
+            Ok(mut normalizer) => normalizer.normalize_loudness(&filtered),
+            Err(e) => {
+                warn!("Failed to create loudness normalizer for import: {}, skipping normalization", e);
+                filtered
+            }
+        }
+    };
+    info!("Noise reduction applied: high-pass filter (80Hz) + EBU R128 normalization");
 
     emit_progress(&app, "vad", 25, "Detecting speech segments...");
 
@@ -498,7 +514,10 @@ async fn run_import<R: Runtime>(
     let zipformer = crate::zipformer_engine::commands::get_engine_arc()
         .map_err(|e| anyhow!("{}", e))?;
     if total_segments > 0 && !zipformer.is_model_loaded().await {
-        zipformer.load_model().await?;
+        let variant = zipformer.get_current_variant().await;
+        let dm = zipformer.get_decoding_method().await;
+        let paths = zipformer.get_num_active_paths().await;
+        zipformer.load_model(variant, dm, paths).await?;
     }
 
     // Split very long segments at silence boundaries for better transcription quality.

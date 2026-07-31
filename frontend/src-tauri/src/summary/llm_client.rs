@@ -6,9 +6,6 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 const REQUEST_TIMEOUT_DURATION: Duration = Duration::from_secs(300);
-const OLLAMA_DEFAULT_TEMPERATURE: f32 = 0.1;
-const OLLAMA_DEFAULT_TOP_P: f32 = 0.9;
-const OLLAMA_DEFAULT_NUM_CTX: u32 = 4096;
 
 // Generic structure for OpenAI-compatible API chat messages
 #[derive(Debug, Serialize)]
@@ -28,39 +25,6 @@ pub struct ChatRequest {
     pub temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub top_p: Option<f32>,
-}
-
-// Ollama /api/chat request structures (to support num_ctx via options)
-#[derive(Debug, Serialize)]
-pub struct OllamaChatRequest {
-    pub model: String,
-    pub messages: Vec<ChatMessage>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stream: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub think: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub options: Option<OllamaChatOptions>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct OllamaChatOptions {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub temperature: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub top_p: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub num_ctx: Option<u32>,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct OllamaChatResponse {
-    pub message: OllamaChatMessage,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct OllamaChatMessage {
-    pub content: String,
 }
 
 // Generic structure for OpenAI-compatible API chat responses
@@ -104,8 +68,6 @@ pub struct ClaudeChatContent {
 pub enum LLMProvider {
     OpenAI,
     Claude,
-    Groq,
-    Ollama,
     OpenRouter,
     CustomOpenAI,
 }
@@ -116,10 +78,12 @@ impl LLMProvider {
         match s.to_lowercase().as_str() {
             "openai" => Ok(Self::OpenAI),
             "claude" => Ok(Self::Claude),
-            "groq" => Ok(Self::Groq),
-            "ollama" => Ok(Self::Ollama),
             "openrouter" => Ok(Self::OpenRouter),
             "custom-openai" => Ok(Self::CustomOpenAI),
+            "ollama" | "groq" => Err(
+                "Nhà cung cấp này không còn được hỗ trợ. Vui lòng chọn nhà cung cấp khác trong Cài đặt."
+                    .to_string(),
+            ),
             _ => Err(format!("Unsupported LLM provider: {}", s)),
         }
     }
@@ -134,7 +98,7 @@ impl LLMProvider {
 /// * `api_key` - API key for the provider (not needed for Ollama)
 /// * `system_prompt` - System instructions for the LLM
 /// * `user_prompt` - User query/content to process
-/// * `ollama_endpoint` - Optional custom Ollama endpoint (defaults to localhost:11434)
+/// * `app_data_dir` - Reserved for future local model paths
 /// * `custom_openai_endpoint` - Optional custom OpenAI-compatible endpoint
 /// * `max_tokens` - Optional max tokens (for CustomOpenAI provider)
 /// * `temperature` - Optional temperature (for CustomOpenAI provider)
@@ -151,7 +115,6 @@ pub async fn generate_summary(
     api_key: &str,
     system_prompt: &str,
     user_prompt: &str,
-    ollama_endpoint: Option<&str>,
     custom_openai_endpoint: Option<&str>,
     max_tokens: Option<u32>,
     temperature: Option<f32>,
@@ -171,23 +134,10 @@ pub async fn generate_summary(
             "https://api.openai.com/v1/chat/completions".to_string(),
             header::HeaderMap::new(),
         ),
-        LLMProvider::Groq => (
-            "https://api.groq.com/openai/v1/chat/completions".to_string(),
-            header::HeaderMap::new(),
-        ),
         LLMProvider::OpenRouter => (
             "https://openrouter.ai/api/v1/chat/completions".to_string(),
             header::HeaderMap::new(),
         ),
-        LLMProvider::Ollama => {
-            let host = ollama_endpoint
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| "http://localhost:11434".to_string());
-            (
-                format!("{}/api/chat", host),
-                header::HeaderMap::new(),
-            )
-        }
         LLMProvider::CustomOpenAI => {
             let endpoint = custom_openai_endpoint
                 .ok_or_else(|| "Custom OpenAI endpoint not configured".to_string())?;
@@ -214,8 +164,8 @@ pub async fn generate_summary(
         }
     };
 
-    // Add authorization header for non-Claude / non-Ollama providers
-    if provider != &LLMProvider::Claude && provider != &LLMProvider::Ollama {
+    // Add authorization header for non-Claude providers
+    if provider != &LLMProvider::Claude {
         headers.insert(
             header::AUTHORIZATION,
             format!("Bearer {}", api_key)
@@ -231,30 +181,7 @@ pub async fn generate_summary(
     );
 
     // Build request body based on provider
-    let request_body = if provider == &LLMProvider::Ollama {
-        // Use Ollama native /api/chat so we can pass num_ctx via options.
-        // Keep conservative defaults to reduce hallucination.
-        serde_json::json!(OllamaChatRequest {
-            model: model_name.to_string(),
-            messages: vec![
-                ChatMessage {
-                    role: "system".to_string(),
-                    content: system_prompt.to_string(),
-                },
-                ChatMessage {
-                    role: "user".to_string(),
-                    content: user_prompt.to_string(),
-                },
-            ],
-            stream: Some(false),
-            think: Some(false),
-            options: Some(OllamaChatOptions {
-                temperature: Some(OLLAMA_DEFAULT_TEMPERATURE),
-                top_p: Some(OLLAMA_DEFAULT_TOP_P),
-                num_ctx: Some(OLLAMA_DEFAULT_NUM_CTX),
-            }),
-        })
-    } else if provider != &LLMProvider::Claude {
+    let request_body = if provider != &LLMProvider::Claude {
         // For CustomOpenAI, apply optional parameters if provided.
         // If not provided, use defaults commonly expected for OpenAI-compatible servers.
         let (max_tokens_val, temperature_val, top_p_val) = if provider == &LLMProvider::CustomOpenAI
@@ -370,16 +297,6 @@ pub async fn generate_summary(
             .text
             .trim();
         Ok(content.to_string())
-    } else if provider == &LLMProvider::Ollama {
-        let chat_response = response
-            .json::<OllamaChatResponse>()
-            .await
-            .map_err(|e| format!("Failed to parse LLM response: {}", e))?;
-
-        info!("🐞 LLM Response received from Ollama");
-
-        let content = chat_response.message.content.trim();
-        Ok(content.to_string())
     } else {
         let chat_response = response
             .json::<ChatResponse>()
@@ -426,8 +343,6 @@ fn provider_name(provider: &LLMProvider) -> &str {
     match provider {
         LLMProvider::OpenAI => "OpenAI",
         LLMProvider::Claude => "Claude",
-        LLMProvider::Groq => "Groq",
-        LLMProvider::Ollama => "Ollama",
         LLMProvider::OpenRouter => "OpenRouter",
         LLMProvider::CustomOpenAI => "Custom OpenAI",
     }

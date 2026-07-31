@@ -1,8 +1,8 @@
 /// Summary module - handles all meeting summary generation functionality
 ///
 /// This module contains:
-/// - LLM client for communicating with various AI providers (OpenAI, Claude, Groq, Ollama, OpenRouter, CustomOpenAI)
-/// - Processor for chunking transcripts and generating summaries
+/// - LLM client for communicating with various AI providers (OpenAI, Claude, OpenRouter, CustomOpenAI)
+/// - Processor for generating summaries from full transcripts
 /// - Service layer for orchestrating summary generation
 /// - Templates for structured meeting summary generation
 /// - Tauri commands for frontend integration
@@ -33,6 +33,8 @@ pub struct CustomOpenAIConfig {
 pub mod commands;
 pub mod llm_client;
 pub mod processor;
+pub mod prompt_config;
+pub mod prompts;
 pub mod service;
 pub mod template_commands;
 pub mod templates;
@@ -49,15 +51,22 @@ pub use commands::{
 // Re-export template commands
 pub use template_commands::{
     __cmd__api_get_template_details, __cmd__api_list_templates, __cmd__api_validate_template,
+    __cmd__api_get_template_json, __cmd__api_save_custom_template, __cmd__api_delete_custom_template,
+    __cmd__api_get_default_template, __cmd__api_set_default_template,
     api_get_template_details, api_list_templates, api_validate_template,
+    api_get_template_json, api_save_custom_template, api_delete_custom_template,
+    api_get_default_template, api_set_default_template,
     __tauri_command_name_api_get_template_details, __tauri_command_name_api_list_templates,
     __tauri_command_name_api_validate_template,
+    __tauri_command_name_api_get_template_json, __tauri_command_name_api_save_custom_template,
+    __tauri_command_name_api_delete_custom_template,
+    __tauri_command_name_api_get_default_template, __tauri_command_name_api_set_default_template,
 };
 
 // Re-export commonly used items
 pub use llm_client::LLMProvider;
+pub use prompt_config::PromptConfig;
 pub use processor::{
-    chunk_text, clean_llm_markdown_output, extract_meeting_name_from_markdown,
-    generate_meeting_summary, rough_token_count,
+    clean_llm_markdown_output, extract_meeting_name_from_markdown, generate_meeting_summary,
 };
 pub use service::SummaryService;

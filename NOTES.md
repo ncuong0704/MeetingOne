@@ -17,4 +17,8 @@ pnpm run tauri:build
 # 2. Sau ~15 phút build xong, publish
 gh release edit v0.0.3 --repo ncuong0704/MeetingOne --draft=false
 
+epo hynt/Zipformer-30M-RNNT-6000h cũng có file full precision
 
+
+
+RNNOISE_APPLY_ENABLED = false

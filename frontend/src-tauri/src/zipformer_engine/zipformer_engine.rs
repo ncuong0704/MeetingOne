@@ -21,24 +21,91 @@ pub enum ModelStatus {
     Error(String),
 }
 
-const HF_BASE_URL: &str =
-    "https://huggingface.co/hynt/Zipformer-30M-RNNT-6000h/resolve/main";
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ModelVariant {
+    #[default]
+    Int8,
+    Full,
+}
 
-const MODEL_FILES: &[&str] = &[
-    crate::config::ZIPFORMER_ENCODER,
-    crate::config::ZIPFORMER_DECODER,
-    crate::config::ZIPFORMER_JOINER,
-    crate::config::ZIPFORMER_BPE,
-    crate::config::ZIPFORMER_VOCAB,
-];
+impl ModelVariant {
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "full" => ModelVariant::Full,
+            _ => ModelVariant::Int8,
+        }
+    }
 
-// Approximate sizes in bytes: encoder, decoder, joiner, bpe.model, config.json(vocab)
-const FILE_SIZES: &[u64] = &[29_000_000, 1_310_000, 1_030_000, 268_000, 50_000];
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ModelVariant::Int8 => crate::config::ZIPFORMER_VARIANT_INT8,
+            ModelVariant::Full => crate::config::ZIPFORMER_VARIANT_FULL,
+        }
+    }
+
+    pub fn subdir(&self) -> &'static str {
+        match self {
+            ModelVariant::Int8 => crate::config::ZIPFORMER_INT8_SUBDIR,
+            ModelVariant::Full => crate::config::ZIPFORMER_FULL_SUBDIR,
+        }
+    }
+
+    pub fn hf_url(&self) -> &'static str {
+        match self {
+            ModelVariant::Int8 => crate::config::ZIPFORMER_INT8_HF_URL,
+            ModelVariant::Full => crate::config::ZIPFORMER_FULL_HF_URL,
+        }
+    }
+
+    pub fn encoder_file(&self) -> &'static str {
+        match self {
+            ModelVariant::Int8 => crate::config::ZIPFORMER_INT8_ENCODER,
+            ModelVariant::Full => crate::config::ZIPFORMER_FULL_ENCODER,
+        }
+    }
+
+    pub fn decoder_file(&self) -> &'static str {
+        match self {
+            ModelVariant::Int8 => crate::config::ZIPFORMER_INT8_DECODER,
+            ModelVariant::Full => crate::config::ZIPFORMER_FULL_DECODER,
+        }
+    }
+
+    pub fn joiner_file(&self) -> &'static str {
+        match self {
+            ModelVariant::Int8 => crate::config::ZIPFORMER_INT8_JOINER,
+            ModelVariant::Full => crate::config::ZIPFORMER_FULL_JOINER,
+        }
+    }
+
+    pub fn total_size_bytes(&self) -> u64 {
+        let shared: u64 = 268_000 + 50_000 + 1_310_000; // bpe + vocab + decoder
+        match self {
+            ModelVariant::Int8 => crate::config::ZIPFORMER_INT8_SIZE_BYTES + shared,
+            ModelVariant::Full => crate::config::ZIPFORMER_FULL_SIZE_BYTES + shared,
+        }
+    }
+
+    /// Returns (encoder, decoder, joiner, bpe, vocab) file names
+    pub fn model_files(&self) -> [&'static str; 5] {
+        [
+            self.encoder_file(),
+            self.decoder_file(),
+            self.joiner_file(),
+            crate::config::ZIPFORMER_BPE,
+            crate::config::ZIPFORMER_VOCAB,
+        ]
+    }
+}
 
 pub struct ZipFormerEngine {
     recognizer: Arc<RwLock<Option<OfflineRecognizer>>>,
     model_status: Arc<RwLock<ModelStatus>>,
-    models_dir: Arc<RwLock<PathBuf>>,
+    models_base_dir: Arc<RwLock<PathBuf>>,
+    current_variant: Arc<RwLock<ModelVariant>>,
+    decoding_method: Arc<RwLock<String>>,
+    num_active_paths: Arc<RwLock<i32>>,
 }
 
 impl ZipFormerEngine {
@@ -46,16 +113,19 @@ impl ZipFormerEngine {
         Self {
             recognizer: Arc::new(RwLock::new(None)),
             model_status: Arc::new(RwLock::new(ModelStatus::NotLoaded)),
-            models_dir: Arc::new(RwLock::new(PathBuf::new())),
+            models_base_dir: Arc::new(RwLock::new(PathBuf::new())),
+            current_variant: Arc::new(RwLock::new(ModelVariant::Int8)),
+            decoding_method: Arc::new(RwLock::new("modified_beam_search".to_string())),
+            num_active_paths: Arc::new(RwLock::new(15)),
         }
     }
 
     pub async fn set_models_directory(&self, path: PathBuf) {
-        *self.models_dir.write().await = path;
+        *self.models_base_dir.write().await = path;
     }
 
     pub async fn get_models_directory(&self) -> PathBuf {
-        self.models_dir.read().await.clone()
+        self.models_base_dir.read().await.clone()
     }
 
     pub async fn get_model_status(&self) -> ModelStatus {
@@ -66,6 +136,18 @@ impl ZipFormerEngine {
         self.recognizer.read().await.is_some()
     }
 
+    pub async fn get_current_variant(&self) -> ModelVariant {
+        self.current_variant.read().await.clone()
+    }
+
+    pub async fn get_decoding_method(&self) -> String {
+        self.decoding_method.read().await.clone()
+    }
+
+    pub async fn get_num_active_paths(&self) -> i32 {
+        *self.num_active_paths.read().await
+    }
+
     pub async fn get_current_model(&self) -> Option<String> {
         if self.is_model_loaded().await {
             Some(crate::config::ZIPFORMER_MODEL_NAME.to_string())
@@ -74,45 +156,68 @@ impl ZipFormerEngine {
         }
     }
 
-    pub async fn are_model_files_present(&self) -> bool {
-        let dir = self.models_dir.read().await.clone();
-        if dir == PathBuf::new() {
+    fn variant_dir(&self, base: &PathBuf, variant: &ModelVariant) -> PathBuf {
+        base.join(variant.subdir())
+    }
+
+    pub async fn are_variant_files_present(&self, variant: &ModelVariant) -> bool {
+        let base = self.models_base_dir.read().await.clone();
+        if base == PathBuf::new() {
             return false;
         }
-        MODEL_FILES.iter().all(|f| dir.join(f).exists())
+        let dir = self.variant_dir(&base, variant);
+        variant.model_files().iter().all(|f| dir.join(f).exists())
+    }
+
+    pub async fn are_model_files_present(&self) -> bool {
+        let variant = self.current_variant.read().await.clone();
+        self.are_variant_files_present(&variant).await
     }
 
     pub async fn download_model(
         &self,
+        variant: ModelVariant,
         progress_callback: Option<Box<dyn Fn(u8) + Send>>,
     ) -> Result<()> {
-        let dir = self.models_dir.read().await.clone();
-        if dir == PathBuf::new() {
+        let base = self.models_base_dir.read().await.clone();
+        if base == PathBuf::new() {
             return Err(anyhow!("Models directory not set"));
         }
+        let dir = self.variant_dir(&base, &variant);
         tokio::fs::create_dir_all(&dir).await?;
 
         *self.model_status.write().await = ModelStatus::Downloading(0);
 
-        let total_bytes: u64 = FILE_SIZES.iter().sum();
-        let total_files = MODEL_FILES.len();
+        let files = variant.model_files();
+        let total_bytes = variant.total_size_bytes();
+
+        // Approximate per-file sizes (encoder dominates)
+        let file_sizes: Vec<u64> = {
+            let enc_size = match variant {
+                ModelVariant::Int8 => crate::config::ZIPFORMER_INT8_SIZE_BYTES,
+                ModelVariant::Full => crate::config::ZIPFORMER_FULL_SIZE_BYTES,
+            };
+            // encoder, decoder, joiner, bpe, vocab
+            vec![enc_size, 1_310_000, 1_030_000, 268_000, 50_000]
+        };
 
         let client = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(30))
-            .timeout(Duration::from_secs(300))
+            .timeout(Duration::from_secs(600))
             .build()
             .map_err(|e| anyhow!("Failed to build HTTP client: {}", e))?;
 
         let mut bytes_downloaded: u64 = 0;
         let mut last_stream_reported: u8 = 0;
+        let hf_url = variant.hf_url();
 
-        for (idx, filename) in MODEL_FILES.iter().enumerate() {
+        for (idx, filename) in files.iter().enumerate() {
             let dest = dir.join(filename);
             let tmp = dir.join(format!("{}.tmp", filename));
 
             if dest.exists() {
                 info!("Skipping already downloaded: {}", filename);
-                bytes_downloaded += FILE_SIZES.get(idx).copied().unwrap_or(0);
+                bytes_downloaded += file_sizes.get(idx).copied().unwrap_or(0);
                 let progress = ((bytes_downloaded * 100) / total_bytes.max(1)).min(99) as u8;
                 *self.model_status.write().await = ModelStatus::Downloading(progress);
                 if let Some(ref cb) = progress_callback {
@@ -122,13 +227,13 @@ impl ZipFormerEngine {
                 continue;
             }
 
-            let url = format!("{}/{}", HF_BASE_URL, filename);
+            let url = format!("{}/{}", hf_url, filename);
             info!(
                 "Downloading [{}/{}]: {} ({:.1} MB)",
                 idx + 1,
-                total_files,
+                files.len(),
                 filename,
-                FILE_SIZES.get(idx).copied().unwrap_or(0) as f64 / 1_000_000.0
+                file_sizes.get(idx).copied().unwrap_or(0) as f64 / 1_000_000.0
             );
 
             let response = client
@@ -158,8 +263,6 @@ impl ZipFormerEngine {
                     .map_err(|e| anyhow!("Write error for {}: {}", filename, e))?;
                 file_bytes += chunk.len() as u64;
 
-                // Monotonic %: (completed bytes + current partial) / estimated total — not per-file slices,
-                // which would jump backward when switching files.
                 let cumulative = bytes_downloaded.saturating_add(file_bytes);
                 let overall = ((cumulative * 100) / total_bytes.max(1)).min(99) as u8;
                 if overall > last_stream_reported + 2 {
@@ -198,16 +301,25 @@ impl ZipFormerEngine {
         if let Some(ref cb) = progress_callback {
             cb(100);
         }
-        info!("All ZipFormer model files downloaded successfully");
+        info!(
+            "All ZipFormer model files downloaded successfully (variant: {})",
+            variant.as_str()
+        );
         Ok(())
     }
 
-    /// Load the ZipFormer RNNT model (offline/batch mode — works with non-streaming ONNX)
-    pub async fn load_model(&self) -> Result<()> {
-        let dir = self.models_dir.read().await.clone();
+    pub async fn load_model(
+        &self,
+        variant: ModelVariant,
+        decoding_method: String,
+        num_active_paths: i32,
+    ) -> Result<()> {
+        let base = self.models_base_dir.read().await.clone();
+        let dir = self.variant_dir(&base, &variant);
 
-        if !self.are_model_files_present().await {
-            let missing: Vec<&str> = MODEL_FILES
+        if !self.are_variant_files_present(&variant).await {
+            let missing: Vec<&str> = variant
+                .model_files()
                 .iter()
                 .filter(|&&f| !dir.join(f).exists())
                 .copied()
@@ -217,27 +329,27 @@ impl ZipFormerEngine {
             return Err(anyhow!(err));
         }
 
-        info!("Loading ZipFormer Vietnamese ASR model (offline mode)...");
+        info!(
+            "Loading ZipFormer Vietnamese ASR model (variant: {}, decoding: {}, paths: {})",
+            variant.as_str(),
+            decoding_method,
+            num_active_paths
+        );
 
         let encoder = dir
-            .join(crate::config::ZIPFORMER_ENCODER)
+            .join(variant.encoder_file())
             .to_string_lossy()
             .to_string();
         let decoder = dir
-            .join(crate::config::ZIPFORMER_DECODER)
+            .join(variant.decoder_file())
             .to_string_lossy()
             .to_string();
         let joiner = dir
-            .join(crate::config::ZIPFORMER_JOINER)
+            .join(variant.joiner_file())
             .to_string_lossy()
             .to_string();
-        // config.json is the vocabulary file (plain-text "token id" per line)
         let tokens = dir
             .join(crate::config::ZIPFORMER_VOCAB)
-            .to_string_lossy()
-            .to_string();
-        let bpe_vocab = dir
-            .join(crate::config::ZIPFORMER_BPE)
             .to_string_lossy()
             .to_string();
 
@@ -248,18 +360,26 @@ impl ZipFormerEngine {
             joiner: Some(joiner),
         };
         config.model_config.tokens = Some(tokens);
-        config.model_config.bpe_vocab = Some(bpe_vocab);
+        // bpe.model is SentencePiece binary — not the text "token score" format
+        // that bpe_vocab expects, so we leave bpe_vocab unset.
         config.model_config.num_threads = 2;
 
+        if decoding_method == "modified_beam_search" {
+            config.decoding_method = Some("modified_beam_search".to_string());
+            config.max_active_paths = num_active_paths;
+        }
+        // greedy_search: leave decoding_method as None (sherpa-onnx default)
+
         info!(
-            "ZipFormer config — encoder: {}, tokens: {}",
+            "ZipFormer config — encoder: {}, decoding: {:?}, max_active_paths: {}",
             config
                 .model_config
                 .transducer
                 .encoder
                 .as_deref()
                 .unwrap_or("?"),
-            config.model_config.tokens.as_deref().unwrap_or("?")
+            config.decoding_method,
+            config.max_active_paths,
         );
 
         let recognizer = tokio::task::block_in_place(|| OfflineRecognizer::create(&config))
@@ -267,6 +387,9 @@ impl ZipFormerEngine {
 
         *self.recognizer.write().await = Some(recognizer);
         *self.model_status.write().await = ModelStatus::Ready;
+        *self.current_variant.write().await = variant;
+        *self.decoding_method.write().await = decoding_method;
+        *self.num_active_paths.write().await = num_active_paths;
 
         info!("ZipFormer Vietnamese ASR model loaded (offline RNNT)");
         Ok(())

@@ -28,6 +28,8 @@ import { VisuallyHidden } from "@/components/ui/visually-hidden"
 import { MessageToast } from '../MessageToast';
 import Logo from '../Logo';
 import Info from '../Info';
+import { UserGuideButton } from '../UserGuide';
+import { TOUR_TARGETS } from '../UserGuide/tourTargets';
 import { ComplianceNotification } from '../ComplianceNotification';
 import { Input } from '../ui/input';
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '../ui/input-group';
@@ -65,11 +67,9 @@ const Sidebar: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [showModelSettings, setShowModelSettings] = useState(false);
   const [modelConfig, setModelConfig] = useState<ModelConfig>({
-    provider: 'ollama',
+    provider: 'openai',
     model: '',
-    whisperModel: '',
     apiKey: null,
-    ollamaEndpoint: null
   });
   const [transcriptModelConfig, setTranscriptModelConfig] = useState<TranscriptModelProps>({
     provider: 'zipformer',
@@ -118,7 +118,7 @@ const Sidebar: React.FC = () => {
         const data = await invoke('api_get_model_config') as any;
         if (data && data.provider !== null) {
           // Fetch API key if not included and provider requires it
-          if (data.provider !== 'ollama' && !data.apiKey) {
+          if (data.provider !== 'custom-openai' && !data.apiKey) {
             try {
               const apiKeyData = await invoke('api_get_api_key', {
                 provider: data.provider
@@ -188,9 +188,7 @@ const Sidebar: React.FC = () => {
       await invoke('api_save_model_config', {
         provider: config.provider,
         model: config.model,
-        whisperModel: config.whisperModel,
         apiKey: config.apiKey,
-        ollamaEndpoint: config.ollamaEndpoint,
         fallbackModelsJson: config.fallbackModels ? JSON.stringify(config.fallbackModels) : null,
       });
 
@@ -475,6 +473,24 @@ const Sidebar: React.FC = () => {
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                onClick={() => {
+                  if (isCollapsed) toggleCollapse();
+                  toggleFolder('meetings');
+                }}
+                className={`p-2 rounded-lg transition-colors duration-150 ${isMeetingPage ? 'bg-gray-100' : 'hover:bg-gray-100'
+                  }`}
+              >
+                <NotebookPen className="w-5 h-5 text-gray-600" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              <p>Ghi chú cuộc họp</p>
+            </TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
                 onClick={handleRecordingToggle}
                 disabled={isRecording}
                 className={`p-2 ${isRecording ? 'bg-red-500 cursor-not-allowed' : 'bg-red-500 hover:bg-red-600'} rounded-full transition-colors duration-150 shadow-sm`}
@@ -515,25 +531,7 @@ const Sidebar: React.FC = () => {
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
-              <p>Tải tài liệu lên</p>
-            </TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => {
-                  if (isCollapsed) toggleCollapse();
-                  toggleFolder('meetings');
-                }}
-                className={`p-2 rounded-lg transition-colors duration-150 ${isMeetingPage ? 'bg-gray-100' : 'hover:bg-gray-100'
-                  }`}
-              >
-                <NotebookPen className="w-5 h-5 text-gray-600" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              <p>Ghi chú cuộc họp</p>
+              <p>Tải file transcript lên</p>
             </TooltipContent>
           </Tooltip>
 
@@ -541,6 +539,7 @@ const Sidebar: React.FC = () => {
             <TooltipTrigger asChild>
               <button
                 onClick={() => router.push('/settings')}
+                data-tour={TOUR_TARGETS.SETTINGS_SIDEBAR_BUTTON}
                 className={`p-2 rounded-lg transition-colors duration-150 ${isSettingsPage ? 'bg-gray-100' : 'hover:bg-gray-100'
                   }`}
               >
@@ -553,6 +552,7 @@ const Sidebar: React.FC = () => {
           </Tooltip>
 
           <Info isCollapsed={isCollapsed} />
+          <UserGuideButton isCollapsed={isCollapsed} />
         </div>
       </TooltipProvider>
     );
@@ -621,7 +621,7 @@ const Sidebar: React.FC = () => {
             </>
           ) : (
             <div className="flex flex-col w-full">
-              <div className="flex items-center w-full">
+              <div className="flex items-center w-full min-w-0">
                 {isMeetingItem ? (
                   <div className={`flex-shrink-0 flex items-center justify-center w-5 h-5 rounded-md mr-2 ${isActive ? 'bg-[rgba(22,71,142,0.18)]' : 'bg-gray-100'}`}>
                     <File className={`w-3 h-3 ${isActive ? 'text-[#16478e]' : 'text-gray-500'}`} />
@@ -631,7 +631,7 @@ const Sidebar: React.FC = () => {
                     <Plus className="w-3 h-3 text-white" />
                   </div>
                 )}
-                <span className="flex-1 break-words">{item.title}</span>
+                <span className="flex-1 min-w-0 break-words">{item.title}</span>
                 {isMeetingItem && (
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
                     <button
@@ -684,6 +684,8 @@ const Sidebar: React.FC = () => {
         onClick={toggleCollapse}
         className="absolute -right-6 top-20 z-50 p-1 bg-white hover:bg-gray-100 rounded-full shadow-lg border"
         style={{ transform: 'translateX(50%)' }}
+        data-tour={TOUR_TARGETS.SIDEBAR_TOGGLE}
+        aria-label={isCollapsed ? 'Mở rộng sidebar' : 'Thu gọn sidebar'}
       >
         {isCollapsed ? (
           <ChevronRightCircle className="w-6 h-6" />
@@ -695,6 +697,7 @@ const Sidebar: React.FC = () => {
       <div
         className={`h-screen bg-white border-r shadow-sm flex flex-col transition-all duration-300 ${isCollapsed ? 'w-16' : 'w-64'
           }`}
+        data-tour={TOUR_TARGETS.SIDEBAR}
       >
         {/*  Header with traffic light spacing */}
         <div className="flex-shrink-0 h-22 flex items-center">
@@ -709,7 +712,7 @@ const Sidebar: React.FC = () => {
                 {/* Logo thương hiệu trong Logo.tsx (ACT MeetingOne) */}
                 <Logo isCollapsed={isCollapsed} />
 
-                <div className="relative mb-1">
+                <div className="relative mb-1" data-tour={TOUR_TARGETS.SIDEBAR_SEARCH}>
                   <InputGroup >
                     <InputGroupInput placeholder='Tìm kiếm nội dung cuộc họp...' value={searchQuery}
                       onChange={(e) => handleSearchChange(e.target.value)}
@@ -755,33 +758,35 @@ const Sidebar: React.FC = () => {
             {renderCollapsedIcons()}
             {/* Meeting Notes folder header - fixed */}
             {!isCollapsed && (
-              <div className="flex-shrink-0">
-                {filteredSidebarItems.filter(item => item.type === 'folder').map(item => (
-                  <div key={item.id}>
-                    <div className="flex items-center gap-1.5 px-4 pt-4 pb-1.5">
-                      <NotebookPen className="w-3 h-3 text-gray-400 shrink-0" />
-                      <span className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">
-                        {item.title}
-                      </span>
-                      {searchQuery && item.id === 'meetings' && isSearching && (
-                        <span className="ml-1 text-[10px] text-blue-400 animate-pulse">Đang tìm...</span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Scrollable meeting items */}
-            {!isCollapsed && (
-              <div className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
-                {filteredSidebarItems
-                  .filter(item => item.type === 'folder' && expandedFolders.has(item.id) && item.children)
-                  .map(item => (
-                    <div key={`${item.id}-children`} className="mx-3">
-                      {item.children!.map(child => renderItem(child, 1))}
+              <div
+                data-tour={TOUR_TARGETS.MEETING_LIST}
+                className="flex-1 flex flex-col min-h-0"
+              >
+                <div className="flex-shrink-0">
+                  {filteredSidebarItems.filter(item => item.type === 'folder').map(item => (
+                    <div key={item.id}>
+                      <div className="flex items-center gap-1.5 px-4 pt-4 pb-1.5">
+                        <NotebookPen className="w-3 h-3 text-gray-400 shrink-0" />
+                        <span className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">
+                          {item.title}
+                        </span>
+                        {searchQuery && item.id === 'meetings' && isSearching && (
+                          <span className="ml-1 text-[10px] text-blue-400 animate-pulse">Đang tìm...</span>
+                        )}
+                      </div>
                     </div>
                   ))}
+                </div>
+
+                <div className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
+                  {filteredSidebarItems
+                    .filter(item => item.type === 'folder' && expandedFolders.has(item.id) && item.children)
+                    .map(item => (
+                      <div key={`${item.id}-children`} className="mx-3">
+                        {item.children!.map(child => renderItem(child, 1))}
+                      </div>
+                    ))}
+                </div>
               </div>
             )}
           </div>
@@ -789,7 +794,10 @@ const Sidebar: React.FC = () => {
 
         {/* Footer */}
         {!isCollapsed && (
-          <div className="flex-shrink-0 p-2.5 border-t border-gray-100 space-y-1">
+          <div
+            className="flex-shrink-0 p-2.5 border-t border-gray-100 space-y-1"
+            data-tour={TOUR_TARGETS.SIDEBAR_ACTIONS}
+          >
             {/* Primary: Recording */}
             <button
               onClick={handleRecordingToggle}
@@ -822,12 +830,13 @@ const Sidebar: React.FC = () => {
               className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-[#16478e] border border-[#16478e] bg-transparent hover:bg-[rgba(22,71,142,0.08)] rounded-lg transition-colors"
             >
               <FileText className="w-3.5 h-3.5 shrink-0" />
-              <span>Tải tài liệu lên</span>
+              <span>Tải file transcript lên</span>
             </button>
 
             {/* Settings */}
             <button
               onClick={() => router.push('/settings')}
+              data-tour={TOUR_TARGETS.SETTINGS_SIDEBAR_BUTTON}
               className={`w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
                 pathname === '/settings'
                   ? 'bg-gray-200 text-gray-800'
@@ -839,6 +848,7 @@ const Sidebar: React.FC = () => {
             </button>
 
             <Info isCollapsed={isCollapsed} />
+            <UserGuideButton isCollapsed={isCollapsed} />
           </div>
         )}
       </div>

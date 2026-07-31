@@ -190,16 +190,29 @@ pub async fn initialize_fresh_database(app: AppHandle) -> Result<(), String> {
     // Set default model configuration for fresh installs
     let pool = db_manager.pool();
     
-    // Default Summary Model: Ollama
+    // Default Summary Model: Custom OpenAI (Gemini)
     if let Err(e) = crate::database::repositories::setting::SettingsRepository::save_model_config(
         pool,
-        "ollama",
-        "qwen2.5:3b",
-        "large-v3",
-        None,
+        "custom-openai",
+        "gemini-3.1-flash-lite",
         None,
     ).await {
         error!("Failed to set default summary model config: {}", e);
+    }
+
+    let custom_openai = crate::summary::CustomOpenAIConfig {
+        endpoint: "https://generativelanguage.googleapis.com/v1beta/openai".to_string(),
+        api_key: None,
+        model: "gemini-3.1-flash-lite".to_string(),
+        max_tokens: None,
+        temperature: None,
+        top_p: None,
+    };
+    if let Err(e) = crate::database::repositories::setting::SettingsRepository::save_custom_openai_config(
+        pool,
+        &custom_openai,
+    ).await {
+        error!("Failed to set default custom OpenAI config: {}", e);
     }
 
     // Default Transcription Model: ZipFormer Vietnamese ASR
@@ -207,6 +220,9 @@ pub async fn initialize_fresh_database(app: AppHandle) -> Result<(), String> {
         pool,
         "zipformer",
         crate::config::ZIPFORMER_MODEL_NAME,
+        crate::config::ZIPFORMER_VARIANT_INT8,
+        "modified_beam_search",
+        15,
     ).await {
         error!("Failed to set default transcription model config: {}", e);
     }
