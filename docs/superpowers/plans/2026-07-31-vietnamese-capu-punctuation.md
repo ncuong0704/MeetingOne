@@ -15,7 +15,7 @@ segment). All model I/O semantics (15-action vocabulary, case-transform semantic
 handling) were confirmed by reading the model repo's own reference Python source
 (`gec_model.py`, `utils.py`) and vocabulary files — not guessed.
 
-**Tech Stack:** Rust, `ort` 2.0.0-rc.13 (ONNX Runtime bindings), `tokenizers` 0.23 (HuggingFace Rust
+**Tech Stack:** Rust, `ort` 2.0.0-rc.10 (ONNX Runtime bindings), `tokenizers` 0.23 (HuggingFace Rust
 tokenizer), Tauri 2.x commands, existing `reqwest`-based streaming download pattern.
 
 **Reference spec:** `docs/superpowers/specs/2026-07-31-vietnamese-capu-punctuation-design.md`
@@ -64,6 +64,16 @@ tokenizer), Tauri 2.x commands, existing `reqwest`-based streaming download patt
   - `ort` is added with its **default bundled ONNX Runtime** (not `load-dynamic` sharing with
     `sherpa-onnx`'s copy). This costs ~15-20MB extra in the shipped binary but avoids a fragile
     cross-platform dynamic-linking setup. Revisit only if binary size becomes an actual complaint.
+  - **Pinned to `ort = "2.0.0-rc.10"`, not the newer `2.0.0-rc.13`.** The existing `silero_rs` git
+    dependency (used for VAD, already in `Cargo.toml`) pulls in `ort = "=2.0.0-rc.10"` as an exact
+    pin, and Cargo can't resolve two different versions of the same crate in one dependency graph.
+    Verified (by diffing `ort`'s own `examples/sentence-transformers` example at the `v2.0.0-rc.10`
+    vs `v2.0.0-rc.13` git tags) that every API this plan uses — `Session::builder()`,
+    `commit_from_file`, `TensorRef::from_array_view`, the `ort::inputs!` macro, `session.run`,
+    `try_extract_tensor`/`try_extract_array` — is byte-for-byte identical between the two versions,
+    so this pin doesn't change any code in later tasks. Bonus: since we now share the exact `ort`
+    version already pulled in for VAD, we likely aren't bundling a second ONNX Runtime copy at all
+    (better than the tradeoff originally accepted above).
   - The spec listed `config.json` among the files to download. We don't download or parse it: the
     3 values we'd read from it (`max_position_embeddings=512`, `num_labels=15`,
     `num_detect_classes=4`) were already confirmed while researching the spec, are static for this
@@ -89,7 +99,11 @@ block (around line 70-72), add a new block right after it:
 
 ```toml
 # CAPU (punctuation + capitalization restoration) via ONNX Runtime
-ort = "2.0.0-rc.13"
+# Pinned to rc.10 (not the newer rc.13) because the existing `silero_rs` git
+# dependency already pins `ort = "=2.0.0-rc.10"` for VAD — Cargo can't resolve
+# two versions of the same crate. Verified the API this plan uses is identical
+# between rc.10 and rc.13.
+ort = "2.0.0-rc.10"
 tokenizers = "0.23"
 ```
 
@@ -874,7 +888,7 @@ impl CapuEngine {
 - [ ] **Step 2: Verify it builds**
 
 Run: `cd frontend/src-tauri && cargo check`
-Expected: compiles. Pay attention to the exact `ort` 2.0.0-rc.13 API surface — `Session::builder()`,
+Expected: compiles. Pay attention to the exact `ort` 2.0.0-rc.10 API surface — `Session::builder()`,
 `commit_from_file`, `TensorRef::from_array_view`, `session.run(ort::inputs![...])`, and indexing
 `SessionOutputs` by name (`outputs["logits"]`) were all confirmed against `ort`'s own
 `examples/sentence-transformers` example and API docs at plan-writing time, but this is a
