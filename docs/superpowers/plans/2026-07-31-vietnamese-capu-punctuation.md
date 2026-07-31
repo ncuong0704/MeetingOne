@@ -527,7 +527,7 @@ mod tests {
 - [ ] **Step 2: Run the tests**
 
 Run: `cd frontend/src-tauri && cargo test capu_engine::edits -- --nocapture`
-Expected: all 7 tests PASS. (They should pass immediately since we wrote implementation +
+Expected: all 8 tests PASS. (They should pass immediately since we wrote implementation +
 tests together here — the point of this step is to catch any typo in the ported case-transform
 logic before it's wired to anything else.)
 
