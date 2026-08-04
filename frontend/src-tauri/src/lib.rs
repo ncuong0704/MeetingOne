@@ -51,8 +51,11 @@ pub mod summary;
 pub mod sso;
 pub mod tray;
 pub mod utils;
-pub mod zipformer_engine;
+pub mod asr_engine;
+pub mod rnnt_decoder;
+pub mod rover_engine;
 pub mod capu_engine;
+pub mod itn_engine;
 
 use audio::{list_audio_devices, AudioDevice, trigger_audio_permission};
 use log::{error as log_error, info as log_info};
@@ -395,8 +398,14 @@ pub fn run() {
                 }
             });
 
-            // Initialize ZipFormer Vietnamese ASR engine (init + set models dir in sequence)
-            zipformer_engine::commands::init_on_startup(&_app.handle());
+            // Initialize ASR engine (init + set models dir in sequence)
+            asr_engine::commands::init_on_startup(&_app.handle());
+
+            // Initialize CAPU punctuation restoration if model already downloaded
+            capu_engine::commands::init_on_startup(&_app.handle());
+
+            // Initialize Vietnamese ITN (bundled FAR resources)
+            itn_engine::commands::init_on_startup(&_app.handle());
 
             // Trigger system audio permission request on startup (similar to microphone permission)
             // #[cfg(target_os = "macos")]
@@ -459,16 +468,29 @@ pub fn run() {
             analytics::commands::track_analytics_enabled,
             analytics::commands::track_analytics_disabled,
             analytics::commands::track_analytics_transparency_viewed,
-            // ZipFormer Vietnamese ASR commands
-            zipformer_engine::commands::zipformer_init,
-            zipformer_engine::commands::zipformer_get_model_status,
-            zipformer_engine::commands::zipformer_is_model_loaded,
-            zipformer_engine::commands::zipformer_get_models_directory,
-            zipformer_engine::commands::zipformer_download_model,
-            zipformer_engine::commands::zipformer_load_model,
-            zipformer_engine::commands::zipformer_transcribe_audio,
-            zipformer_engine::commands::zipformer_validate_model_ready,
-            zipformer_engine::commands::zipformer_get_variant_status,
+            // ASR commands
+            asr_engine::commands::asr_init,
+            asr_engine::commands::asr_get_model_status,
+            asr_engine::commands::asr_is_model_loaded,
+            asr_engine::commands::asr_get_models_directory,
+            asr_engine::commands::asr_download_model,
+            asr_engine::commands::asr_load_model,
+            asr_engine::commands::asr_transcribe_audio,
+            asr_engine::commands::asr_validate_model_ready,
+            asr_engine::commands::asr_get_variant_status,
+            asr_engine::commands::asr_get_current_config,
+            rover_engine::commands::rover_init,
+            rover_engine::commands::rover_load_model,
+            rover_engine::commands::rover_is_model_loaded,
+            rover_engine::commands::rover_get_current_config,
+            rover_engine::commands::rover_validate_model_ready,
+            // CAPU Vietnamese punctuation restoration commands
+            capu_engine::commands::capu_get_models_directory,
+            capu_engine::commands::capu_is_model_downloaded,
+            capu_engine::commands::capu_download_model,
+            capu_engine::commands::capu_init,
+            capu_engine::commands::capu_get_cpu_topology,
+            itn_engine::commands::itn_is_ready,
             get_audio_devices,
             trigger_microphone_permission,
             check_microphone_access,
