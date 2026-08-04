@@ -122,13 +122,35 @@ pub struct TranscriptSetting {
     pub id: String,
     pub provider: String,
     pub model: String,
-    #[sqlx(rename = "zipformerVariant")]
-    #[serde(rename = "zipformerVariant")]
-    pub zipformer_variant: String,
+    #[sqlx(rename = "asrVariant")]
+    #[serde(rename = "asrVariant")]
+    pub asr_variant: String,
     #[sqlx(rename = "decodingMethod")]
     #[serde(rename = "decodingMethod")]
     pub decoding_method: String,
     #[sqlx(rename = "numActivePaths")]
     #[serde(rename = "numActivePaths")]
     pub num_active_paths: i32,
+    #[sqlx(rename = "maxSegmentSeconds")]
+    #[serde(rename = "maxSegmentSeconds")]
+    pub max_segment_seconds: i32,
+    #[sqlx(rename = "roverEnabled")]
+    #[serde(rename = "roverEnabled")]
+    pub rover_enabled: bool,
+    #[sqlx(rename = "roverFamilyB")]
+    #[serde(rename = "roverFamilyB")]
+    pub rover_family_b: Option<String>,
+    #[sqlx(rename = "roverVariantB")]
+    #[serde(rename = "roverVariantB")]
+    pub rover_variant_b: Option<String>,
+    pub hotwords: Option<String>,
+    #[sqlx(rename = "capuCpuThreads")]
+    #[serde(rename = "capuCpuThreads")]
+    pub capu_cpu_threads: Option<i32>,
+    #[sqlx(rename = "capuPunctuationLevel")]
+    #[serde(rename = "capuPunctuationLevel")]
+    pub capu_punctuation_level: i32,
+    #[sqlx(rename = "capuCaseLevel")]
+    #[serde(rename = "capuCaseLevel")]
+    pub capu_case_level: i32,
 }
