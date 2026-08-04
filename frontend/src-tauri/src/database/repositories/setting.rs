@@ -16,8 +16,8 @@ pub struct SaveTranscriptConfigRequest {
     pub model: String,
     #[serde(rename = "apiKey")]
     pub api_key: Option<String>,
-    #[serde(rename = "zipformerVariant")]
-    pub zipformer_variant: Option<String>,
+    #[serde(rename = "asrVariant")]
+    pub asr_variant: Option<String>,
     #[serde(rename = "decodingMethod")]
     pub decoding_method: Option<String>,
     #[serde(rename = "numActivePaths")]
@@ -26,7 +26,7 @@ pub struct SaveTranscriptConfigRequest {
 
 pub struct SettingsRepository;
 
-// Transcript providers: zipformer only
+// Transcript providers: asr only
 // Summary providers: openai, claude, openrouter, custom-openai
 // NOTE: Handle data exclusion in the higher layer as this is database abstraction layer(using SELECT *)
 
@@ -171,32 +171,63 @@ impl SettingsRepository {
         pool: &SqlitePool,
         provider: &str,
         model: &str,
-        zipformer_variant: &str,
+        asr_variant: &str,
         decoding_method: &str,
         num_active_paths: i32,
+        max_segment_seconds: i32,
+        rover_enabled: bool,
+        rover_family_b: Option<&str>,
+        rover_variant_b: Option<&str>,
+        hotwords: Option<&str>,
+        capu_cpu_threads: Option<i32>,
+        capu_punctuation_level: i32,
+        capu_case_level: i32,
     ) -> std::result::Result<(), sqlx::Error> {
         sqlx::query(
             r#"
             INSERT INTO transcript_settings
-                (id, provider, model, zipformerVariant, decodingMethod, numActivePaths)
-            VALUES ('1', $1, $2, $3, $4, $5)
+                (id, provider, model, asrVariant, decodingMethod, numActivePaths, maxSegmentSeconds, roverEnabled, roverFamilyB, roverVariantB, hotwords, capuCpuThreads, capuPunctuationLevel, capuCaseLevel)
+            VALUES ('1', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             ON CONFLICT(id) DO UPDATE SET
                 provider = excluded.provider,
                 model = excluded.model,
-                zipformerVariant = excluded.zipformerVariant,
+                asrVariant = excluded.asrVariant,
                 decodingMethod = excluded.decodingMethod,
-                numActivePaths = excluded.numActivePaths
+                numActivePaths = excluded.numActivePaths,
+                maxSegmentSeconds = excluded.maxSegmentSeconds,
+                roverEnabled = excluded.roverEnabled,
+                roverFamilyB = excluded.roverFamilyB,
+                roverVariantB = excluded.roverVariantB,
+                hotwords = excluded.hotwords,
+                capuCpuThreads = excluded.capuCpuThreads,
+                capuPunctuationLevel = excluded.capuPunctuationLevel,
+                capuCaseLevel = excluded.capuCaseLevel
             "#,
         )
         .bind(provider)
         .bind(model)
-        .bind(zipformer_variant)
+        .bind(asr_variant)
         .bind(decoding_method)
         .bind(num_active_paths)
+        .bind(max_segment_seconds)
+        .bind(rover_enabled)
+        .bind(rover_family_b)
+        .bind(rover_variant_b)
+        .bind(hotwords)
+        .bind(capu_cpu_threads)
+        .bind(capu_punctuation_level)
+        .bind(capu_case_level)
         .execute(pool)
         .await?;
 
         Ok(())
+    }
+
+    pub async fn get_max_segment_seconds(pool: &SqlitePool) -> u32 {
+        match Self::get_transcript_config(pool).await {
+            Ok(Some(config)) => crate::audio::common::clamp_max_segment_seconds(config.max_segment_seconds),
+            _ => crate::audio::common::DEFAULT_MAX_SEGMENT_SECONDS,
+        }
     }
 
     pub async fn save_transcript_api_key(
@@ -204,9 +235,9 @@ impl SettingsRepository {
         provider: &str,
         _api_key: &str,
     ) -> std::result::Result<(), sqlx::Error> {
-        if provider != "zipformer" {
+        if provider != "asr" {
             return Err(sqlx::Error::Protocol(
-                format!("Unsupported transcript provider: {}. Only zipformer is supported.", provider).into(),
+                format!("Unsupported transcript provider: {}. Only asr is supported.", provider).into(),
             ));
         }
         Ok(())
@@ -216,9 +247,9 @@ impl SettingsRepository {
         _pool: &SqlitePool,
         provider: &str,
     ) -> std::result::Result<Option<String>, sqlx::Error> {
-        if provider != "zipformer" {
+        if provider != "asr" {
             return Err(sqlx::Error::Protocol(
-                format!("Unsupported transcript provider: {}. Only zipformer is supported.", provider).into(),
+                format!("Unsupported transcript provider: {}. Only asr is supported.", provider).into(),
             ));
         }
         Ok(None)

@@ -135,17 +135,25 @@ pub async fn complete_onboarding<R: Runtime>(
 
     if let Err(e) = SettingsRepository::save_transcript_config(
         pool,
-        "zipformer",
+        "asr",
         crate::config::ZIPFORMER_MODEL_NAME,
         crate::config::ZIPFORMER_VARIANT_INT8,
         "modified_beam_search",
         15,
+        crate::audio::common::DEFAULT_MAX_SEGMENT_SECONDS as i32,
+        false,
+        None,
+        None,
+        None,
+        None,
+        7,
+        3,
     ).await {
         error!("Failed to save transcription model config: {}", e);
         return Err(format!("Failed to save transcription model config: {}", e));
     }
     info!(
-        "Saved transcription model config: provider=zipformer, model={}",
+        "Saved transcription model config: provider=asr, model={}",
         crate::config::ZIPFORMER_MODEL_NAME
     );
 

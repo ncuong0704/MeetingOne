@@ -218,11 +218,19 @@ pub async fn initialize_fresh_database(app: AppHandle) -> Result<(), String> {
     // Default Transcription Model: ZipFormer Vietnamese ASR
     if let Err(e) = crate::database::repositories::setting::SettingsRepository::save_transcript_config(
         pool,
-        "zipformer",
+        "asr",
         crate::config::ZIPFORMER_MODEL_NAME,
         crate::config::ZIPFORMER_VARIANT_INT8,
         "modified_beam_search",
         15,
+        crate::audio::common::DEFAULT_MAX_SEGMENT_SECONDS as i32,
+        false,
+        None,
+        None,
+        None,
+        None,
+        7,
+        3,
     ).await {
         error!("Failed to set default transcription model config: {}", e);
     }
