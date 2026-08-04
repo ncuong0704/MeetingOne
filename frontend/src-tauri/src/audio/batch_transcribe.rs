@@ -6,8 +6,11 @@
 // once per tiny VAD segment. See
 // docs/superpowers/specs/2026-08-04-asr-pipeline-performance-design.md, section B.
 
+use crate::api::TranscriptSegment;
 use crate::asr_engine::engine::AsrEngine;
+use crate::capu_engine::batch::{CapuBatcher, PendingSegment};
 use crate::rover_engine::engine::RoverDecoder;
+use anyhow::Result;
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 
@@ -45,6 +48,60 @@ fn merge_indexed<T>(mut a: Vec<(usize, T)>, mut b: Vec<(usize, T)>) -> Vec<T> {
     a.append(&mut b);
     a.sort_by_key(|(i, _)| *i);
     a.into_iter().map(|(_, v)| v).collect()
+}
+
+/// Runs CAPU over the full list of raw ASR results, batching consecutive segments up to
+/// `CAPU_BATCH_WORD_BUDGET` words per call (no debounce timer needed — unlike the live
+/// path, this list is already complete). `raw_results` is `(text, start_ms, end_ms)`
+/// tuples in original chronological order.
+fn finalize_with_capu(raw_results: Vec<(String, f64, f64)>) -> Vec<TranscriptSegment> {
+    let mut batcher = CapuBatcher::new();
+    let mut finalized_segments = Vec::new();
+
+    for (i, (text, start_ms, end_ms)) in raw_results.into_iter().enumerate() {
+        let itn_text = crate::audio::post_asr::apply_itn(&text);
+        batcher.push(PendingSegment {
+            source_id: i as u64,
+            raw_text: itn_text,
+            audio_start_time: start_ms / 1000.0,
+            audio_end_time: end_ms / 1000.0,
+        });
+
+        if batcher.should_flush(crate::config::CAPU_BATCH_WORD_BUDGET) {
+            flush_into(&mut batcher, &mut finalized_segments);
+        }
+    }
+    if !batcher.is_empty() {
+        flush_into(&mut batcher, &mut finalized_segments);
+    }
+
+    finalized_segments
+}
+
+/// Flushes whatever `batcher` has pending into `out` as one `TranscriptSegment`, if
+/// anything was pending. Uses `flush_with_fallback` so a batch is never silently lost
+/// even if the CAPU model isn't loaded (e.g. not yet downloaded) — falls back to the
+/// raw (ITN-only) text in that case.
+fn flush_into(batcher: &mut CapuBatcher, out: &mut Vec<TranscriptSegment>) {
+    let engine_arc = crate::capu_engine::commands::get_engine_arc();
+    let finalized = match &engine_arc {
+        Some(arc) => {
+            let mut engine = arc.lock().unwrap();
+            batcher.flush_with_fallback(Some(&mut engine))
+        }
+        None => batcher.flush_with_fallback(None),
+    };
+
+    if let Some(finalized) = finalized {
+        out.push(TranscriptSegment {
+            id: format!("transcript-{}", uuid::Uuid::new_v4()),
+            text: finalized.text,
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            audio_start_time: Some(finalized.audio_start_time),
+            audio_end_time: Some(finalized.audio_end_time),
+            duration: Some(finalized.audio_end_time - finalized.audio_start_time),
+        });
+    }
 }
 
 #[cfg(test)]
@@ -88,5 +145,25 @@ mod tests {
         let a: Vec<(usize, &str)> = vec![(0, "only")];
         let b: Vec<(usize, &str)> = vec![];
         assert_eq!(merge_indexed(a, b), vec!["only"]);
+    }
+
+    #[test]
+    fn finalize_with_capu_falls_back_to_raw_text_without_a_loaded_capu_engine() {
+        // No CAPU engine is loaded in this test process, so this exercises the
+        // flush_with_fallback(None) path end-to-end through finalize_with_capu.
+        let raw = vec![
+            ("XIN CHAO".to_string(), 0.0, 1000.0),
+            ("CAC BAN".to_string(), 1000.0, 2000.0),
+        ];
+        let segments = finalize_with_capu(raw);
+        assert_eq!(segments.len(), 1, "small input stays under the word budget, one batch");
+        assert_eq!(segments[0].text, "xin chao cac ban");
+        assert_eq!(segments[0].audio_start_time, Some(0.0));
+        assert_eq!(segments[0].audio_end_time, Some(2.0));
+    }
+
+    #[test]
+    fn finalize_with_capu_returns_empty_for_empty_input() {
+        assert!(finalize_with_capu(Vec::new()).is_empty());
     }
 }

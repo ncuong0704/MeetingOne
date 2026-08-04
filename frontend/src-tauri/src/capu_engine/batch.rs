@@ -117,6 +117,37 @@ impl CapuBatcher {
             source_ids,
         })
     }
+
+    /// Like `flush`, but when no CAPU engine is available at all, returns the batch with
+    /// its raw (un-punctuated) joined text instead of discarding it. Used by the
+    /// file/batch path (`batch_transcribe.rs`), where this is the ONLY place raw text
+    /// ever reaches storage — unlike the live path (`transcription/worker.rs`), which
+    /// already emitted the raw text live before Stage 2 ever sees "no engine", so it
+    /// safely discards there via `discard_pending` instead.
+    pub fn flush_with_fallback(&mut self, engine: Option<&mut CapuEngine>) -> Option<FinalizedSegment> {
+        match engine {
+            Some(engine) => self.flush(engine),
+            None => {
+                if self.pending.is_empty() {
+                    return None;
+                }
+                let joined = self.joined_pending_text();
+                let source_ids: Vec<u64> = self.pending.iter().map(|s| s.source_id).collect();
+                let audio_start_time = self.pending.first().unwrap().audio_start_time;
+                let audio_end_time = self.pending.last().unwrap().audio_end_time;
+
+                self.pending.clear();
+                self.pending_word_count = 0;
+
+                Some(FinalizedSegment {
+                    text: joined,
+                    audio_start_time,
+                    audio_end_time,
+                    source_ids,
+                })
+            }
+        }
+    }
 }
 
 impl Default for CapuBatcher {
@@ -177,6 +208,28 @@ mod tests {
         batcher.discard_pending();
         assert!(batcher.is_empty());
         assert!(!batcher.should_flush(1));
+    }
+
+    #[test]
+    fn flush_with_fallback_returns_raw_joined_text_when_no_engine() {
+        let mut batcher = CapuBatcher::new();
+        batcher.push(pending(0, "xin chao", 0.0, 1.0));
+        batcher.push(pending(1, "cac ban", 1.0, 2.0));
+
+        let finalized = batcher
+            .flush_with_fallback(None)
+            .expect("batch was non-empty");
+        assert_eq!(finalized.text, "xin chao cac ban");
+        assert_eq!(finalized.source_ids, vec![0, 1]);
+        assert_eq!(finalized.audio_start_time, 0.0);
+        assert_eq!(finalized.audio_end_time, 2.0);
+        assert!(batcher.is_empty());
+    }
+
+    #[test]
+    fn flush_with_fallback_returns_none_when_nothing_pending() {
+        let mut batcher = CapuBatcher::new();
+        assert!(batcher.flush_with_fallback(None).is_none());
     }
 
     /// Requires a downloaded CAPU model on disk — same gate as
