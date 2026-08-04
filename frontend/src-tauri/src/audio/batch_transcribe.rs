@@ -166,4 +166,35 @@ mod tests {
     fn finalize_with_capu_returns_empty_for_empty_input() {
         assert!(finalize_with_capu(Vec::new()).is_empty());
     }
+
+    #[test]
+    fn finalize_with_capu_splits_into_multiple_batches_when_word_budget_exceeded() {
+        // 50 segments x 7 words = 350 words, well over CAPU_BATCH_WORD_BUDGET (200) — must
+        // produce more than one TranscriptSegment.
+        let mut raw = Vec::new();
+        for i in 0..50 {
+            raw.push((
+                format!("word1 word2 word3 word4 word5 word6 word{}", i),
+                (i as f64) * 2000.0,
+                (i as f64) * 2000.0 + 1000.0,
+            ));
+        }
+        let segments = finalize_with_capu(raw);
+        assert!(
+            segments.len() > 1,
+            "350 words over a 200-word budget must split into multiple batches, got {}",
+            segments.len()
+        );
+        // Segments must be in chronological order with non-overlapping, increasing time spans.
+        for pair in segments.windows(2) {
+            assert!(
+                pair[0].audio_end_time.unwrap() <= pair[1].audio_start_time.unwrap(),
+                "batches must be in non-overlapping chronological order"
+            );
+        }
+        // First batch starts at the first segment's start time, last batch ends at the
+        // last segment's end time — no audio lost at the boundaries.
+        assert_eq!(segments.first().unwrap().audio_start_time, Some(0.0));
+        assert_eq!(segments.last().unwrap().audio_end_time, Some(49.0 * 2000.0 / 1000.0 + 1.0));
+    }
 }
