@@ -26,6 +26,9 @@ pub fn reset_speech_detected_flag() {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TranscriptUpdate {
+    /// ITN-only (lowercased + inverse-text-normalized) — no punctuation/capitalization
+    /// yet. CAPU runs off this hot path in the background; see `TranscriptFinalized` for
+    /// the punctuated merge once a batch completes.
     pub text: String,
     pub timestamp: String, // Wall-clock time for reference (e.g., "14:30:05")
     pub source: String,
@@ -129,6 +132,9 @@ pub fn start_transcription_task<R: Runtime>(
             let chunks_completed_clone = chunks_completed.clone();
             let input_finished_clone = input_finished.clone();
             let chunks_queued_clone = chunks_queued.clone();
+            // CapuBatcher (Stage 2) assumes segments arrive in sequence_id order, which
+            // only holds while NUM_WORKERS == 1 (see its doc comment above). Parallelizing
+            // Stage 1 would also require reordering before this send.
             let capu_sender_clone = capu_sender.clone();
 
             let worker_handle = tokio::spawn(async move {
