@@ -449,6 +449,24 @@ impl RecordingManager {
         self.recording_saver.add_transcript_segment(segment);
     }
 
+    /// Replace raw ASR segments with 1 CAPU-finalized segment — called by the CAPU
+    /// background stage (Stage 2) once a batch finishes. See
+    /// `RecordingSaver::replace_transcript_segments`.
+    pub fn replace_transcript_segments(
+        &self,
+        source_ids: &[u64],
+        finalized_text: String,
+        audio_start_time: f64,
+        audio_end_time: f64,
+    ) {
+        self.recording_saver.replace_transcript_segments(
+            source_ids,
+            finalized_text,
+            audio_start_time,
+            audio_end_time,
+        );
+    }
+
     /// User edit during active recording (updates memory + transcripts.json).
     pub fn update_live_transcript_text(&self, sequence_id: u64, new_text: String) -> Result<(), String> {
         self.recording_saver

@@ -145,6 +145,87 @@ impl RecordingSaver {
         }
     }
 
+    /// Replaces one or more stored segments (matched by `source_ids`) with a single
+    /// finalized segment — used when the CAPU background stage finishes punctuating a
+    /// batch of raw ASR segments. The replacement is inserted at the position of the
+    /// first matched segment, preserving chronological order (by `sequence_id`).
+    ///
+    /// No-op (with a warning log) if none of `source_ids` are found. Also a no-op if any
+    /// matched segment has `user_edited = true` — mirrors `add_transcript_segment`'s own
+    /// rule that a user's manual correction is never silently overwritten.
+    pub fn replace_transcript_segments(
+        &self,
+        source_ids: &[u64],
+        finalized_text: String,
+        audio_start_time: f64,
+        audio_end_time: f64,
+    ) {
+        let mut segments = match self.transcript_segments.lock() {
+            Ok(s) => s,
+            Err(_) => {
+                error!("Failed to lock transcript segments for replace");
+                return;
+            }
+        };
+
+        let matched: Vec<usize> = segments
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| source_ids.contains(&s.sequence_id))
+            .map(|(i, _)| i)
+            .collect();
+
+        if matched.is_empty() {
+            warn!(
+                "replace_transcript_segments: none of {:?} found in stored segments",
+                source_ids
+            );
+            return;
+        }
+
+        if matched.iter().any(|&i| segments[i].user_edited) {
+            info!(
+                "replace_transcript_segments: skipping batch {:?} — contains a user-edited segment",
+                source_ids
+            );
+            return;
+        }
+
+        let sequence_id = segments[matched[0]].sequence_id;
+        let display_time = segments[matched[0]].display_time.clone();
+        let confidence = segments[matched[0]].confidence;
+
+        let replacement = TranscriptSegment {
+            id: format!("seg_{}_finalized", sequence_id),
+            text: finalized_text,
+            audio_start_time,
+            audio_end_time,
+            duration: audio_end_time - audio_start_time,
+            display_time,
+            confidence,
+            sequence_id,
+            user_edited: false,
+        };
+
+        segments.retain(|s| !source_ids.contains(&s.sequence_id));
+        let insert_at = segments.partition_point(|s| s.sequence_id < sequence_id);
+        segments.insert(insert_at, replacement);
+
+        let replaced_count = matched.len();
+        drop(segments);
+
+        info!(
+            "Replaced {} raw segment(s) with 1 finalized segment (sequence_id={})",
+            replaced_count, sequence_id
+        );
+
+        if let Some(folder) = &self.meeting_folder {
+            if let Err(e) = self.write_transcripts_json(folder) {
+                warn!("Failed to write transcripts.json after replace: {}", e);
+            }
+        }
+    }
+
     /// Legacy method for backward compatibility - converts text to basic segment
     pub fn add_transcript_chunk(&self, text: String) {
         let segment = TranscriptSegment {
@@ -537,5 +618,70 @@ impl RecordingSaver {
 impl Default for RecordingSaver {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn seg(sequence_id: u64, text: &str) -> TranscriptSegment {
+        TranscriptSegment {
+            id: format!("seg_{}", sequence_id),
+            text: text.to_string(),
+            audio_start_time: sequence_id as f64,
+            audio_end_time: sequence_id as f64 + 1.0,
+            duration: 1.0,
+            display_time: "[00:00]".to_string(),
+            confidence: 0.9,
+            sequence_id,
+            user_edited: false,
+        }
+    }
+
+    #[test]
+    fn replace_merges_matched_segments_into_one_in_order() {
+        let saver = RecordingSaver::new();
+        saver.add_transcript_segment(seg(0, "xin"));
+        saver.add_transcript_segment(seg(1, "chao"));
+        saver.add_transcript_segment(seg(2, "ban"));
+
+        saver.replace_transcript_segments(&[0, 1], "Xin chào.".to_string(), 0.0, 2.0);
+
+        let segments = saver.get_transcript_segments();
+        assert_eq!(segments.len(), 2);
+        assert_eq!(segments[0].text, "Xin chào.");
+        assert_eq!(segments[0].sequence_id, 0);
+        assert_eq!(segments[0].audio_start_time, 0.0);
+        assert_eq!(segments[0].audio_end_time, 2.0);
+        assert_eq!(segments[1].text, "ban");
+    }
+
+    #[test]
+    fn replace_is_noop_when_no_source_ids_match() {
+        let saver = RecordingSaver::new();
+        saver.add_transcript_segment(seg(0, "xin"));
+
+        saver.replace_transcript_segments(&[99], "ignored".to_string(), 0.0, 1.0);
+
+        let segments = saver.get_transcript_segments();
+        assert_eq!(segments.len(), 1);
+        assert_eq!(segments[0].text, "xin");
+    }
+
+    #[test]
+    fn replace_skips_batch_containing_a_user_edited_segment() {
+        let saver = RecordingSaver::new();
+        saver.add_transcript_segment(seg(0, "xin"));
+        saver.add_transcript_segment(seg(1, "chao"));
+        saver
+            .update_live_transcript_text(1, "Chào (đã sửa)".to_string())
+            .unwrap();
+
+        saver.replace_transcript_segments(&[0, 1], "Xin chào.".to_string(), 0.0, 2.0);
+
+        let segments = saver.get_transcript_segments();
+        assert_eq!(segments.len(), 2, "user-edited segment must not be clobbered");
+        assert_eq!(segments[1].text, "Chào (đã sửa)");
     }
 }
