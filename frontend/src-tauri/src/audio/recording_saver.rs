@@ -160,59 +160,60 @@ impl RecordingSaver {
         audio_start_time: f64,
         audio_end_time: f64,
     ) {
-        let mut segments = match self.transcript_segments.lock() {
-            Ok(s) => s,
-            Err(_) => {
-                error!("Failed to lock transcript segments for replace");
+        let (replaced_count, sequence_id) = {
+            let mut segments = match self.transcript_segments.lock() {
+                Ok(s) => s,
+                Err(_) => {
+                    error!("Failed to lock transcript segments for replace");
+                    return;
+                }
+            };
+
+            let matched: Vec<usize> = segments
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| source_ids.contains(&s.sequence_id))
+                .map(|(i, _)| i)
+                .collect();
+
+            if matched.is_empty() {
+                warn!(
+                    "replace_transcript_segments: none of {:?} found in stored segments",
+                    source_ids
+                );
                 return;
             }
+
+            if matched.iter().any(|&i| segments[i].user_edited) {
+                info!(
+                    "replace_transcript_segments: skipping batch {:?} — contains a user-edited segment",
+                    source_ids
+                );
+                return;
+            }
+
+            let sequence_id = segments[matched[0]].sequence_id;
+            let display_time = segments[matched[0]].display_time.clone();
+            let confidence = segments[matched[0]].confidence;
+
+            let replacement = TranscriptSegment {
+                id: format!("seg_{}_finalized", sequence_id),
+                text: finalized_text,
+                audio_start_time,
+                audio_end_time,
+                duration: audio_end_time - audio_start_time,
+                display_time,
+                confidence,
+                sequence_id,
+                user_edited: false,
+            };
+
+            segments.retain(|s| !source_ids.contains(&s.sequence_id));
+            let insert_at = segments.partition_point(|s| s.sequence_id < sequence_id);
+            segments.insert(insert_at, replacement);
+
+            (matched.len(), sequence_id)
         };
-
-        let matched: Vec<usize> = segments
-            .iter()
-            .enumerate()
-            .filter(|(_, s)| source_ids.contains(&s.sequence_id))
-            .map(|(i, _)| i)
-            .collect();
-
-        if matched.is_empty() {
-            warn!(
-                "replace_transcript_segments: none of {:?} found in stored segments",
-                source_ids
-            );
-            return;
-        }
-
-        if matched.iter().any(|&i| segments[i].user_edited) {
-            info!(
-                "replace_transcript_segments: skipping batch {:?} — contains a user-edited segment",
-                source_ids
-            );
-            return;
-        }
-
-        let sequence_id = segments[matched[0]].sequence_id;
-        let display_time = segments[matched[0]].display_time.clone();
-        let confidence = segments[matched[0]].confidence;
-
-        let replacement = TranscriptSegment {
-            id: format!("seg_{}_finalized", sequence_id),
-            text: finalized_text,
-            audio_start_time,
-            audio_end_time,
-            duration: audio_end_time - audio_start_time,
-            display_time,
-            confidence,
-            sequence_id,
-            user_edited: false,
-        };
-
-        segments.retain(|s| !source_ids.contains(&s.sequence_id));
-        let insert_at = segments.partition_point(|s| s.sequence_id < sequence_id);
-        segments.insert(insert_at, replacement);
-
-        let replaced_count = matched.len();
-        drop(segments);
 
         info!(
             "Replaced {} raw segment(s) with 1 finalized segment (sequence_id={})",
