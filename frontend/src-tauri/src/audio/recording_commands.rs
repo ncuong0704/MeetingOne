@@ -62,6 +62,7 @@ static TRANSCRIPTION_TASK: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
 
 // Listener ID for proper cleanup - prevents microphone from staying active after recording stops
 static TRANSCRIPT_LISTENER_ID: Mutex<Option<tauri::EventId>> = Mutex::new(None);
+static TRANSCRIPT_FINALIZED_LISTENER_ID: Mutex<Option<tauri::EventId>> = Mutex::new(None);
 
 // ============================================================================
 // PUBLIC TYPES
@@ -347,6 +348,30 @@ async fn start_recording_with_meeting_name_inner<R: Runtime>(
         info!("✅ Transcript-update event listener registered for history persistence");
     }
 
+    // Listen for transcript-finalized events (CAPU background stage) and merge the
+    // finalized segment into the recording manager, replacing the raw segments it covers.
+    {
+        use tauri::Listener;
+        let listener_id = app.listen("transcript-finalized", move |event: tauri::Event| {
+            if let Ok(update) =
+                serde_json::from_str::<crate::audio::transcription::TranscriptFinalized>(event.payload())
+            {
+                let manager_guard = RECORDING_MANAGER.lock();
+                if let Some(manager) = manager_guard.as_ref() {
+                    manager.replace_transcript_segments(
+                        &update.source_sequence_ids,
+                        update.text,
+                        update.audio_start_time,
+                        update.audio_end_time,
+                    );
+                }
+            }
+        });
+        let mut global_listener = TRANSCRIPT_FINALIZED_LISTENER_ID.lock();
+        *global_listener = Some(listener_id);
+        info!("✅ Transcript-finalized event listener registered for CAPU background stage");
+    }
+
     // Emit success event. Non-fatal: by this point the manager is already
     // live and installed (RECORDING_MANAGER, TRANSCRIPTION_TASK, and the
     // transcript listener are all set up above) — a failure to notify the
@@ -566,6 +591,30 @@ async fn start_recording_with_devices_and_meeting_inner<R: Runtime>(
         info!("✅ Transcript-update event listener registered for history persistence");
     }
 
+    // Listen for transcript-finalized events (CAPU background stage) and merge the
+    // finalized segment into the recording manager, replacing the raw segments it covers.
+    {
+        use tauri::Listener;
+        let listener_id = app.listen("transcript-finalized", move |event: tauri::Event| {
+            if let Ok(update) =
+                serde_json::from_str::<crate::audio::transcription::TranscriptFinalized>(event.payload())
+            {
+                let manager_guard = RECORDING_MANAGER.lock();
+                if let Some(manager) = manager_guard.as_ref() {
+                    manager.replace_transcript_segments(
+                        &update.source_sequence_ids,
+                        update.text,
+                        update.audio_start_time,
+                        update.audio_end_time,
+                    );
+                }
+            }
+        });
+        let mut global_listener = TRANSCRIPT_FINALIZED_LISTENER_ID.lock();
+        *global_listener = Some(listener_id);
+        info!("✅ Transcript-finalized event listener registered for CAPU background stage");
+    }
+
     // Emit success event. Non-fatal: see the identical comment in
     // start_recording_with_meeting_name_inner above.
     if let Err(e) = app.emit("recording-started", serde_json::json!({
@@ -671,6 +720,14 @@ pub async fn stop_recording<R: Runtime>(
         if let Some(listener_id) = TRANSCRIPT_LISTENER_ID.lock().take() {
             app.unlisten(listener_id);
             info!("✅ Transcript-update listener removed");
+        }
+    }
+
+    {
+        use tauri::Listener;
+        if let Some(listener_id) = TRANSCRIPT_FINALIZED_LISTENER_ID.lock().take() {
+            app.unlisten(listener_id);
+            info!("✅ Transcript-finalized listener removed");
         }
     }
 
