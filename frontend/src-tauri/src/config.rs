@@ -49,3 +49,5 @@ pub const CAPU_DTAGS_SIZE_BYTES: u64 = 100;
 pub const CAPU_MAX_SEQ_LEN: usize = 512;
 pub const CAPU_MAX_ITERATIONS: usize = 3;
 pub const CAPU_TRAILING_CONTEXT_WORDS: usize = 15;
+pub const CAPU_BATCH_WORD_BUDGET: usize = 200;
+pub const CAPU_BATCH_DEBOUNCE_SECS: u64 = 5;
