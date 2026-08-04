@@ -8,10 +8,16 @@
 
 use crate::api::TranscriptSegment;
 use crate::asr_engine::engine::AsrEngine;
+use crate::asr_engine::model_family::{ModelFamily, ModelVariant};
+use crate::asr_engine::thread_budget::{asr_thread_budget, DecodeConcurrency};
+use crate::audio::vad::SpeechSegment;
 use crate::capu_engine::batch::{CapuBatcher, PendingSegment};
+use crate::capu_engine::cpu_topology::detect_cpu_topology;
 use crate::rover_engine::engine::RoverDecoder;
+use anyhow::anyhow;
 use anyhow::Result;
 use std::sync::Arc;
+use tauri::{AppHandle, Runtime};
 use tokio::sync::Mutex as TokioMutex;
 
 /// The already-loaded ASR engine to transcribe with — resolved and validated by the
@@ -102,6 +108,205 @@ fn flush_into(batcher: &mut CapuBatcher, out: &mut Vec<TranscriptSegment>) {
             duration: Some(finalized.audio_end_time - finalized.audio_start_time),
         });
     }
+}
+
+enum Worker {
+    Single(AsrEngine),
+    Rover(RoverDecoder),
+}
+
+/// Transcribes one segment with whichever engine `primary` wraps.
+async fn transcribe_one(primary: &PrimaryEngine, samples: &[f32]) -> Result<String> {
+    match primary {
+        PrimaryEngine::Single(engine) => engine
+            .transcribe_audio(samples.to_vec())
+            .await
+            .map_err(|e| anyhow!("ASR transcription failed: {}", e)),
+        PrimaryEngine::Rover(rover) => {
+            let rover = rover.clone();
+            let samples = samples.to_vec();
+            tokio::task::block_in_place(move || {
+                let mut guard = rover.blocking_lock();
+                guard.decode(&samples, 16000.0)
+            })
+            .map(|r| r.text)
+            .map_err(|e| anyhow!("ROVER transcription failed: {}", e))
+        }
+    }
+}
+
+/// Sequential fallback: reuses the already-loaded shared `primary` engine directly (no
+/// extra model load), processing segments one at a time — identical behavior to the
+/// pre-existing `import.rs`/`retranscription.rs` for-loops this replaces.
+async fn transcribe_sequential(
+    segments: Vec<SpeechSegment>,
+    primary: &PrimaryEngine,
+    on_progress: &mut impl FnMut(usize, usize),
+) -> Result<Vec<(String, f64, f64)>> {
+    let total = segments.len();
+    let mut results = Vec::with_capacity(total);
+    for (i, segment) in segments.into_iter().enumerate() {
+        on_progress(i, total);
+        if segment.samples.len() < 1600 {
+            continue;
+        }
+        let text = transcribe_one(primary, &segment.samples).await?;
+        if !text.trim().is_empty() {
+            results.push((text, segment.start_timestamp_ms, segment.end_timestamp_ms));
+        }
+    }
+    on_progress(total, total);
+    Ok(results)
+}
+
+/// Runs one worker's assigned (index-tagged) segments through to completion,
+/// preserving each result's original index for later reordering.
+async fn run_worker(
+    mut worker: Worker,
+    indexed_segments: Vec<(usize, SpeechSegment)>,
+) -> Result<Vec<(usize, (String, f64, f64))>> {
+    let mut results = Vec::with_capacity(indexed_segments.len());
+    for (i, segment) in indexed_segments {
+        if segment.samples.len() < 1600 {
+            continue;
+        }
+        let text = match &mut worker {
+            Worker::Single(engine) => engine
+                .transcribe_audio(segment.samples.clone())
+                .await
+                .map_err(|e| anyhow!("ASR transcription failed on segment {}: {}", i, e))?,
+            Worker::Rover(rover) => {
+                let samples = segment.samples.clone();
+                tokio::task::block_in_place(|| rover.decode(&samples, 16000.0))
+                    .map(|r| r.text)
+                    .map_err(|e| anyhow!("ROVER transcription failed on segment {}: {}", i, e))?
+            }
+        };
+        if !text.trim().is_empty() {
+            results.push((i, (text, segment.start_timestamp_ms, segment.end_timestamp_ms)));
+        }
+    }
+    Ok(results)
+}
+
+/// Loads one standalone `AsrEngine` instance for parallel file transcription. A plain
+/// free function (not a closure) so each of the 2 call sites owns its arguments
+/// outright — no shared captures, no lifetime ambiguity between the two calls.
+async fn build_single_worker(
+    family: ModelFamily,
+    variant: ModelVariant,
+    decoding_method: String,
+    num_active_paths: i32,
+    models_dir: std::path::PathBuf,
+    threads: usize,
+) -> Result<AsrEngine> {
+    let fresh = AsrEngine::new();
+    fresh.set_models_directory(models_dir).await;
+    fresh
+        .load_model(family, variant, decoding_method, num_active_paths, threads)
+        .await
+        .map_err(|e| anyhow!("Failed to load parallel ASR worker: {}", e))?;
+    Ok(fresh)
+}
+
+/// Builds 2 fresh, independent workers for parallel file transcription — NEVER reuses
+/// or mutates the shared global singleton (`asr_engine::commands::ASR_ENGINE` /
+/// `rover_engine::commands::ROVER_ENGINE`), so a concurrent live recording (or another
+/// batch job) using that singleton is completely unaffected. This is the Single-model
+/// branch only; the Rover branch is added in Task 4.
+async fn build_worker_pair<R: Runtime>(
+    app: &AppHandle<R>,
+    primary: &PrimaryEngine,
+    physical_cores: usize,
+) -> Result<(Worker, Worker)> {
+    match primary {
+        PrimaryEngine::Single(engine) => {
+            let family = engine.get_current_family().await;
+            let variant = engine.get_current_variant().await;
+            let decoding_method = engine.get_decoding_method().await;
+            let num_active_paths = engine.get_num_active_paths().await;
+            let models_dir = engine.get_models_directory().await;
+            let threads = asr_thread_budget(physical_cores, DecodeConcurrency::SingleFileWorker);
+
+            let worker_a = build_single_worker(
+                family,
+                variant,
+                decoding_method.clone(),
+                num_active_paths,
+                models_dir.clone(),
+                threads,
+            )
+            .await?;
+            let worker_b = build_single_worker(
+                family,
+                variant,
+                decoding_method,
+                num_active_paths,
+                models_dir,
+                threads,
+            )
+            .await?;
+            Ok((Worker::Single(worker_a), Worker::Single(worker_b)))
+        }
+        PrimaryEngine::Rover(_) => {
+            let _ = app; // used by the Rover branch, added in Task 4
+            Err(anyhow!("ROVER parallel file transcription not yet implemented (Task 4)"))
+        }
+    }
+}
+
+/// Parallel path: splits `segments` even/odd, builds 2 fresh workers, runs both
+/// concurrently via `tokio::spawn` (so they land on separate OS threads under the
+/// multi-threaded Tokio runtime — real parallelism, not just async concurrency), then
+/// merges results back into original chronological order.
+async fn transcribe_parallel<R: Runtime>(
+    app: &AppHandle<R>,
+    segments: Vec<SpeechSegment>,
+    primary: &PrimaryEngine,
+    physical_cores: usize,
+    on_progress: &mut impl FnMut(usize, usize),
+) -> Result<Vec<(String, f64, f64)>> {
+    let total = segments.len();
+    let (even, odd) = split_even_odd(segments);
+
+    let (worker_a, worker_b) = build_worker_pair(app, primary, physical_cores).await?;
+
+    let handle_a = tokio::spawn(run_worker(worker_a, even));
+    let handle_b = tokio::spawn(run_worker(worker_b, odd));
+
+    let results_a = handle_a
+        .await
+        .map_err(|e| anyhow!("ASR worker A task panicked: {}", e))??;
+    on_progress(total / 2, total);
+    let results_b = handle_b
+        .await
+        .map_err(|e| anyhow!("ASR worker B task panicked: {}", e))??;
+    on_progress(total, total);
+
+    Ok(merge_indexed(results_a, results_b))
+}
+
+/// Transcribes `segments` (already VAD-detected and silence-split by the caller),
+/// parallelizing across 2 workers when there's enough work and CPU (see
+/// `should_parallelize`), then batches the result through CAPU once per ~200-word
+/// group instead of once per tiny segment. Returns finished, punctuated
+/// `TranscriptSegment`s ready to save to the database.
+pub async fn batch_transcribe<R: Runtime>(
+    app: &AppHandle<R>,
+    segments: Vec<SpeechSegment>,
+    primary: PrimaryEngine,
+    mut on_progress: impl FnMut(usize, usize),
+) -> Result<Vec<TranscriptSegment>> {
+    let (physical_cores, _) = detect_cpu_topology();
+    let total = segments.len();
+
+    let raw_results = if should_parallelize(total, physical_cores) {
+        transcribe_parallel(app, segments, &primary, physical_cores, &mut on_progress).await?
+    } else {
+        transcribe_sequential(segments, &primary, &mut on_progress).await?
+    };
+
+    Ok(finalize_with_capu(raw_results))
 }
 
 #[cfg(test)]
