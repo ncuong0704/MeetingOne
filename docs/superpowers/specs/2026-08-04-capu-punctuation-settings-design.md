@@ -105,57 +105,83 @@ Hệ quả:
 ### 1. `CapuEngine` — bias theo mức độ (Rust: `capu_engine.rs`)
 
 `infer_once` hiện lấy `max_by` trực tiếp trên `logits_data` thô (dòng 90-95). Thêm bước softmax
-trước khi so sánh, và cộng bias đúng công thức app tham khảo:
+trước khi so sánh, và cộng bias đúng công thức app tham khảo. Engine lưu **level** (nguồn sự thật,
+dùng cho cả bias lẫn bypass check ở mục 2), không lưu confidence đã tính sẵn — confidence tính lại
+mỗi lần suy luận (phép tính rẻ, tránh 2 field phải đồng bộ nhau):
 
 ```rust
 pub struct CapuEngine {
     session: Session,
     tokenizer: CapuTokenizer,
     labels: Vec<Action>,
-    case_label_indices: Vec<usize>,   // quét 1 lần lúc load(), các Action::TransformCase*
-    punctuation_confidence: f32,      // mặc định ứng với level=7
-    case_confidence: f32,             // mặc định ứng với level=3
+    keep_index: usize,               // quét 1 lần lúc load(), vị trí Action::Keep trong labels
+    case_label_indices: Vec<usize>,  // quét 1 lần lúc load(), các Action::TransformCase*
+    threads: usize,                  // số luồng session hiện tại đang chạy, để so sánh khi save
+    punctuation_level: u8,           // 1..10, mặc định 7
+    case_level: u8,                  // 1..10, mặc định 3
+}
+
+fn punctuation_confidence(level: u8) -> f32 {
+    let level = level.clamp(1, 10) as f32;
+    0.5 - (level - 1.0) * (1.3 / 9.0)
+}
+fn case_confidence(level: u8) -> f32 {
+    let level = level.clamp(1, 10) as f32;
+    -1.5 + (level - 1.0) * (2.0 / 9.0)
 }
 
 impl CapuEngine {
-    pub fn set_punctuation_level(&mut self, level: u8) {
-        let level = level.clamp(1, 10) as f32;
-        self.punctuation_confidence = 0.5 - (level - 1.0) * (1.3 / 9.0);
-    }
-    pub fn set_case_level(&mut self, level: u8) {
-        let level = level.clamp(1, 10) as f32;
-        self.case_confidence = -1.5 + (level - 1.0) * (2.0 / 9.0);
-    }
+    pub fn punctuation_level(&self) -> u8 { self.punctuation_level }
+    pub fn threads(&self) -> usize { self.threads }
+    pub fn set_punctuation_level(&mut self, level: u8) { self.punctuation_level = level.clamp(1, 10); }
+    pub fn set_case_level(&mut self, level: u8) { self.case_level = level.clamp(1, 10); }
 }
 ```
 
-Trong `infer_once`, sau khi có `row_logits` cho mỗi từ: softmax → cộng `punctuation_confidence` vào
-xác suất của `Action::Keep` → cộng `case_confidence` vào xác suất của mọi index trong
-`case_label_indices` → `max_by` trên mảng đã cộng bias (thay vì trên logits thô).
-`case_label_indices` xác định bằng cách so `self.labels[i]` với các biến thể case đã có trong
-`vocabulary.rs` (`TransformCaseCapital`, `TransformCaseUpper`, `TransformCaseLower`,
-`TransformCaseCapital1`, `TransformCaseUpperMinus1` — xem enum `Action` hiện có, không đoán tên mới).
+Trong `infer_once`, sau khi có `row_logits` cho mỗi từ: softmax → cộng `punctuation_confidence(self.punctuation_level)`
+vào `probs[self.keep_index]` → cộng `case_confidence(self.case_level)` vào `probs[idx]` cho mọi `idx`
+trong `case_label_indices` → `max_by` trên mảng xác suất đã cộng bias (thay vì trên logits thô).
+`keep_index`/`case_label_indices` xác định 1 lần lúc `load()` bằng cách so `labels[i]` với
+`Action::Keep`/các biến thể case đã có trong `vocabulary.rs` (`TransformCaseCapital`,
+`TransformCaseUpper`, `TransformCaseLower`, `TransformCaseCapital1`, `TransformCaseUpperMinus1` — enum
+`Action` hiện có, không đoán tên mới).
 
 ### 2. Bypass ở mức thấp nhất (`post_asr.rs`)
 
-`process_asr_text` nhận thêm tham số mức độ (đọc từ state cache, xem mục 5), kiểm tra trước khi gọi
-engine:
+Kiểm tra `punctuation_level()` ngay sau khi lock engine, trước khi gọi `restore_punctuation` — không
+cần state/cache riêng, engine đã là nguồn sự thật duy nhất:
 
 ```rust
 pub fn process_asr_text(raw: &str, capu_trailing: &mut Vec<String>) -> String {
     let lowered = raw.to_lowercase();
     let after_itn = crate::itn_engine::engine::inverse_normalize_or_pass(&lowered);
 
-    if current_punctuation_level() == 1 {
-        return after_itn; // giống hệt bypass_restorer của app tham khảo
+    match crate::capu_engine::commands::get_engine_arc() {
+        Some(engine_arc) => {
+            let mut engine = engine_arc.lock().unwrap();
+            if engine.punctuation_level() <= 1 {
+                return after_itn; // giống hệt bypass_restorer của app tham khảo
+            }
+            match engine.restore_punctuation(capu_trailing, &after_itn) {
+                Ok((restored, next_context)) => {
+                    *capu_trailing = next_context;
+                    restored
+                }
+                Err(e) => {
+                    log::warn!("CAPU failed after ITN: {}", e);
+                    after_itn
+                }
+            }
+        }
+        None => after_itn,
     }
-    match crate::capu_engine::commands::get_engine_arc() { /* như cũ */ }
 }
 ```
 
 ### 3. Số luồng CPU lúc load (`capu_engine.rs` + `commands.rs`)
 
-`CapuEngine::load` nhận thêm `threads: usize`:
+`CapuEngine::load` nhận thêm `threads: usize, punctuation_level: u8, case_level: u8` (khởi tạo field
+tương ứng ngay lúc build, không cần gọi setter riêng sau đó):
 
 ```rust
 let session = Session::builder()?
@@ -208,18 +234,37 @@ Thread qua `TranscriptSetting` (model), `SettingsRepository::{get,save}_transcri
 tham số optional theo đúng pattern đã có cho `roverEnabled`/`hotwords`
 ([api.rs:445-459](../../../frontend/src-tauri/src/api/api.rs)).
 
-Command mới `capu_apply_settings(threads, punctuation_level, case_level)`:
-1. Luôn gọi `engine.set_punctuation_level(...)` + `engine.set_case_level(...)` trên engine đang chạy
-   (nếu đã load) — không cần rebuild, có hiệu lực ngay.
-2. Chỉ rebuild session (unload `CAPU_ENGINE`, gọi lại `CapuEngine::load` với `threads` mới) **nếu**
-   `threads` khác số luồng đang dùng (lưu số luồng hiện tại làm field/state, ví dụ
-   `CapuEngine.loaded_threads: usize`, so sánh trước khi rebuild). Nếu rebuild thất bại (ví dụ file
-   model bị xoá) → giữ nguyên engine cũ đang chạy, trả lỗi cho frontend — không phá engine đang hoạt
-   động tốt.
+**Không thêm Tauri command riêng để "apply" settings.** `api_save_transcript_config` đã có sẵn đúng
+pattern này cho hotwords — sau khi lưu DB, nó lấy engine đang chạy (nếu có) và đẩy thẳng giá trị mới
+vào, best-effort ([api.rs:529-539](../../../frontend/src-tauri/src/api/api.rs)):
 
-Frontend gọi command này ngay sau `api_save_transcript_config` trong `handleSave()`, cùng 1 lần bấm
-"Lưu cấu hình" — giống cách `AsrModelManager.tsx` hiện đã gọi `AsrAPI.loadModel(...)` ngay sau khi
-lưu config ASR ([AsrModelManager.tsx:320-327](../../../frontend/src/components/AsrModelManager.tsx)).
+```rust
+if let Ok(engine) = crate::asr_engine::commands::get_engine_arc() {
+    let text = crate::asr_engine::hotwords::effective_hotwords_text(...);
+    engine.set_hotwords(text).await;
+}
+```
+
+CAPU làm tương tự, thêm 1 khối ngay sau khối hotwords ở trên, gọi 1 hàm nội bộ (không phải
+`#[tauri::command]`) trong `capu_engine::commands`, ví dụ `apply_settings_after_save(app, threads,
+punctuation_level, case_level)`:
+1. Nếu có engine đang chạy: lock, gọi `set_punctuation_level`/`set_case_level` ngay (không cần
+   rebuild, có hiệu lực từ lần inference tiếp theo), rồi so `engine.threads()` với `threads` mới.
+2. Nếu khác → rebuild: gọi lại `CapuEngine::load(...)` với `threads` mới, thay `Arc` trong
+   `CAPU_ENGINE` nếu load thành công. Nếu load thất bại (ví dụ file model bị xoá) → log lỗi, **giữ
+   nguyên** engine cũ đang chạy — không phá engine đang hoạt động tốt vì 1 lần rebuild lỗi.
+3. Nếu chưa có engine nào đang chạy (model chưa tải/chưa init) → không làm gì, giữ hành vi hiện tại
+   (im lặng bỏ qua bước hồi dấu câu tới khi `capu_init` chạy).
+
+**`capu_init` (lúc khởi động app)** đọc `capuCpuThreads`/`capuPunctuationLevel`/`capuCaseLevel` từ DB
+qua `app.try_state::<AppState>()`, đúng pattern `asr_load_model` đã dùng để đọc hotwords từ DB sau
+khi load model ([asr_engine/commands.rs:292-305](../../../frontend/src-tauri/src/asr_engine/commands.rs)).
+Nếu chưa có state/DB chưa sẵn sàng (do thứ tự khởi động — CAPU init chạy trước
+`database::setup::initialize_database_on_startup` trong `lib.rs`) hoặc chưa có row nào → dùng mặc
+định (`threads = detect_cpu_topology().0`, `punctuation_level = 7`, `case_level = 3`), giống hệt cách
+`asr_load_model` fallback về mặc định khi tham số rỗng. Không chặn `capu_init` chờ DB — nếu người
+dùng từng lưu setting khác mặc định, giá trị đó có hiệu lực ngay khi họ mở Settings → Lưu lần đầu sau
+khi mở app (qua đường `api_save_transcript_config` ở trên), không cần đợi đúng lúc khởi động.
 
 ### 6. Frontend
 
@@ -230,8 +275,6 @@ vì dùng chung command `api_save_transcript_config`):
 export const CapuAPI = {
   getCpuTopology: (): Promise<{ physicalCores: number; logicalThreads: number }> =>
     invoke('capu_get_cpu_topology'),
-  applySettings: (threads: number, punctuationLevel: number, caseLevel: number): Promise<void> =>
-    invoke('capu_apply_settings', { threads, punctuationLevel, caseLevel }),
 };
 ```
 
@@ -256,9 +299,11 @@ const levelLabel = (v: number) => LEVEL_LABELS[v] ?? String(v);
 - **Mức độ thêm dấu** — range `1..10`, mặc định `7`. Ghi chú: mức 1 tắt hoàn toàn việc thêm dấu câu.
 - **Mức độ tự viết hoa** — range `1..10`, mặc định `3`.
 
-`handleSave()` thêm 3 field vào lời gọi `invoke('api_save_transcript_config', ...)` hiện có, sau đó
-gọi `CapuAPI.applySettings(...)`. Lỗi từ `applySettings` (ví dụ rebuild thất bại) hiển thị qua
-`saveMessage` như các lỗi lưu khác đã có.
+`handleSave()` chỉ cần thêm 3 field vào lời gọi `invoke('api_save_transcript_config', ...)` hiện có —
+không cần lời gọi `invoke` thứ hai, vì việc áp dụng (live-update + rebuild nếu cần) đã nằm trong chính
+command đó (mục 5). Lỗi rebuild (nếu có) được `api_save_transcript_config` log ở phía Rust theo kiểu
+best-effort (giống hotwords) — không throw lỗi chặn việc lưu config, vì bản thân DB save đã thành
+công; `saveMessage` phía FE tiếp tục phản ánh kết quả của riêng `api_save_transcript_config`.
 
 ## Kiểm thử
 
@@ -289,5 +334,5 @@ gọi `CapuAPI.applySettings(...)`. Lỗi từ `applySettings` (ví dụ rebuild
 | Thêm bước softmax vào `infer_once` làm đổi kết quả decode ở mức mặc định so với hành vi argmax-trên-logits-thô hiện tại (dù không có bias, softmax không đổi thứ hạng argmax nên về lý thuyết kết quả giữ nguyên khi bias=0) | Test hồi quy: so kết quả `restore_punctuation` trên vài câu mẫu trước/sau khi thêm softmax với level mặc định (7/3) — phải giống hệt bias=0 case; nếu không giống, có bug ở bước cộng bias, không phải ở softmax |
 | Rebuild session (đổi số luồng CPU) xảy ra đúng lúc một request inference khác đang chạy trên `Arc<Mutex<CapuEngine>>` | `Mutex` đã serialize truy cập — rebuild chỉ là swap nội dung bên trong lock, request đang chờ lock sẽ thấy engine mới ngay khi lấy được lock; không cần cơ chế đồng bộ thêm |
 | `case_label_indices` tính sai nếu tên biến thể `Action::TransformCase*` trong `vocabulary.rs` không khớp giả định lúc viết spec | Đọc trực tiếp enum `Action` hiện có trong `vocabulary.rs` lúc code, không đoán tên field |
-| Người dùng đặt số luồng CPU cao hơn physical core thật (nếu FE gửi giá trị ngoài dải do bug UI) | Clamp `threads` về `1..=physicalCores` ở tầng Rust command `capu_apply_settings`, độc lập với giới hạn slider ở FE — không tin dữ liệu từ frontend |
+| Người dùng đặt số luồng CPU cao hơn physical core thật (nếu FE gửi giá trị ngoài dải do bug UI) | Clamp `threads` về `1..=physicalCores` bên trong `apply_settings_after_save`/`capu_init`, độc lập với giới hạn slider ở FE — không tin dữ liệu từ frontend |
 | Migration thêm cột cho DB đã có dữ liệu người dùng cũ (không có 3 cột mới) | Dùng `ALTER TABLE ... ADD COLUMN` (không phải tạo lại bảng) — cột mới NULL-able, `get_transcript_config` đọc NULL → áp mặc định, không cần backfill |
