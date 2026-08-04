@@ -723,13 +723,12 @@ pub async fn stop_recording<R: Runtime>(
         }
     }
 
-    {
-        use tauri::Listener;
-        if let Some(listener_id) = TRANSCRIPT_FINALIZED_LISTENER_ID.lock().take() {
-            app.unlisten(listener_id);
-            info!("✅ Transcript-finalized listener removed");
-        }
-    }
+    // NOTE: transcript-finalized listener is intentionally NOT removed here. The CAPU
+    // background stage (Stage 2) is nested inside the transcription task awaited below —
+    // its guaranteed final flush (often the ONLY flush for short recordings) fires while
+    // that await is in progress. Unlistening this early would silently drop that event and
+    // permanently lose the punctuated text. It's removed further down, after the
+    // transcription task handle has fully completed.
 
     // Step 2: Signal transcription workers to finish processing ALL queued chunks
     let _ = app.emit(
@@ -795,6 +794,16 @@ pub async fn stop_recording<R: Runtime>(
         progress_task.abort();
     } else {
         info!("ℹ️ No transcription task found to wait for");
+    }
+
+    // The transcription task (and, nested inside it, the CAPU background stage) has now
+    // fully completed or timed out — safe to stop listening for its final flush.
+    {
+        use tauri::Listener;
+        if let Some(listener_id) = TRANSCRIPT_FINALIZED_LISTENER_ID.lock().take() {
+            app.unlisten(listener_id);
+            info!("✅ Transcript-finalized listener removed");
+        }
     }
 
     // Step 3: Now safely unload Whisper model after ALL chunks are processed

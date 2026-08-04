@@ -89,14 +89,21 @@ impl CapuBatcher {
         let audio_start_time = self.pending.first().unwrap().audio_start_time;
         let audio_end_time = self.pending.last().unwrap().audio_end_time;
 
-        let text = match engine.restore_punctuation(&self.trailing_context, &joined) {
-            Ok((restored, next_context)) => {
-                self.trailing_context = next_context;
-                restored
-            }
-            Err(e) => {
-                log::warn!("CapuBatcher: CAPU failed on batch, falling back to raw text: {}", e);
-                joined
+        // At the minimum punctuation level, skip CAPU entirely rather than running
+        // inference with an extreme bias — matches `post_asr::process_asr_text`'s
+        // identical bypass, so live and file/batch transcription behave consistently.
+        let text = if engine.punctuation_level() <= 1 {
+            joined.clone()
+        } else {
+            match engine.restore_punctuation(&self.trailing_context, &joined) {
+                Ok((restored, next_context)) => {
+                    self.trailing_context = next_context;
+                    restored
+                }
+                Err(e) => {
+                    log::warn!("CapuBatcher: CAPU failed on batch, falling back to raw text: {}", e);
+                    joined
+                }
             }
         };
 
