@@ -72,12 +72,27 @@ pub struct TranscriptConfig {
     pub model: String,
     #[serde(rename = "apiKey")]
     pub api_key: Option<String>,
-    #[serde(rename = "zipformerVariant")]
-    pub zipformer_variant: Option<String>,
+    #[serde(rename = "asrVariant")]
+    pub asr_variant: Option<String>,
     #[serde(rename = "decodingMethod")]
     pub decoding_method: Option<String>,
     #[serde(rename = "numActivePaths")]
     pub num_active_paths: Option<i32>,
+    #[serde(rename = "maxSegmentSeconds")]
+    pub max_segment_seconds: Option<i32>,
+    #[serde(rename = "roverEnabled")]
+    pub rover_enabled: bool,
+    #[serde(rename = "roverFamilyB")]
+    pub rover_family_b: Option<String>,
+    #[serde(rename = "roverVariantB")]
+    pub rover_variant_b: Option<String>,
+    pub hotwords: Option<String>,
+    #[serde(rename = "capuCpuThreads")]
+    pub capu_cpu_threads: Option<i32>,
+    #[serde(rename = "capuPunctuationLevel")]
+    pub capu_punctuation_level: i32,
+    #[serde(rename = "capuCaseLevel")]
+    pub capu_case_level: i32,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -365,21 +380,24 @@ pub async fn api_get_api_key<R: Runtime>(
 
 #[tauri::command]
 pub async fn api_get_transcript_config<R: Runtime>(
-    _app: AppHandle<R>,
+    app: AppHandle<R>,
     state: tauri::State<'_, AppState>,
     _auth_token: Option<String>,
 ) -> Result<Option<TranscriptConfig>, String> {
     log_info!("api_get_transcript_config called (native)");
     let pool = state.db_manager.pool();
+    let bundled_hotwords = crate::asr_engine::commands::load_bundled_hotwords_raw(&app);
 
     match SettingsRepository::get_transcript_config(pool).await {
         Ok(Some(config)) => {
-            // Migrate legacy providers to zipformer
+            // Migrate legacy providers to asr
             let provider = match config.provider.as_str() {
-                "parakeet" | "localWhisper" | "whisper" => "zipformer".to_string(),
+                "parakeet" | "localWhisper" | "whisper" | "zipformer" => "asr".to_string(),
                 other => other.to_string(),
             };
-            let model = if provider == "zipformer" && (config.model.contains("parakeet") || config.model.contains("ggml")) {
+            let model = if (provider == "asr" || config.provider == "zipformer")
+                && (config.model.contains("parakeet") || config.model.contains("ggml"))
+            {
                 crate::config::ZIPFORMER_MODEL_NAME.to_string()
             } else {
                 config.model.clone()
@@ -393,20 +411,39 @@ pub async fn api_get_transcript_config<R: Runtime>(
                 provider,
                 model,
                 api_key: None,
-                zipformer_variant: Some(config.zipformer_variant.clone()),
+                asr_variant: Some(config.asr_variant.clone()),
                 decoding_method: Some(config.decoding_method.clone()),
                 num_active_paths: Some(config.num_active_paths),
+                max_segment_seconds: Some(config.max_segment_seconds),
+                rover_enabled: config.rover_enabled,
+                rover_family_b: config.rover_family_b.clone(),
+                rover_variant_b: config.rover_variant_b.clone(),
+                hotwords: crate::asr_engine::hotwords::display_hotwords_text(
+                    config.hotwords.as_deref(),
+                    bundled_hotwords.as_deref(),
+                ),
+                capu_cpu_threads: config.capu_cpu_threads,
+                capu_punctuation_level: config.capu_punctuation_level,
+                capu_case_level: config.capu_case_level,
             }))
         }
         Ok(None) => {
             log_info!("No transcript config found, returning default.");
             Ok(Some(TranscriptConfig {
-                provider: "zipformer".to_string(),
+                provider: "asr".to_string(),
                 model: crate::config::ZIPFORMER_MODEL_NAME.to_string(),
                 api_key: None,
-                zipformer_variant: Some("int8".to_string()),
+                asr_variant: Some("int8".to_string()),
                 decoding_method: Some("modified_beam_search".to_string()),
                 num_active_paths: Some(15),
+                max_segment_seconds: Some(crate::audio::common::DEFAULT_MAX_SEGMENT_SECONDS as i32),
+                rover_enabled: false,
+                rover_family_b: None,
+                rover_variant_b: None,
+                hotwords: bundled_hotwords.clone(),
+                capu_cpu_threads: None,
+                capu_punctuation_level: 7,
+                capu_case_level: 3,
             }))
         }
         Err(e) => {
@@ -418,33 +455,81 @@ pub async fn api_get_transcript_config<R: Runtime>(
 
 #[tauri::command]
 pub async fn api_save_transcript_config<R: Runtime>(
-    _app: AppHandle<R>,
+    app: AppHandle<R>,
     state: tauri::State<'_, AppState>,
     provider: String,
-    _model: String,
+    model: String,
     api_key: Option<String>,
-    zipformer_variant: Option<String>,
+    asr_variant: Option<String>,
     decoding_method: Option<String>,
     num_active_paths: Option<i32>,
+    max_segment_seconds: Option<i32>,
+    rover_enabled: Option<bool>,
+    rover_family_b: Option<String>,
+    rover_variant_b: Option<String>,
+    hotwords: Option<String>,
+    capu_cpu_threads: Option<i32>,
+    capu_punctuation_level: Option<i32>,
+    capu_case_level: Option<i32>,
     _auth_token: Option<String>,
 ) -> Result<serde_json::Value, String> {
     log_info!(
-        "api_save_transcript_config called (native) for provider '{}'",
-        &provider
+        "api_save_transcript_config called (native) for provider '{}', model '{}'",
+        &provider,
+        &model
     );
     let pool = state.db_manager.pool();
 
-    if provider != "zipformer" {
-        return Err("Chỉ hỗ trợ nhận dạng ZipFormer (zipformer).".to_string());
+    if provider != "asr" {
+        return Err("Chỉ hỗ trợ nhận dạng ASR (asr).".to_string());
     }
 
-    let model = crate::config::ZIPFORMER_MODEL_NAME.to_string();
-    let variant = zipformer_variant.as_deref().unwrap_or("int8");
+    let model = if model.is_empty() {
+        crate::config::ZIPFORMER_MODEL_NAME.to_string()
+    } else {
+        model
+    };
+    let family = crate::asr_engine::model_family::ModelFamily::from_id(&model);
+    let requested_variant =
+        crate::asr_engine::model_family::ModelVariant::from_str(asr_variant.as_deref().unwrap_or("int8"));
+    let resolved_variant = if family.available_variants().contains(&requested_variant) {
+        requested_variant
+    } else {
+        family.available_variants()[0]
+    };
+    let variant = resolved_variant.as_str();
     let dm = decoding_method.as_deref().unwrap_or("modified_beam_search");
     let paths = num_active_paths.unwrap_or(15);
+    let max_seg = crate::audio::common::clamp_max_segment_seconds(
+        max_segment_seconds.unwrap_or(crate::audio::common::DEFAULT_MAX_SEGMENT_SECONDS as i32),
+    );
+
+    let rover_on = rover_enabled.unwrap_or(false);
+    let rover_variant_b_resolved = rover_variant_b.as_deref().unwrap_or("int8");
+
+    let capu_threads_resolved = capu_cpu_threads.filter(|&t| t > 0);
+    let capu_punct_resolved = capu_punctuation_level.unwrap_or(7).clamp(1, 10);
+    let capu_case_resolved = capu_case_level.unwrap_or(3).clamp(1, 10);
 
     if let Err(e) = SettingsRepository::save_transcript_config(
-        pool, "zipformer", &model, variant, dm, paths,
+        pool,
+        "asr",
+        &model,
+        variant,
+        dm,
+        paths,
+        max_seg as i32,
+        rover_on,
+        rover_family_b.as_deref(),
+        if rover_on {
+            Some(rover_variant_b_resolved)
+        } else {
+            None
+        },
+        hotwords.as_deref(),
+        capu_threads_resolved,
+        capu_punct_resolved,
+        capu_case_resolved,
     )
     .await
     {
@@ -462,6 +547,28 @@ pub async fn api_save_transcript_config<R: Runtime>(
             }
         }
     }
+
+    // Best-effort: if the ASR engine is already loaded this session, push the new
+    // hotwords into it immediately so the very next transcribe call uses them without
+    // requiring a reload.
+    if let Ok(engine) = crate::asr_engine::commands::get_engine_arc() {
+        let bundled = crate::asr_engine::commands::load_bundled_hotwords_raw(&app);
+        let text = crate::asr_engine::hotwords::effective_hotwords_text(
+            hotwords.as_deref(),
+            bundled.as_deref(),
+        );
+        engine.set_hotwords(text).await;
+    }
+
+    // Best-effort: apply CAPU settings to the already-loaded engine (if any) — levels
+    // update immediately; the ONNX session only rebuilds if the thread count changed.
+    crate::capu_engine::commands::apply_settings_after_save(
+        app.clone(),
+        capu_threads_resolved,
+        capu_punct_resolved as u8,
+        capu_case_resolved as u8,
+    )
+    .await;
 
     log_info!("Successfully saved transcript configuration.");
     Ok(
