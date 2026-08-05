@@ -85,10 +85,20 @@ impl CapuEngine {
         let model_path_str = model_path
             .to_str()
             .ok_or_else(|| anyhow!("Non-UTF8 model path: {:?}", model_path))?;
-        let session = Session::builder()
+        let builder = Session::builder()
             .map_err(|e| anyhow!("Failed to create ONNX session builder: {}", e))?
             .with_intra_threads(threads.max(1))
-            .map_err(|e| anyhow!("Failed to set CAPU intra-op threads: {}", e))?
+            .map_err(|e| anyhow!("Failed to set CAPU intra-op threads: {}", e))?;
+
+        // See the matching comment in `rnnt_decoder::sessions::load_session` — this is a
+        // preference, not a requirement; `ort` falls back to CPU on its own if CUDA/cuDNN
+        // aren't loadable. Only compiled in with the crate-level `cuda` feature.
+        #[cfg(feature = "cuda")]
+        let builder = builder
+            .with_execution_providers([ort::execution_providers::CUDAExecutionProvider::default().build()])
+            .map_err(|e| anyhow!("Failed to configure CUDA execution provider for CAPU: {}", e))?;
+
+        let session = builder
             .commit_from_file(model_path_str)
             .map_err(|e| anyhow!("Failed to load CAPU model {:?}: {}", model_path, e))?;
 

@@ -17,7 +17,13 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
 default = []
-cuda = []
+# Enables the CUDA execution provider for the `ort`-backed engines (CAPU punctuation
+# restoration and the ROVER RNNT decoder). Falls back to CPU automatically at runtime if
+# the CUDA/cuDNN libraries required by ONNX Runtime aren't present on the machine — see
+# `capu_engine::capu_engine::CapuEngine::load` and `rnnt_decoder::sessions::load_session`.
+# Does NOT affect the primary sherpa-onnx ASR engine (single-model live/file path), which
+# has no GPU build available through its Rust crate's automatic download mechanism.
+cuda = ["ort/cuda"]
 vulkan = []
 metal = []
 

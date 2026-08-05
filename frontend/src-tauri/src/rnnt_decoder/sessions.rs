@@ -14,10 +14,22 @@ fn load_session(path: &Path, label: &str, threads: usize) -> Result<Session> {
     let path_str = path
         .to_str()
         .ok_or_else(|| anyhow!("Non-UTF8 {} path: {:?}", label, path))?;
-    Session::builder()
+    let builder = Session::builder()
         .map_err(|e| anyhow!("Failed to create {} session builder: {}", label, e))?
         .with_intra_threads(threads.max(1))
-        .map_err(|e| anyhow!("Failed to set {} intra-op threads: {}", label, e))?
+        .map_err(|e| anyhow!("Failed to set {} intra-op threads: {}", label, e))?;
+
+    // `with_execution_providers` registers CUDA as a *preference*, not a requirement: if
+    // the CUDA/cuDNN native libraries aren't loadable (see `ort::execution_providers::cuda`
+    // for the exact DLL/so list ONNX Runtime needs), `ort` logs a warning and falls back
+    // to CPU on its own — this never fails the load. Only compiled in when the crate-level
+    // `cuda` feature is enabled (`cuda = ["ort/cuda"]` in Cargo.toml).
+    #[cfg(feature = "cuda")]
+    let builder = builder
+        .with_execution_providers([ort::execution_providers::CUDAExecutionProvider::default().build()])
+        .map_err(|e| anyhow!("Failed to configure CUDA execution provider for {}: {}", label, e))?;
+
+    builder
         .commit_from_file(path_str)
         .map_err(|e| anyhow!("Failed to load {} {:?}: {}", label, path, e))
 }
