@@ -14,7 +14,7 @@ use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
 
 use super::audio_processing::{create_meeting_folder, HighPassFilter, LoudnessNormalizer};
-use super::common::{create_transcript_segments, split_segment_at_silence, write_transcripts_json};
+use super::common::{create_transcript_segments, expand_segments_at_silence, write_transcripts_json};
 use super::constants::AUDIO_EXTENSIONS;
 
 /// Global flag to track if import is in progress
@@ -508,92 +508,97 @@ async fn run_import<R: Runtime>(
 
     emit_progress(&app, "transcribing", 30, "Loading transcription engine...");
 
-    // Initialize ZipFormer Vietnamese ASR engine
-    crate::zipformer_engine::commands::zipformer_init().await
-        .map_err(|e| anyhow!("Failed to init ZipFormer: {}", e))?;
-    let zipformer = crate::zipformer_engine::commands::get_engine_arc()
-        .map_err(|e| anyhow!("{}", e))?;
-    if total_segments > 0 && !zipformer.is_model_loaded().await {
-        let variant = zipformer.get_current_variant().await;
-        let dm = zipformer.get_decoding_method().await;
-        let paths = zipformer.get_num_active_paths().await;
-        zipformer.load_model(variant, dm, paths).await?;
-    }
+    // Initialize ASR engine (ROVER or single-model, per saved config)
+    let rover_enabled = {
+        let app_state = app
+            .try_state::<AppState>()
+            .ok_or_else(|| anyhow!("App state not available"))?;
+        crate::database::repositories::setting::SettingsRepository::get_transcript_config(
+            app_state.db_manager.pool(),
+        )
+        .await
+        .ok()
+        .flatten()
+        .map(|c| c.rover_enabled)
+        .unwrap_or(false)
+    };
 
-    // Split very long segments at silence boundaries for better transcription quality.
-    // Hard cuts at arbitrary sample positions lose words at boundaries. Instead, scan
-    // for the lowest-energy window near the target split point and cut there.
-    const MAX_SEGMENT_SAMPLES: usize = 25 * 16000; // 25 seconds at 16kHz
+    let (asr, rover): (
+        Option<std::sync::Arc<crate::asr_engine::engine::AsrEngine>>,
+        Option<std::sync::Arc<tokio::sync::Mutex<crate::rover_engine::engine::RoverDecoder>>>,
+    ) = if rover_enabled {
+        crate::rover_engine::commands::rover_init().await
+            .map_err(|e| anyhow!("Failed to init ROVER: {}", e))?;
+        crate::rover_engine::commands::rover_validate_model_ready(app.clone())
+            .await
+            .map_err(|e| anyhow!("{}", e))?;
+        let rover = crate::rover_engine::commands::get_engine_arc()
+            .map_err(|e| anyhow!("{}", e))?;
+        (None, Some(rover))
+    } else {
+        crate::asr_engine::commands::asr_init().await
+            .map_err(|e| anyhow!("Failed to init ASR: {}", e))?;
+        crate::asr_engine::commands::asr_validate_model_ready(app.clone(), None, None, None, None)
+            .await
+            .map_err(|e| anyhow!("{}", e))?;
+        let asr = crate::asr_engine::commands::get_engine_arc()
+            .map_err(|e| anyhow!("{}", e))?;
+        (Some(asr), None)
+    };
 
-    let mut processable_segments: Vec<crate::audio::vad::SpeechSegment> = Vec::new();
-    for segment in &speech_segments {
-        if segment.samples.len() > MAX_SEGMENT_SAMPLES {
-            debug!(
-                "Splitting large segment ({:.0}ms, {} samples) at silence boundaries",
-                segment.end_timestamp_ms - segment.start_timestamp_ms,
-                segment.samples.len()
-            );
+    let max_segment_seconds = {
+        let app_state = app
+            .try_state::<AppState>()
+            .ok_or_else(|| anyhow!("App state not available"))?;
+        crate::database::repositories::setting::SettingsRepository::get_max_segment_seconds(
+            app_state.db_manager.pool(),
+        )
+        .await
+    };
+    info!(
+        "Splitting long segments at silence boundaries (max {}s)",
+        max_segment_seconds
+    );
 
-            let sub_segments = split_segment_at_silence(segment, MAX_SEGMENT_SAMPLES);
-            debug!("Split into {} sub-segments", sub_segments.len());
-            processable_segments.extend(sub_segments);
-        } else {
-            processable_segments.push(segment.clone());
-        }
-    }
+    let processable_segments = expand_segments_at_silence(speech_segments, max_segment_seconds);
 
     let processable_count = processable_segments.len();
     info!("Processing {} segments (after splitting)", processable_count);
 
-    // Process each speech segment
-    let mut all_transcripts: Vec<(String, f64, f64)> = Vec::new();
-
-    for (i, segment) in processable_segments.iter().enumerate() {
-        if IMPORT_CANCELLED.load(Ordering::SeqCst) {
-            let _ = std::fs::remove_dir_all(&meeting_folder);
-            return Err(anyhow!("Import cancelled"));
-        }
-
-        let progress = 30 + ((i as f32 / processable_count.max(1) as f32) * 50.0) as u32;
-        let segment_duration_sec = (segment.end_timestamp_ms - segment.start_timestamp_ms) / 1000.0;
-        emit_progress(
-            &app,
-            "transcribing",
-            progress,
-            &format!(
-                "Transcribing segment {} of {} ({:.1}s)...",
-                i + 1,
-                processable_count,
-                segment_duration_sec
-            ),
-        );
-
-        // Skip very short segments
-        if segment.samples.len() < 1600 {
-            debug!(
-                "Skipping short segment {} with {} samples",
-                i,
-                segment.samples.len()
-            );
-            continue;
-        }
-
-        // Transcribe with ZipFormer Vietnamese ASR
-        let text = zipformer
-            .transcribe_audio(segment.samples.clone())
-            .await
-            .map_err(|e| anyhow!("ZipFormer transcription failed on segment {}: {}", i, e))?;
-
-        let trimmed = text.trim();
-        if !trimmed.is_empty() {
-            debug!("Segment {}/{}: {:.1}s — '{}'", i + 1, processable_count, segment_duration_sec, trimmed);
-            all_transcripts.push((text, segment.start_timestamp_ms, segment.end_timestamp_ms));
-        } else {
-            debug!("Segment {}/{}: {:.1}s — empty", i + 1, processable_count, segment_duration_sec);
-        }
+    // Best-effort CAPU init before import transcription
+    if crate::capu_engine::commands::capu_is_model_downloaded(app.clone())
+        .await
+        .unwrap_or(false)
+    {
+        let _ = crate::capu_engine::commands::capu_init(app.clone()).await;
     }
 
-    info!("Transcription complete: {} segments", all_transcripts.len());
+    let primary = if let Some(rover) = rover {
+        crate::audio::batch_transcribe::PrimaryEngine::Rover(rover)
+    } else {
+        crate::audio::batch_transcribe::PrimaryEngine::Single(
+            asr.expect("asr must be Some when rover is None"),
+        )
+    };
+
+    let app_for_progress = app.clone();
+    let segments = crate::audio::batch_transcribe::batch_transcribe(
+        &app,
+        processable_segments,
+        primary,
+        move |done, total| {
+            let progress = 30 + ((done as f32 / total.max(1) as f32) * 50.0) as u32;
+            emit_progress(
+                &app_for_progress,
+                "transcribing",
+                progress,
+                &format!("Transcribing segment {} of {}...", done, total),
+            );
+        },
+    )
+    .await?;
+
+    info!("Transcription complete: {} segments", segments.len());
 
     // Check for cancellation
     if IMPORT_CANCELLED.load(Ordering::SeqCst) {
@@ -602,9 +607,6 @@ async fn run_import<R: Runtime>(
     }
 
     emit_progress(&app, "saving", 85, "Creating meeting...");
-
-    // Create transcript segments
-    let segments = create_transcript_segments(&all_transcripts);
 
     // Save to database
     let app_state = app
@@ -854,6 +856,7 @@ pub async fn is_import_in_progress_command() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audio::common::split_segment_at_silence;
 
     #[test]
     fn test_audio_extensions() {
