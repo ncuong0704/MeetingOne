@@ -582,7 +582,7 @@ async fn run_import<R: Runtime>(
     };
 
     let app_for_progress = app.clone();
-    let segments = crate::audio::batch_transcribe::batch_transcribe(
+    let segments = match crate::audio::batch_transcribe::batch_transcribe(
         &app,
         processable_segments,
         primary,
@@ -597,7 +597,17 @@ async fn run_import<R: Runtime>(
         },
         || IMPORT_CANCELLED.load(Ordering::SeqCst),
     )
-    .await?;
+    .await
+    {
+        Ok(segments) => segments,
+        Err(e) => {
+            // Cancellation (or any other transcription failure) leaves the copied audio
+            // file and meeting folder behind unless we clean up here — every other
+            // early-return path in this function already does this same cleanup.
+            let _ = std::fs::remove_dir_all(&meeting_folder);
+            return Err(e);
+        }
+    };
 
     info!("Transcription complete: {} segments", segments.len());
 
