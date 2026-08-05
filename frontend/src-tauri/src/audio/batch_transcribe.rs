@@ -274,12 +274,11 @@ async fn transcribe_parallel<R: Runtime>(
     let handle_a = tokio::spawn(run_worker(worker_a, even));
     let handle_b = tokio::spawn(run_worker(worker_b, odd));
 
-    let results_a = handle_a
-        .await
+    let (result_a, result_b) = tokio::join!(handle_a, handle_b);
+
+    let results_a = result_a
         .map_err(|e| anyhow!("ASR worker A task panicked: {}", e))??;
-    on_progress(total / 2, total);
-    let results_b = handle_b
-        .await
+    let results_b = result_b
         .map_err(|e| anyhow!("ASR worker B task panicked: {}", e))??;
     on_progress(total, total);
 
