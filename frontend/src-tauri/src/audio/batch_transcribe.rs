@@ -209,11 +209,39 @@ async fn build_single_worker(
     Ok(fresh)
 }
 
+/// Loads one standalone `RoverDecoder` instance (its own internal pair of decoders) for
+/// parallel file transcription. A plain free function (not a closure) so each of the 2
+/// call sites owns its arguments outright — no shared captures, no lifetime ambiguity
+/// between the two calls, matching `build_single_worker`'s pattern above.
+async fn build_rover_worker(
+    enc_a: std::path::PathBuf,
+    dec_a: std::path::PathBuf,
+    joi_a: std::path::PathBuf,
+    tok_a: std::path::PathBuf,
+    enc_b: std::path::PathBuf,
+    dec_b: std::path::PathBuf,
+    joi_b: std::path::PathBuf,
+    tok_b: std::path::PathBuf,
+    threads_per_decoder: usize,
+) -> Result<RoverDecoder> {
+    tokio::task::block_in_place(|| {
+        RoverDecoder::load(
+            (&enc_a, &dec_a, &joi_a, &tok_a),
+            (&enc_b, &dec_b, &joi_b, &tok_b),
+            4,
+            threads_per_decoder,
+        )
+    })
+    .map_err(|e| anyhow!("Failed to load parallel ROVER worker: {}", e))
+}
+
 /// Builds 2 fresh, independent workers for parallel file transcription — NEVER reuses
 /// or mutates the shared global singleton (`asr_engine::commands::ASR_ENGINE` /
 /// `rover_engine::commands::ROVER_ENGINE`), so a concurrent live recording (or another
-/// batch job) using that singleton is completely unaffected. This is the Single-model
-/// branch only; the Rover branch is added in Task 4.
+/// batch job) using that singleton is completely unaffected. The Rover branch reads the
+/// already-validated family/variant config from `rover_engine::commands::ROVER_CONFIG`
+/// (set by `rover_validate_model_ready`) and builds a fresh `RoverDecoder` pair per
+/// worker from that same config.
 async fn build_worker_pair<R: Runtime>(
     app: &AppHandle<R>,
     primary: &PrimaryEngine,
@@ -249,8 +277,37 @@ async fn build_worker_pair<R: Runtime>(
             Ok((Worker::Single(worker_a), Worker::Single(worker_b)))
         }
         PrimaryEngine::Rover(_) => {
-            let _ = app; // used by the Rover branch, added in Task 4
-            Err(anyhow!("ROVER parallel file transcription not yet implemented (Task 4)"))
+            let rover_config: Option<(ModelFamily, ModelVariant, ModelFamily, ModelVariant)> =
+                *crate::rover_engine::commands::ROVER_CONFIG.lock().unwrap();
+            let (fa, va, fb, vb) = rover_config.ok_or_else(|| {
+                anyhow!("ROVER config not set — rover_validate_model_ready must run before batch_transcribe")
+            })?;
+            let base = crate::asr_engine::commands::resolve_models_base_dir(app)
+                .ok_or_else(|| anyhow!("Cannot resolve models directory"))?;
+            let (enc_a, dec_a, joi_a, tok_a) =
+                crate::rover_engine::commands::family_paths(&base, fa, va);
+            let (enc_b, dec_b, joi_b, tok_b) =
+                crate::rover_engine::commands::family_paths(&base, fb, vb);
+            let threads_per_decoder =
+                asr_thread_budget(physical_cores, DecodeConcurrency::RoverFileWorker);
+
+            let worker_a = build_rover_worker(
+                enc_a.clone(),
+                dec_a.clone(),
+                joi_a.clone(),
+                tok_a.clone(),
+                enc_b.clone(),
+                dec_b.clone(),
+                joi_b.clone(),
+                tok_b.clone(),
+                threads_per_decoder,
+            )
+            .await?;
+            let worker_b = build_rover_worker(
+                enc_a, dec_a, joi_a, tok_a, enc_b, dec_b, joi_b, tok_b, threads_per_decoder,
+            )
+            .await?;
+            Ok((Worker::Rover(worker_a), Worker::Rover(worker_b)))
         }
     }
 }

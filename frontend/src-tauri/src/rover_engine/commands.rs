@@ -14,7 +14,7 @@ fn family_variant_dir(base: &PathBuf, family: ModelFamily, variant: ModelVariant
     base.join(family.variant_subdir(variant))
 }
 
-fn family_paths(
+pub(crate) fn family_paths(
     base: &PathBuf,
     family: ModelFamily,
     variant: ModelVariant,
