@@ -595,6 +595,7 @@ async fn run_import<R: Runtime>(
                 &format!("Transcribing segment {} of {}...", done, total),
             );
         },
+        || IMPORT_CANCELLED.load(Ordering::SeqCst),
     )
     .await?;
 

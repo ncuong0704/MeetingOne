@@ -142,10 +142,14 @@ async fn transcribe_sequential(
     segments: Vec<SpeechSegment>,
     primary: &PrimaryEngine,
     on_progress: &mut impl FnMut(usize, usize),
+    is_cancelled: &impl Fn() -> bool,
 ) -> Result<Vec<(String, f64, f64)>> {
     let total = segments.len();
     let mut results = Vec::with_capacity(total);
     for (i, segment) in segments.into_iter().enumerate() {
+        if is_cancelled() {
+            return Err(anyhow!("Cancelled"));
+        }
         on_progress(i, total);
         if segment.samples.len() < 1600 {
             continue;
@@ -164,9 +168,13 @@ async fn transcribe_sequential(
 async fn run_worker(
     mut worker: Worker,
     indexed_segments: Vec<(usize, SpeechSegment)>,
+    is_cancelled: impl Fn() -> bool,
 ) -> Result<Vec<(usize, (String, f64, f64))>> {
     let mut results = Vec::with_capacity(indexed_segments.len());
     for (i, segment) in indexed_segments {
+        if is_cancelled() {
+            return Err(anyhow!("Cancelled"));
+        }
         if segment.samples.len() < 1600 {
             continue;
         }
@@ -322,14 +330,15 @@ async fn transcribe_parallel<R: Runtime>(
     primary: &PrimaryEngine,
     physical_cores: usize,
     on_progress: &mut impl FnMut(usize, usize),
+    is_cancelled: impl Fn() -> bool + Send + Sync + Clone + 'static,
 ) -> Result<Vec<(String, f64, f64)>> {
     let total = segments.len();
     let (even, odd) = split_even_odd(segments);
 
     let (worker_a, worker_b) = build_worker_pair(app, primary, physical_cores).await?;
 
-    let handle_a = tokio::spawn(run_worker(worker_a, even));
-    let handle_b = tokio::spawn(run_worker(worker_b, odd));
+    let handle_a = tokio::spawn(run_worker(worker_a, even, is_cancelled.clone()));
+    let handle_b = tokio::spawn(run_worker(worker_b, odd, is_cancelled));
 
     let (result_a, result_b) = tokio::join!(handle_a, handle_b);
 
@@ -352,14 +361,15 @@ pub async fn batch_transcribe<R: Runtime>(
     segments: Vec<SpeechSegment>,
     primary: PrimaryEngine,
     mut on_progress: impl FnMut(usize, usize),
+    is_cancelled: impl Fn() -> bool + Send + Sync + Clone + 'static,
 ) -> Result<Vec<TranscriptSegment>> {
     let (physical_cores, _) = detect_cpu_topology();
     let total = segments.len();
 
     let raw_results = if should_parallelize(total, physical_cores) {
-        transcribe_parallel(app, segments, &primary, physical_cores, &mut on_progress).await?
+        transcribe_parallel(app, segments, &primary, physical_cores, &mut on_progress, is_cancelled).await?
     } else {
-        transcribe_sequential(segments, &primary, &mut on_progress).await?
+        transcribe_sequential(segments, &primary, &mut on_progress, &is_cancelled).await?
     };
 
     Ok(finalize_with_capu(raw_results))
