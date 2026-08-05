@@ -3,7 +3,7 @@
 use crate::audio::audio_processing::{HighPassFilter, LoudnessNormalizer, NoiseSuppressionProcessor};
 use crate::audio::decoder::{decode_audio_file, resample_mono_with_progress};
 use crate::audio::vad::get_speech_chunks_with_progress;
-use super::common::{create_transcript_segments, expand_segments_at_silence, write_transcripts_json};
+use super::common::{create_transcript_segments, expand_segments_with_overlap, write_transcripts_json};
 use super::constants::AUDIO_EXTENSIONS;
 use crate::state::AppState;
 use anyhow::{anyhow, Result};
@@ -283,7 +283,8 @@ async fn run_retranscription<R: Runtime>(
 
     let max_segment_seconds = file_cfg.max_segment_seconds;
 
-    let processable_segments = expand_segments_at_silence(speech_segments, max_segment_seconds);
+    let (processable_segments, leading_context_samples) =
+        expand_segments_with_overlap(speech_segments, max_segment_seconds);
 
     let processable_count = processable_segments.len();
     info!("Processing {} segments", processable_count);
@@ -309,6 +310,7 @@ async fn run_retranscription<R: Runtime>(
     let segments = crate::audio::batch_transcribe::batch_transcribe(
         &app,
         processable_segments,
+        leading_context_samples,
         primary,
         move |done, total| {
             let progress = 25 + ((done as f32 / total.max(1) as f32) * 55.0) as u32;

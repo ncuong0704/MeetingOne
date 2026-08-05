@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 use super::audio_processing::{create_meeting_folder, HighPassFilter, LoudnessNormalizer, NoiseSuppressionProcessor};
 use super::decoder::resample_mono_with_progress;
-use super::common::{create_transcript_segments, expand_segments_at_silence, write_transcripts_json};
+use super::common::{create_transcript_segments, expand_segments_with_overlap, write_transcripts_json};
 use super::constants::AUDIO_EXTENSIONS;
 
 /// Global flag to track if import is in progress
@@ -582,7 +582,8 @@ async fn run_import<R: Runtime>(
         max_segment_seconds
     );
 
-    let processable_segments = expand_segments_at_silence(speech_segments, max_segment_seconds);
+    let (processable_segments, leading_context_samples) =
+        expand_segments_with_overlap(speech_segments, max_segment_seconds);
 
     let processable_count = processable_segments.len();
     info!("Processing {} segments (after splitting)", processable_count);
@@ -607,6 +608,7 @@ async fn run_import<R: Runtime>(
     let segments = match crate::audio::batch_transcribe::batch_transcribe(
         &app,
         processable_segments,
+        leading_context_samples,
         primary,
         move |done, total| {
             let progress = 30 + ((done as f32 / total.max(1) as f32) * 50.0) as u32;

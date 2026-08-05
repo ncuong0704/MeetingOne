@@ -50,11 +50,74 @@ fn split_even_odd<T>(items: Vec<T>) -> (Vec<(usize, T)>, Vec<(usize, T)>) {
     (even, odd)
 }
 
-/// Merges two index-tagged result groups back into original order.
-fn merge_indexed<T>(mut a: Vec<(usize, T)>, mut b: Vec<(usize, T)>) -> Vec<T> {
+/// Merges two index-tagged result groups back into original order, keeping each item's
+/// original index instead of discarding it. `stitch_overlapping_raw_results` needs the
+/// index to look up `leading_context_samples[index]` after reordering —
+/// `transcribe_sequential`/`transcribe_parallel` can silently skip segments (empty ASR
+/// text, too-short audio), so position-in-the-final-list is not a reliable stand-in for
+/// original segment index.
+fn merge_indexed_keep_index<T>(mut a: Vec<(usize, T)>, mut b: Vec<(usize, T)>) -> Vec<(usize, T)> {
     a.append(&mut b);
     a.sort_by_key(|(i, _)| *i);
-    a.into_iter().map(|(_, v)| v).collect()
+    a
+}
+
+/// Vietnamese speech runs roughly 2-4 words/second; this generously over-estimates how
+/// many words could fall within the 1-second overlap window `expand_segments_with_overlap`
+/// (`audio/common.rs`) uses, so the search below never misses a genuine match while
+/// staying cheap (at most `MAX_OVERLAP_WORDS_TO_CHECK^2` word comparisons per boundary).
+const MAX_OVERLAP_WORDS_TO_CHECK: usize = 12;
+
+/// Finds the longest `k` (up to `max_words`) such that the last `k` (normalized) words of
+/// `prev_text` exactly equal the first `k` (normalized) words of `next_text`, and returns
+/// `next_text` with those `k` words dropped from the front.
+///
+/// This de-duplicates the shared audio region a no-silence chunk split intentionally
+/// decodes twice — once as trailing context for one chunk, once as leading context for
+/// the next — so a mid-word split doesn't truncate a word in the final transcript. If no
+/// matching `k > 0` exists (the two chunks decoded the shared audio differently),
+/// `next_text` is returned unchanged: the worst case is the same duplicated-phrase
+/// behavior this replaces, never a worse outcome.
+fn trim_overlap_prefix(prev_text: &str, next_text: &str, max_words: usize) -> String {
+    let prev_words: Vec<&str> = prev_text.split_whitespace().collect();
+    let next_words: Vec<&str> = next_text.split_whitespace().collect();
+    let max_k = max_words.min(prev_words.len()).min(next_words.len());
+
+    for k in (1..=max_k).rev() {
+        let prev_tail = &prev_words[prev_words.len() - k..];
+        let next_head = &next_words[..k];
+        let all_match = prev_tail.iter().zip(next_head.iter()).all(|(a, b)| {
+            crate::rover_engine::normalize::normalize_word(a)
+                == crate::rover_engine::normalize::normalize_word(b)
+        });
+        if all_match {
+            return next_words[k..].join(" ");
+        }
+    }
+    next_text.to_string()
+}
+
+/// Walks `raw_results` (already reassembled into final chronological order, still
+/// tagged with each segment's original index) and, for every segment
+/// `expand_segments_with_overlap` marked as having leading context
+/// (`leading_context_samples[index] > 0`), trims the words that context caused to be
+/// duplicated from the end of the immediately preceding output segment's text.
+fn stitch_overlapping_raw_results(
+    raw_results: Vec<(usize, (String, f64, f64))>,
+    leading_context_samples: &[usize],
+) -> Vec<(String, f64, f64)> {
+    let mut out: Vec<(String, f64, f64)> = Vec::with_capacity(raw_results.len());
+    for (index, (text, start_ms, end_ms)) in raw_results {
+        let has_leading_context = leading_context_samples.get(index).copied().unwrap_or(0) > 0;
+        let text = match (has_leading_context, out.last()) {
+            (true, Some((prev_text, _, _))) => {
+                trim_overlap_prefix(prev_text, &text, MAX_OVERLAP_WORDS_TO_CHECK)
+            }
+            _ => text,
+        };
+        out.push((text, start_ms, end_ms));
+    }
+    out
 }
 
 /// Runs CAPU over the full list of raw ASR results, batching consecutive segments up to
@@ -138,13 +201,15 @@ async fn transcribe_one(primary: &PrimaryEngine, samples: &[f32]) -> Result<Stri
 
 /// Sequential fallback: reuses the already-loaded shared `primary` engine directly (no
 /// extra model load), processing segments one at a time — identical behavior to the
-/// pre-existing `import.rs`/`retranscription.rs` for-loops this replaces.
+/// pre-existing `import.rs`/`retranscription.rs` for-loops this replaces. Each result
+/// keeps its original segment index (see `merge_indexed_keep_index`'s doc comment for
+/// why: segments can be silently skipped here, so position alone isn't a stable index).
 async fn transcribe_sequential(
     segments: Vec<SpeechSegment>,
     primary: &PrimaryEngine,
     on_progress: &mut impl FnMut(usize, usize),
     is_cancelled: &impl Fn() -> bool,
-) -> Result<Vec<(String, f64, f64)>> {
+) -> Result<Vec<(usize, (String, f64, f64))>> {
     let total = segments.len();
     let mut results = Vec::with_capacity(total);
     for (i, segment) in segments.into_iter().enumerate() {
@@ -157,7 +222,7 @@ async fn transcribe_sequential(
         }
         let text = transcribe_one(primary, &segment.samples).await?;
         if !text.trim().is_empty() {
-            results.push((text, segment.start_timestamp_ms, segment.end_timestamp_ms));
+            results.push((i, (text, segment.start_timestamp_ms, segment.end_timestamp_ms)));
         }
     }
     on_progress(total, total);
@@ -331,7 +396,8 @@ async fn build_worker_pair<R: Runtime>(
 /// Parallel path: splits `segments` even/odd, builds 2 fresh workers, runs both
 /// concurrently via `tokio::spawn` (so they land on separate OS threads under the
 /// multi-threaded Tokio runtime — real parallelism, not just async concurrency), then
-/// merges results back into original chronological order.
+/// merges results back into original chronological order (indices kept — see
+/// `merge_indexed_keep_index`).
 async fn transcribe_parallel<R: Runtime>(
     app: &AppHandle<R>,
     segments: Vec<SpeechSegment>,
@@ -339,7 +405,7 @@ async fn transcribe_parallel<R: Runtime>(
     physical_cores: usize,
     on_progress: &mut impl FnMut(usize, usize),
     is_cancelled: impl Fn() -> bool + Send + Sync + Clone + 'static,
-) -> Result<Vec<(String, f64, f64)>> {
+) -> Result<Vec<(usize, (String, f64, f64))>> {
     let total = segments.len();
     let (even, odd) = split_even_odd(segments);
 
@@ -377,17 +443,24 @@ async fn transcribe_parallel<R: Runtime>(
         .map_err(|e| anyhow!("ASR worker B task panicked: {}", e))??;
     on_progress(total, total);
 
-    Ok(merge_indexed(results_a, results_b))
+    Ok(merge_indexed_keep_index(results_a, results_b))
 }
 
 /// Transcribes `segments` (already VAD-detected and silence-split by the caller),
 /// parallelizing across 2 workers when there's enough work and CPU (see
-/// `should_parallelize`), then batches the result through CAPU once per ~200-word
-/// group instead of once per tiny segment. Returns finished, punctuated
-/// `TranscriptSegment`s ready to save to the database.
+/// `should_parallelize`), then stitches any overlap-split boundaries
+/// (`leading_context_samples`, from `audio::common::expand_segments_with_overlap`) and
+/// batches the result through CAPU once per ~200-word group instead of once per tiny
+/// segment. Returns finished, punctuated `TranscriptSegment`s ready to save to the
+/// database.
+///
+/// `leading_context_samples` must be index-aligned with `segments` (same length); pass
+/// an all-zero `Vec` (or reuse `audio::common::expand_segments_at_silence`'s plain
+/// output with a zero-filled vec) if the caller didn't split with overlap.
 pub async fn batch_transcribe<R: Runtime>(
     app: &AppHandle<R>,
     segments: Vec<SpeechSegment>,
+    leading_context_samples: Vec<usize>,
     primary: PrimaryEngine,
     mut on_progress: impl FnMut(usize, usize),
     is_cancelled: impl Fn() -> bool + Send + Sync + Clone + 'static,
@@ -395,11 +468,13 @@ pub async fn batch_transcribe<R: Runtime>(
     let (physical_cores, _) = detect_cpu_topology();
     let total = segments.len();
 
-    let raw_results = if should_parallelize(total, physical_cores) {
+    let indexed_raw_results = if should_parallelize(total, physical_cores) {
         transcribe_parallel(app, segments, &primary, physical_cores, &mut on_progress, is_cancelled).await?
     } else {
         transcribe_sequential(segments, &primary, &mut on_progress, &is_cancelled).await?
     };
+
+    let raw_results = stitch_overlapping_raw_results(indexed_raw_results, &leading_context_samples);
 
     Ok(finalize_with_capu(raw_results))
 }
@@ -414,6 +489,85 @@ mod tests {
         assert!(!should_parallelize(10, 2), "too few cores");
         assert!(should_parallelize(4, 4), "boundary: exactly enough of both");
         assert!(should_parallelize(100, 16));
+    }
+
+    #[test]
+    fn merge_indexed_keep_index_restores_original_order_and_indices() {
+        let a = vec![(0, "a"), (2, "c"), (4, "e")];
+        let b = vec![(1, "b"), (3, "d")];
+        assert_eq!(
+            merge_indexed_keep_index(b, a),
+            vec![(0, "a"), (1, "b"), (2, "c"), (3, "d"), (4, "e")]
+        );
+    }
+
+    #[test]
+    fn trim_overlap_prefix_drops_the_longest_matching_run() {
+        let prev = "hôm nay chúng ta họp về dự án mới";
+        let next = "họp về dự án mới rất là quan trọng";
+        assert_eq!(
+            trim_overlap_prefix(prev, next, MAX_OVERLAP_WORDS_TO_CHECK),
+            "rất là quan trọng"
+        );
+    }
+
+    #[test]
+    fn trim_overlap_prefix_is_case_and_diacritic_form_insensitive() {
+        // Raw ASR output is all-uppercase; must still match a lowercase prev_text.
+        let prev = "xin chào các bạn";
+        let next = "CÁC BẠN HÔM NAY KHỎE KHÔNG";
+        assert_eq!(trim_overlap_prefix(prev, next, 10), "HÔM NAY KHỎE KHÔNG");
+    }
+
+    #[test]
+    fn trim_overlap_prefix_returns_next_unchanged_when_no_overlap_matches() {
+        let prev = "một hai ba";
+        let next = "hoàn toàn khác nhau";
+        assert_eq!(trim_overlap_prefix(prev, next, MAX_OVERLAP_WORDS_TO_CHECK), next);
+    }
+
+    #[test]
+    fn trim_overlap_prefix_does_not_detect_a_match_longer_than_max_words() {
+        // The true overlap is 3 words ("a b c"): prev's last 3 words equal next's first
+        // 3. With enough budget, it's found and trimmed.
+        let prev = "x y a b c";
+        let next = "a b c d";
+        assert_eq!(trim_overlap_prefix(prev, next, 3), "d");
+
+        // Capping the search below the true overlap length (2 < 3) means neither that
+        // 3-word run nor any smaller k happens to align at prev's absolute tail / next's
+        // absolute head (a k=2 check compares prev's actual last 2 words, "b c", against
+        // next's actual first 2, "a b" — a different alignment, not a subset of the
+        // k=3 match) — so nothing matches, and the safe fallback (unchanged) applies.
+        assert_eq!(trim_overlap_prefix(prev, next, 2), next);
+    }
+
+    #[test]
+    fn stitch_overlapping_raw_results_trims_only_segments_with_leading_context() {
+        let indexed = vec![
+            (0, ("xin chào các bạn".to_string(), 0.0, 1000.0)),
+            (1, ("các bạn hôm nay khỏe không".to_string(), 900.0, 2000.0)),
+            (2, ("một câu hoàn toàn mới".to_string(), 2000.0, 3000.0)),
+        ];
+        let leading_context_samples = vec![0, 16000, 0];
+
+        let stitched = stitch_overlapping_raw_results(indexed, &leading_context_samples);
+
+        assert_eq!(stitched.len(), 3);
+        assert_eq!(stitched[0].0, "xin chào các bạn");
+        assert_eq!(stitched[1].0, "hôm nay khỏe không", "overlap prefix trimmed");
+        assert_eq!(stitched[2].0, "một câu hoàn toàn mới", "no leading context, untouched");
+    }
+
+    #[test]
+    fn stitch_overlapping_raw_results_leaves_text_unchanged_when_no_segment_has_overlap() {
+        let indexed = vec![
+            (0, ("một".to_string(), 0.0, 500.0)),
+            (1, ("hai".to_string(), 500.0, 1000.0)),
+        ];
+        let stitched = stitch_overlapping_raw_results(indexed, &[0, 0]);
+        assert_eq!(stitched[0].0, "một");
+        assert_eq!(stitched[1].0, "hai");
     }
 
     #[test]
@@ -433,18 +587,10 @@ mod tests {
     }
 
     #[test]
-    fn merge_indexed_restores_original_order_regardless_of_group_completion_order() {
-        // Simulates worker B finishing first and being merged before worker A's results.
-        let a = vec![(0, "a"), (2, "c"), (4, "e")];
-        let b = vec![(1, "b"), (3, "d")];
-        assert_eq!(merge_indexed(b, a), vec!["a", "b", "c", "d", "e"]);
-    }
-
-    #[test]
-    fn merge_indexed_handles_one_side_empty() {
+    fn merge_indexed_keep_index_handles_one_side_empty() {
         let a: Vec<(usize, &str)> = vec![(0, "only")];
         let b: Vec<(usize, &str)> = vec![];
-        assert_eq!(merge_indexed(a, b), vec!["only"]);
+        assert_eq!(merge_indexed_keep_index(a, b), vec![(0, "only")]);
     }
 
     #[test]
