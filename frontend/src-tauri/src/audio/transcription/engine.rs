@@ -1,12 +1,26 @@
 // audio/transcription/engine.rs
 //
-// TranscriptionEngine and initialization logic for ZipFormer Vietnamese ASR.
+// TranscriptionEngine and initialization logic for Vietnamese ASR.
 
+use super::asr_provider::AsrProvider;
 use super::provider::TranscriptionProvider;
-use super::zipformer_provider::ZipFormerProvider;
+use crate::asr_engine::config::AsrPath;
 use log::{info, warn};
 use std::sync::Arc;
-use tauri::{AppHandle, Runtime};
+use tauri::{AppHandle, Manager, Runtime};
+
+async fn live_asr_config<R: Runtime>(app: &AppHandle<R>) -> Option<crate::asr_engine::config::PathAsrConfig> {
+    let Some(app_state) = app.try_state::<crate::state::AppState>() else {
+        return None;
+    };
+    Some(
+        crate::database::repositories::setting::SettingsRepository::get_path_asr_config(
+            app_state.db_manager.pool(),
+            AsrPath::Live,
+        )
+        .await,
+    )
+}
 
 // ============================================================================
 // TRANSCRIPTION ENGINE ENUM
@@ -40,46 +54,61 @@ impl TranscriptionEngine {
 // MODEL VALIDATION AND INITIALIZATION
 // ============================================================================
 
-/// Validate that the ZipFormer model is ready before recording starts
+/// Validate that the ASR model is ready before recording starts
 pub async fn validate_transcription_model_ready<R: Runtime>(
     app: &AppHandle<R>,
 ) -> Result<(), String> {
-    info!("🔍 Validating ZipFormer Vietnamese ASR model...");
+    info!("🔍 Validating Vietnamese ASR model (live path)...");
 
-    if let Err(e) = crate::zipformer_engine::commands::zipformer_init().await {
-        warn!("❌ Failed to initialize ZipFormer engine: {}", e);
+    let live_cfg = live_asr_config(app)
+        .await
+        .ok_or_else(|| "App state not available".to_string())?;
+
+    if let Err(e) = crate::asr_engine::commands::asr_init().await {
+        warn!("❌ Failed to initialize ASR engine: {}", e);
         return Err(format!("Failed to initialize speech recognition: {}", e));
     }
 
-    match crate::zipformer_engine::commands::zipformer_validate_model_ready(app.clone(), None, None, None).await {
+    match crate::asr_engine::commands::asr_validate_model_ready(
+        app.clone(),
+        Some(live_cfg.family_id.clone()),
+        Some(live_cfg.variant.as_str().to_string()),
+        Some(live_cfg.decoding_method.clone()),
+        Some(live_cfg.num_active_paths),
+    )
+    .await
+    {
         Ok(name) => {
-            info!("✅ ZipFormer model ready: {}", name);
+            info!("✅ ASR model ready: {}", name);
             Ok(())
         }
         Err(e) => {
-            warn!("❌ ZipFormer model validation failed: {}", e);
+            warn!("❌ ASR model validation failed: {}", e);
             Err(e)
         }
     }
 }
 
-/// Get or initialize the ZipFormer transcription engine
+/// Get or initialize the ASR transcription engine
 pub async fn get_or_init_transcription_engine<R: Runtime>(
-    _app: &AppHandle<R>,
+    app: &AppHandle<R>,
 ) -> Result<TranscriptionEngine, String> {
-    info!("🎤 Initializing ZipFormer transcription engine");
+    info!("🎤 Initializing ASR transcription engine (live path)");
 
-    let engine = crate::zipformer_engine::commands::get_engine_arc()?;
+    let live_cfg = live_asr_config(app)
+        .await
+        .ok_or_else(|| "App state not available".to_string())?;
 
-    if !engine.is_model_loaded().await {
-        let variant = engine.get_current_variant().await;
-        let dm = engine.get_decoding_method().await;
-        let paths = engine.get_num_active_paths().await;
-        engine.load_model(variant, dm, paths).await.map_err(|e| {
-            format!("Failed to load ZipFormer model: {}", e)
-        })?;
-    }
+    crate::asr_engine::commands::asr_validate_model_ready(
+        app.clone(),
+        Some(live_cfg.family_id.clone()),
+        Some(live_cfg.variant.as_str().to_string()),
+        Some(live_cfg.decoding_method.clone()),
+        Some(live_cfg.num_active_paths),
+    )
+    .await?;
 
-    let provider = Arc::new(ZipFormerProvider::new(engine));
+    let engine = crate::asr_engine::commands::get_engine_arc()?;
+    let provider = Arc::new(AsrProvider::new(engine));
     Ok(TranscriptionEngine::Provider(provider))
 }

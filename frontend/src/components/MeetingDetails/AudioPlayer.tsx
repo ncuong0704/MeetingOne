@@ -16,10 +16,14 @@ interface AudioPlayerProps {
   meetingFolderPath: string;
   /** Optional: seek to a specific timestamp (called externally e.g. from transcript click) */
   seekRef?: React.MutableRefObject<((time: number) => void) | null>;
+  onTimeUpdate?: (time: number) => void;
 }
 
-export function AudioPlayer({ meetingFolderPath, seekRef }: AudioPlayerProps) {
-  const { isPlaying, currentTime, duration, error, play, pause, seek } = useAudioPlayer(meetingFolderPath);
+export function AudioPlayer({ meetingFolderPath, seekRef, onTimeUpdate }: AudioPlayerProps) {
+  const { isPlaying, currentTime, duration, error, play, pause, seek } = useAudioPlayer(
+    meetingFolderPath,
+    onTimeUpdate,
+  );
 
   // Expose seek to parent via ref
   if (seekRef) {

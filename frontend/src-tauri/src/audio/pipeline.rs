@@ -11,7 +11,8 @@ use rubato::{Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolat
 use super::devices::AudioDevice;
 use super::recording_state::{AudioChunk, AudioError, RecordingState, DeviceType};
 use super::audio_processing::{audio_to_mono, LoudnessNormalizer, NoiseSuppressionProcessor, HighPassFilter};
-use super::vad::{ContinuousVadProcessor};
+use super::vad::{ContinuousVadProcessor, SpeechSegment};
+use super::common::expand_segments_at_silence;
 
 /// Ring buffer for synchronized audio mixing
 /// Accumulates samples from mic and system streams until we have aligned windows
@@ -694,6 +695,7 @@ pub struct AudioPipeline {
     mixer: ProfessionalAudioMixer,
     // Recording sender for pre-mixed audio
     recording_sender_for_mixed: Option<mpsc::UnboundedSender<AudioChunk>>,
+    max_segment_seconds: u32,
 }
 
 impl AudioPipeline {
@@ -707,6 +709,7 @@ impl AudioPipeline {
         mic_device_kind: super::device_detection::InputDeviceKind,
         system_device_name: String,
         system_device_kind: super::device_detection::InputDeviceKind,
+        max_segment_seconds: u32,
     ) -> Result<Self> {
         // Log device characteristics for adaptive buffering
         info!("🎛️ AudioPipeline initializing with device characteristics:");
@@ -727,7 +730,10 @@ impl AudioPipeline {
 
         let vad_processor = match ContinuousVadProcessor::new(sample_rate, redemption_time) {
             Ok(processor) => {
-                info!("VAD-driven pipeline: VAD segments will be sent directly to Whisper (no time-based accumulation)");
+                info!(
+                    "VAD-driven pipeline: segments split at silence when longer than {}s before ASR",
+                    max_segment_seconds
+                );
                 processor
             }
             Err(e) => {
@@ -759,7 +765,44 @@ impl AudioPipeline {
             ring_buffer,
             mixer,
             recording_sender_for_mixed: None,  // Will be set by manager
+            max_segment_seconds,
         })
+    }
+
+    fn send_speech_segments(&mut self, segments: Vec<SpeechSegment>) {
+        let expanded = expand_segments_at_silence(segments, self.max_segment_seconds);
+        for segment in expanded {
+            let duration_ms = segment.end_timestamp_ms - segment.start_timestamp_ms;
+
+            // 480 samples = 30ms at 16kHz (one VAD chunk).
+            if segment.samples.len() >= 480 {
+                info!(
+                    "📤 Sending VAD segment: {:.1}ms, {} samples",
+                    duration_ms,
+                    segment.samples.len()
+                );
+
+                let transcription_chunk = AudioChunk {
+                    data: segment.samples,
+                    sample_rate: 16000,
+                    timestamp: segment.start_timestamp_ms / 1000.0,
+                    chunk_id: self.chunk_id_counter,
+                    device_type: DeviceType::Microphone,
+                };
+
+                if let Err(e) = self.transcription_sender.send(transcription_chunk) {
+                    warn!("Failed to send VAD segment: {}", e);
+                } else {
+                    self.chunk_id_counter += 1;
+                }
+            } else {
+                debug!(
+                    "⏭️ Dropping short VAD segment: {:.1}ms ({} samples < 480)",
+                    duration_ms,
+                    segment.samples.len()
+                );
+            }
+        }
     }
 
     /// Run the VAD-driven audio processing pipeline
@@ -833,35 +876,7 @@ impl AudioPipeline {
                             // STEP 3: Send mixed audio for transcription (VAD + Whisper)
                             match self.vad_processor.process_audio(&mixed_with_gain) {
                                 Ok(speech_segments) => {
-                                    for segment in speech_segments {
-                                        let duration_ms = segment.end_timestamp_ms - segment.start_timestamp_ms;
-
-                                        // 480 samples = 30ms at 16kHz (one VAD chunk).
-                                        // Lowered from 800 (50ms) to match the reduced
-                                        // min_speech_time (150ms) in VAD — short Vietnamese
-                                        // monosyllables that pass VAD should not be filtered here.
-                                        if segment.samples.len() >= 480 {
-                                            info!("📤 Sending VAD segment: {:.1}ms, {} samples",
-                                                  duration_ms, segment.samples.len());
-
-                                            let transcription_chunk = AudioChunk {
-                                                data: segment.samples,
-                                                sample_rate: 16000,
-                                                timestamp: segment.start_timestamp_ms / 1000.0,
-                                                chunk_id: self.chunk_id_counter,
-                                                device_type: DeviceType::Microphone,  // Mixed audio
-                                            };
-
-                                            if let Err(e) = self.transcription_sender.send(transcription_chunk) {
-                                                warn!("Failed to send VAD segment: {}", e);
-                                            } else {
-                                                self.chunk_id_counter += 1;
-                                            }
-                                        } else {
-                                            debug!("⏭️ Dropping short VAD segment: {:.1}ms ({} samples < 480)",
-                                                   duration_ms, segment.samples.len());
-                                        }
-                                    }
+                                    self.send_speech_segments(speech_segments);
                                 }
                                 Err(e) => {
                                     warn!("⚠️ VAD error: {}", e);
@@ -906,32 +921,7 @@ impl AudioPipeline {
         // Flush any remaining audio from VAD processor and send segments to transcription
         match self.vad_processor.flush() {
             Ok(final_segments) => {
-                for segment in final_segments {
-                    let duration_ms = segment.end_timestamp_ms - segment.start_timestamp_ms;
-
-                    // 480 samples = 30ms at 16kHz — consistent with main pipeline filter.
-                    if segment.samples.len() >= 480 {
-                        info!("📤 Sending final VAD segment to Whisper: {:.1}ms duration, {} samples",
-                              duration_ms, segment.samples.len());
-
-                        let transcription_chunk = AudioChunk {
-                            data: segment.samples,
-                            sample_rate: 16000,
-                            timestamp: segment.start_timestamp_ms / 1000.0,
-                            chunk_id: self.chunk_id_counter,
-                            device_type: DeviceType::Microphone,
-                        };
-
-                        if let Err(e) = self.transcription_sender.send(transcription_chunk) {
-                            warn!("Failed to send final VAD segment: {}", e);
-                        } else {
-                            self.chunk_id_counter += 1;
-                        }
-                    } else {
-                        info!("⏭️ Skipping short final segment: {:.1}ms ({} samples < 480)",
-                              duration_ms, segment.samples.len());
-                    }
-                }
+                self.send_speech_segments(final_segments);
             }
             Err(e) => {
                 warn!("Failed to flush VAD processor: {}", e);
@@ -969,6 +959,7 @@ impl AudioPipelineManager {
         mic_device_kind: super::device_detection::InputDeviceKind,
         system_device_name: String,
         system_device_kind: super::device_detection::InputDeviceKind,
+        max_segment_seconds: u32,
     ) -> Result<()> {
         // Log device information for adaptive buffering
         info!("🎙️ Starting pipeline with device info:");
@@ -992,6 +983,7 @@ impl AudioPipelineManager {
             mic_device_kind,
             system_device_name,
             system_device_kind,
+            max_segment_seconds,
         )?;
 
         // CRITICAL FIX: Connect recording sender to receive pre-mixed audio
@@ -1102,6 +1094,7 @@ mod tests {
             super::super::device_detection::InputDeviceKind::Unknown,
             "Test System".to_string(),
             super::super::device_detection::InputDeviceKind::Unknown,
+            25,
         );
 
         assert!(

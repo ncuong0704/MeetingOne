@@ -154,12 +154,12 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     const loadTranscriptConfig = async () => {
       try {
         const config = await configService.getTranscriptConfig();
-        if (config) {
+        if (config?.live) {
           console.log('[ConfigContext] Loaded saved transcript config:', config);
           setTranscriptModelConfig({
-            provider: 'zipformer',
-            model: config.model || ZIPFORMER_MODEL_ID,
-            apiKey: config.apiKey || null,
+            provider: 'asr',
+            model: config.live.model || ZIPFORMER_MODEL_ID,
+            apiKey: null,
           });
         }
       } catch (error) {
@@ -393,7 +393,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
       // Load storage locations
       const [dbDir, modelsDir, recordingsDir] = await Promise.all([
         invoke<string>('get_database_directory'),
-        invoke<string>('zipformer_get_models_directory'),
+        invoke<string>('asr_get_models_directory'),
         invoke<string>('get_default_recordings_folder_path')
       ]);
 
@@ -430,7 +430,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     if (typeof window !== 'undefined') {
       localStorage.setItem('primaryLanguage', lang);
     }
-    // Note: ZipFormer is Vietnamese-only, no need to sync language to Rust
+    // Note: ASR models are Vietnamese-only, no need to sync language to Rust
   }, []);
 
   const value: ConfigContextType = useMemo(() => ({

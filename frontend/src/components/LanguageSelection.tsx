@@ -11,21 +11,21 @@ interface LanguageSelectionProps {
   selectedLanguage: string;
   onLanguageChange: (language: string) => void;
   disabled?: boolean;
-  provider?: 'zipformer';
+  provider?: 'asr';
 }
 
 export function LanguageSelection({
   selectedLanguage,
   onLanguageChange,
   disabled = false,
-  provider = 'zipformer'
+  provider = 'asr'
 }: LanguageSelectionProps) {
   const [saving, setSaving] = useState(false);
   const { setSelectedLanguage } = useConfig();
 
-  // ZipFormer is fixed to Vietnamese — no manual language selection
-  const isZipformer = provider === 'zipformer';
-  const availableLanguages = isZipformer
+  // ASR models are fixed to Vietnamese — no manual language selection
+  const isAsr = provider === 'asr';
+  const availableLanguages = isAsr
     ? LANGUAGES.filter(lang => lang.code === 'auto' || lang.code === 'vi')
     : LANGUAGES;
 
@@ -90,11 +90,11 @@ export function LanguageSelection({
           ))}
         </select>
 
-        {/* ZipFormer Vietnamese note */}
-        {isZipformer && (
+        {/* ASR Vietnamese note */}
+        {isAsr && (
           <div className="p-2 bg-blue-50 border border-blue-200 rounded text-blue-800">
             <p className="font-medium">🇻🇳 Chỉ hỗ trợ tiếng Việt</p>
-            <p className="mt-1 text-xs">ZipFormer được huấn luyện riêng cho tiếng Việt. Không cần chọn ngôn ngữ thủ công.</p>
+            <p className="mt-1 text-xs">Mô hình ASR được huấn luyện riêng cho tiếng Việt. Không cần chọn ngôn ngữ thủ công.</p>
           </div>
         )}
 

@@ -270,8 +270,8 @@ async fn check_can_record<R: Runtime>(app: &AppHandle<R>) -> bool {
         return true;
     }
 
-    // During onboarding, check if ZipFormer model is ready
-    if let Ok(engine) = crate::zipformer_engine::commands::get_engine_arc() {
+    // During onboarding, check if ASR model is ready
+    if let Ok(engine) = crate::asr_engine::commands::get_engine_arc() {
         engine.is_model_loaded().await || engine.are_model_files_present().await
     } else {
         false

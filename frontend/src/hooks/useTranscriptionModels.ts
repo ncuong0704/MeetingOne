@@ -1,5 +1,10 @@
 import { useState, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import {
+  GIPFORMER_MODEL_ID,
+  SHERPA_VI_2025_MODEL_ID,
+  ZIPFORMER_MODEL_ID,
+} from '@/constants/modelDefaults';
 
 export interface RawModelInfo {
   name: string;
@@ -8,7 +13,7 @@ export interface RawModelInfo {
 }
 
 export interface ModelOption {
-  provider: 'zipformer';
+  provider: 'asr';
   name: string;
   displayName: string;
   size_mb: number;
@@ -19,9 +24,30 @@ interface TranscriptModelConfig {
   model?: string;
 }
 
+const ASR_MODEL_OPTIONS: ModelOption[] = [
+  {
+    provider: 'asr',
+    name: ZIPFORMER_MODEL_ID,
+    displayName: '🇻🇳 ZipFormer 30M Vietnamese ASR (~30 MB)',
+    size_mb: 30,
+  },
+  {
+    provider: 'asr',
+    name: GIPFORMER_MODEL_ID,
+    displayName: '🇻🇳 Gipformer 65M Vietnamese ASR (~65 MB)',
+    size_mb: 65,
+  },
+  {
+    provider: 'asr',
+    name: SHERPA_VI_2025_MODEL_ID,
+    displayName: '🇻🇳 Sherpa-ONNX Zipformer VI 2025 (~270 MB)',
+    size_mb: 270,
+  },
+];
+
 export function useTranscriptionModels(transcriptModelConfig: TranscriptModelConfig | undefined) {
   const [availableModels, setAvailableModels] = useState<ModelOption[]>([]);
-  const [selectedModelKey, setSelectedModelKey] = useState<string>('zipformer:zipformer-vi-30m');
+  const [selectedModelKey, setSelectedModelKey] = useState<string>(`asr:${ZIPFORMER_MODEL_ID}`);
   const [loadingModels, setLoadingModels] = useState(false);
   const userSelectedRef = useRef(false);
 
@@ -34,23 +60,19 @@ export function useTranscriptionModels(transcriptModelConfig: TranscriptModelCon
     setLoadingModels(true);
 
     try {
-      await invoke('zipformer_init');
-      const isLoaded = await invoke<boolean>('zipformer_is_model_loaded');
+      await invoke('asr_init');
+      const isLoaded = await invoke<boolean>('asr_is_model_loaded');
 
-      const zipformerModel: ModelOption = {
-        provider: 'zipformer',
-        name: 'zipformer-vi-30m',
-        displayName: '🇻🇳 ZipFormer Vietnamese ASR (~30 MB)',
-        size_mb: 30,
-      };
-
-      setAvailableModels(isLoaded ? [zipformerModel] : []);
+      setAvailableModels(isLoaded ? ASR_MODEL_OPTIONS : []);
 
       if (!userSelectedRef.current && isLoaded) {
-        setSelectedModelKey('zipformer:zipformer-vi-30m');
+        const defaultKey = transcriptModelConfig?.model
+          ? `asr:${transcriptModelConfig.model}`
+          : `asr:${ZIPFORMER_MODEL_ID}`;
+        setSelectedModelKey(defaultKey);
       }
     } catch (err) {
-      console.error('Failed to check ZipFormer status:', err);
+      console.error('Failed to check ASR status:', err);
       setAvailableModels([]);
     }
 

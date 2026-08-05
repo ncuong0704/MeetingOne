@@ -223,25 +223,22 @@ async fn run_retranscription<R: Runtime>(
 
     emit_progress(&app, &meeting_id, "transcribing", 25, "Loading Vietnamese ASR...");
 
-    // Ensure ASR engine is ready (ROVER or single-model, per saved config)
-    let rover_enabled = {
+    // Ensure ASR engine is ready (ROVER or single-model, per file path config)
+    let file_cfg = {
         let app_state = app
             .try_state::<AppState>()
             .ok_or_else(|| anyhow!("App state not available"))?;
-        crate::database::repositories::setting::SettingsRepository::get_transcript_config(
+        crate::database::repositories::setting::SettingsRepository::get_path_asr_config(
             app_state.db_manager.pool(),
+            crate::asr_engine::config::AsrPath::File,
         )
         .await
-        .ok()
-        .flatten()
-        .map(|c| c.rover_enabled)
-        .unwrap_or(false)
     };
 
     let (engine, rover): (
         Option<std::sync::Arc<crate::asr_engine::engine::AsrEngine>>,
         Option<std::sync::Arc<tokio::sync::Mutex<crate::rover_engine::engine::RoverDecoder>>>,
-    ) = if rover_enabled {
+    ) = if file_cfg.rover_enabled {
         crate::rover_engine::commands::rover_init().await
             .map_err(|e| anyhow!("Failed to init ROVER: {}", e))?;
         crate::rover_engine::commands::rover_validate_model_ready(app.clone())
@@ -253,23 +250,21 @@ async fn run_retranscription<R: Runtime>(
     } else {
         crate::asr_engine::commands::asr_init().await
             .map_err(|e| anyhow!("Failed to init ASR: {}", e))?;
-        crate::asr_engine::commands::asr_validate_model_ready(app.clone(), None, None, None, None)
-            .await
-            .map_err(|e| anyhow!("{}", e))?;
+        crate::asr_engine::commands::asr_validate_model_ready(
+            app.clone(),
+            Some(file_cfg.family_id.clone()),
+            Some(file_cfg.variant.as_str().to_string()),
+            Some(file_cfg.decoding_method.clone()),
+            Some(file_cfg.num_active_paths),
+        )
+        .await
+        .map_err(|e| anyhow!("{}", e))?;
         let engine = crate::asr_engine::commands::get_engine_arc()
             .map_err(|e| anyhow!("{}", e))?;
         (Some(engine), None)
     };
 
-    let max_segment_seconds = {
-        let app_state = app
-            .try_state::<AppState>()
-            .ok_or_else(|| anyhow!("App state not available"))?;
-        crate::database::repositories::setting::SettingsRepository::get_max_segment_seconds(
-            app_state.db_manager.pool(),
-        )
-        .await
-    };
+    let max_segment_seconds = file_cfg.max_segment_seconds;
 
     let processable_segments = expand_segments_at_silence(speech_segments, max_segment_seconds);
 

@@ -146,23 +146,24 @@ pub async fn rover_validate_model_ready<R: Runtime>(app: AppHandle<R>) -> Result
     let app_state = app
         .try_state::<crate::state::AppState>()
         .ok_or_else(|| "App state not available".to_string())?;
-    let config = crate::database::repositories::setting::SettingsRepository::get_transcript_config(
+    let file_cfg = crate::database::repositories::setting::SettingsRepository::get_path_asr_config(
         app_state.db_manager.pool(),
+        crate::asr_engine::config::AsrPath::File,
     )
-    .await
-    .map_err(|e| e.to_string())?
-    .ok_or_else(|| "No transcript config found".to_string())?;
+    .await;
 
-    if !config.rover_enabled {
-        return Err("ROVER is not enabled in settings".to_string());
+    if !file_cfg.rover_enabled {
+        return Err("ROVER is not enabled in file settings".to_string());
     }
-    let family_b = config
+    let family_b = file_cfg
         .rover_family_b
         .ok_or_else(|| "ROVER family B not configured".to_string())?;
-    let variant_b = config.rover_variant_b.unwrap_or_else(|| "int8".to_string());
+    let variant_b = file_cfg
+        .rover_variant_b
+        .unwrap_or_else(|| "int8".to_string());
 
-    let fa = ModelFamily::from_id(&config.model);
-    let va = ModelVariant::from_str(&config.asr_variant);
+    let fa = ModelFamily::from_id(&file_cfg.family_id);
+    let va = file_cfg.variant;
     let fb = ModelFamily::from_id(&family_b);
     let vb = ModelVariant::from_str(&variant_b);
 

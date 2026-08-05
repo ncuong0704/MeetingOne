@@ -1,4 +1,5 @@
 use crate::database::models::{Setting, TranscriptSetting};
+use crate::asr_engine::config::{AsrPath, PathAsrConfig};
 use crate::summary::CustomOpenAIConfig;
 use sqlx::SqlitePool;
 
@@ -223,11 +224,156 @@ impl SettingsRepository {
         Ok(())
     }
 
-    pub async fn get_max_segment_seconds(pool: &SqlitePool) -> u32 {
+    pub async fn get_path_asr_config(pool: &SqlitePool, path: AsrPath) -> PathAsrConfig {
         match Self::get_transcript_config(pool).await {
-            Ok(Some(config)) => crate::audio::common::clamp_max_segment_seconds(config.max_segment_seconds),
-            _ => crate::audio::common::DEFAULT_MAX_SEGMENT_SECONDS,
+            Ok(Some(row)) => PathAsrConfig::from_transcript_setting(&row, path),
+            _ => PathAsrConfig::from_transcript_setting(&Self::default_transcript_setting(), path),
         }
+    }
+
+    fn default_transcript_setting() -> TranscriptSetting {
+        TranscriptSetting {
+            id: "1".to_string(),
+            provider: "asr".to_string(),
+            model: crate::config::ZIPFORMER_MODEL_NAME.to_string(),
+            asr_variant: "int8".to_string(),
+            decoding_method: "modified_beam_search".to_string(),
+            num_active_paths: 15,
+            max_segment_seconds: crate::audio::common::DEFAULT_MAX_SEGMENT_SECONDS as i32,
+            rover_enabled: false,
+            rover_family_b: None,
+            rover_variant_b: None,
+            hotwords: None,
+            capu_cpu_threads: None,
+            capu_punctuation_level: 7,
+            capu_case_level: 3,
+            live_model: None,
+            live_asr_variant: None,
+            live_decoding_method: None,
+            live_num_active_paths: None,
+            live_max_segment_seconds: None,
+            file_model: None,
+            file_asr_variant: None,
+            file_decoding_method: None,
+            file_num_active_paths: None,
+            file_max_segment_seconds: None,
+            file_rover_enabled: None,
+            file_rover_family_b: None,
+            file_rover_variant_b: None,
+        }
+    }
+
+    async fn ensure_transcript_settings_row(pool: &SqlitePool) -> std::result::Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            INSERT INTO transcript_settings (id, provider, model)
+            VALUES ('1', 'asr', 'zipformer-vi-30m')
+            ON CONFLICT(id) DO NOTHING
+            "#,
+        )
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn save_live_asr_config(
+        pool: &SqlitePool,
+        model: &str,
+        asr_variant: &str,
+        decoding_method: &str,
+        num_active_paths: i32,
+        max_segment_seconds: i32,
+    ) -> std::result::Result<(), sqlx::Error> {
+        Self::ensure_transcript_settings_row(pool).await?;
+        sqlx::query(
+            r#"
+            UPDATE transcript_settings SET
+                liveModel = $1,
+                liveAsrVariant = $2,
+                liveDecodingMethod = $3,
+                liveNumActivePaths = $4,
+                liveMaxSegmentSeconds = $5
+            WHERE id = '1'
+            "#,
+        )
+        .bind(model)
+        .bind(asr_variant)
+        .bind(decoding_method)
+        .bind(num_active_paths)
+        .bind(max_segment_seconds)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn save_file_asr_config(
+        pool: &SqlitePool,
+        model: &str,
+        asr_variant: &str,
+        decoding_method: &str,
+        num_active_paths: i32,
+        max_segment_seconds: i32,
+        rover_enabled: bool,
+        rover_family_b: Option<&str>,
+        rover_variant_b: Option<&str>,
+    ) -> std::result::Result<(), sqlx::Error> {
+        Self::ensure_transcript_settings_row(pool).await?;
+        sqlx::query(
+            r#"
+            UPDATE transcript_settings SET
+                fileModel = $1,
+                fileAsrVariant = $2,
+                fileDecodingMethod = $3,
+                fileNumActivePaths = $4,
+                fileMaxSegmentSeconds = $5,
+                fileRoverEnabled = $6,
+                fileRoverFamilyB = $7,
+                fileRoverVariantB = $8
+            WHERE id = '1'
+            "#,
+        )
+        .bind(model)
+        .bind(asr_variant)
+        .bind(decoding_method)
+        .bind(num_active_paths)
+        .bind(max_segment_seconds)
+        .bind(rover_enabled)
+        .bind(rover_family_b)
+        .bind(rover_variant_b)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn save_shared_transcript_config(
+        pool: &SqlitePool,
+        hotwords: Option<&str>,
+        capu_cpu_threads: Option<i32>,
+        capu_punctuation_level: i32,
+        capu_case_level: i32,
+    ) -> std::result::Result<(), sqlx::Error> {
+        Self::ensure_transcript_settings_row(pool).await?;
+        sqlx::query(
+            r#"
+            UPDATE transcript_settings SET
+                hotwords = $1,
+                capuCpuThreads = $2,
+                capuPunctuationLevel = $3,
+                capuCaseLevel = $4
+            WHERE id = '1'
+            "#,
+        )
+        .bind(hotwords)
+        .bind(capu_cpu_threads)
+        .bind(capu_punctuation_level)
+        .bind(capu_case_level)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_max_segment_seconds(pool: &SqlitePool) -> u32 {
+        Self::get_path_asr_config(pool, AsrPath::Live).await.max_segment_seconds
     }
 
     pub async fn save_transcript_api_key(

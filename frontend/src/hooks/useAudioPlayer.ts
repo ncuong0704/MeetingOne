@@ -3,12 +3,17 @@ import { invoke } from '@tauri-apps/api/core';
 import { convertFileSrc } from '@tauri-apps/api/core';
 
 /** `meetingFolderPath`: absolute folder where meeting audio was saved (file name resolved in Rust). */
-export const useAudioPlayer = (meetingFolderPath: string | null) => {
+export const useAudioPlayer = (
+  meetingFolderPath: string | null,
+  onTimeUpdate?: (time: number) => void,
+) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const onTimeUpdateRef = useRef(onTimeUpdate);
+  onTimeUpdateRef.current = onTimeUpdate;
 
   useEffect(() => {
     if (!meetingFolderPath) return;
@@ -31,7 +36,9 @@ export const useAudioPlayer = (meetingFolderPath: string | null) => {
         });
 
         audio.addEventListener('timeupdate', () => {
-          setCurrentTime(audio!.currentTime);
+          const time = audio!.currentTime;
+          setCurrentTime(time);
+          onTimeUpdateRef.current?.(time);
         });
 
         audio.addEventListener('ended', () => {

@@ -5,7 +5,6 @@
 use super::engine::TranscriptionEngine;
 use super::provider::TranscriptionError;
 use crate::audio::AudioChunk;
-use crate::capu_engine::batch::{CapuBatcher, PendingSegment};
 use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -26,9 +25,7 @@ pub fn reset_speech_detected_flag() {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TranscriptUpdate {
-    /// ITN-only (lowercased + inverse-text-normalized) — no punctuation/capitalization
-    /// yet. CAPU runs off this hot path in the background; see `TranscriptFinalized` for
-    /// the punctuated merge once a batch completes.
+    /// ITN-only (lowercased + inverse-text-normalized). CAPU runs once at stop_recording.
     pub text: String,
     pub timestamp: String, // Wall-clock time for reference (e.g., "14:30:05")
     pub source: String,
@@ -109,11 +106,6 @@ pub fn start_transcription_task<R: Runtime>(
         let (work_sender, work_receiver) = tokio::sync::mpsc::channel::<AudioChunk>(WORK_QUEUE_CAPACITY);
         let work_receiver = Arc::new(tokio::sync::Mutex::new(work_receiver));
 
-        // Stage 2: CAPU background task. Its receiver is consumed independently of Stage
-        // 1's work queue above — Stage 1 only pushes into it, never blocks on it.
-        let (capu_sender, capu_receiver) = tokio::sync::mpsc::unbounded_channel::<PendingSegment>();
-        let capu_stage_handle = spawn_capu_background_stage(app.clone(), capu_receiver);
-
         // Track completion: AtomicU64 for chunks queued, AtomicU64 for chunks completed
         let chunks_queued = Arc::new(AtomicU64::new(0));
         let chunks_completed = Arc::new(AtomicU64::new(0));
@@ -132,10 +124,6 @@ pub fn start_transcription_task<R: Runtime>(
             let chunks_completed_clone = chunks_completed.clone();
             let input_finished_clone = input_finished.clone();
             let chunks_queued_clone = chunks_queued.clone();
-            // CapuBatcher (Stage 2) assumes segments arrive in sequence_id order, which
-            // only holds while NUM_WORKERS == 1 (see its doc comment above). Parallelizing
-            // Stage 1 would also require reordering before this send.
-            let capu_sender_clone = capu_sender.clone();
 
             let worker_handle = tokio::spawn(async move {
                 info!("👷 Worker {} started", worker_id);
@@ -274,18 +262,6 @@ pub fn start_transcription_task<R: Runtime>(
                                             );
                                         }
                                         // PERFORMANCE: Removed verbose logging of every emission
-
-                                        if let Err(e) = capu_sender_clone.send(PendingSegment {
-                                            source_id: sequence_id,
-                                            raw_text: itn_text,
-                                            audio_start_time,
-                                            audio_end_time,
-                                        }) {
-                                            warn!(
-                                                "Worker {}: failed to enqueue segment {} for CAPU: {}",
-                                                worker_id, sequence_id, e
-                                            );
-                                        }
                                     } else if !transcript.trim().is_empty() && should_log_this_chunk
                                     {
                                         // PERFORMANCE: Only log low-confidence results occasionally
@@ -461,14 +437,6 @@ pub fn start_transcription_task<R: Runtime>(
             }
         }
 
-        // Stage 1 fully done — every worker's capu_sender clone already dropped when that
-        // worker task returned above. Dropping this original closes the channel, letting
-        // Stage 2 flush its last partial batch and exit on its own.
-        drop(capu_sender);
-        if let Err(e) = capu_stage_handle.await {
-            error!("CAPU background stage panicked: {:?}", e);
-        }
-
         info!("✅ Parallel transcription task completed - all workers finished, ready for model unload");
     })
 }
@@ -561,77 +529,6 @@ async fn transcribe_chunk_with_provider<R: Runtime>(
                 }
             }
         }
-    }
-}
-
-/// Stage 2: runs CAPU off the live ASR hot path. Consumes raw (post-ITN) segments from
-/// `receiver`, batches them via `CapuBatcher` up to `CAPU_BATCH_WORD_BUDGET` words, or
-/// flushes early if no new segment arrives within `CAPU_BATCH_DEBOUNCE_SECS` (standard
-/// debounce: the timer restarts on every new segment, so a batch flushes once speech goes
-/// quiet for that long, even if the word budget was never reached). Exits once `receiver`
-/// closes, after flushing whatever is still pending.
-fn spawn_capu_background_stage<R: Runtime>(
-    app: AppHandle<R>,
-    mut receiver: tokio::sync::mpsc::UnboundedReceiver<PendingSegment>,
-) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        let mut batcher = CapuBatcher::new();
-        let word_budget = crate::config::CAPU_BATCH_WORD_BUDGET;
-        let debounce = tokio::time::Duration::from_secs(crate::config::CAPU_BATCH_DEBOUNCE_SECS);
-
-        loop {
-            let flush_now = tokio::select! {
-                maybe_seg = receiver.recv() => {
-                    match maybe_seg {
-                        Some(seg) => {
-                            batcher.push(seg);
-                            batcher.should_flush(word_budget)
-                        }
-                        None => {
-                            flush_batch(&app, &mut batcher);
-                            break;
-                        }
-                    }
-                }
-                _ = tokio::time::sleep(debounce), if !batcher.is_empty() => true,
-            };
-
-            if flush_now {
-                flush_batch(&app, &mut batcher);
-            }
-        }
-
-        info!("CAPU background stage finished");
-    })
-}
-
-/// Runs CAPU over whatever `batcher` has pending (if any) and emits `transcript-finalized`
-/// with the result. If no CAPU engine is loaded at all, discards the pending batch instead
-/// of growing memory forever — the raw text was already emitted live by Stage 1.
-fn flush_batch<R: Runtime>(app: &AppHandle<R>, batcher: &mut CapuBatcher) {
-    let Some(engine_arc) = crate::capu_engine::commands::get_engine_arc() else {
-        batcher.discard_pending();
-        return;
-    };
-
-    let finalized = {
-        let mut engine = engine_arc.lock().unwrap();
-        batcher.flush(&mut engine)
-    };
-
-    let Some(finalized) = finalized else {
-        return;
-    };
-
-    let payload = TranscriptFinalized {
-        source_sequence_ids: finalized.source_ids,
-        text: finalized.text,
-        audio_start_time: finalized.audio_start_time,
-        audio_end_time: finalized.audio_end_time,
-    };
-
-    if let Err(e) = app.emit("transcript-finalized", &payload) {
-        error!("Failed to emit transcript-finalized event: {}", e);
     }
 }
 

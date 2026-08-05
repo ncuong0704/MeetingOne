@@ -47,12 +47,12 @@ export default function SettingsPage() {
   useEffect(() => {
     const loadTranscriptConfig = async () => {
       try {
-        const config = await invoke('api_get_transcript_config') as any;
-        if (config) {
+        const config = await invoke('api_get_transcript_config') as { live?: { model?: string } };
+        if (config?.live?.model) {
           setTranscriptModelConfig({
             ...createDefaultTranscriptModelConfig(),
-            model: config.model || ZIPFORMER_MODEL_ID,
-            apiKey: config.apiKey || null,
+            model: config.live.model || ZIPFORMER_MODEL_ID,
+            apiKey: null,
           });
         }
       } catch (error) {

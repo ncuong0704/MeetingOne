@@ -168,13 +168,13 @@ export function useModalState(transcriptModelConfig?: TranscriptModelProps): Use
     const setupDownloadListeners = async () => {
       const unlisteners: (() => void)[] = [];
 
-      // Listen for ZipFormer model download complete
-      const unlistenZipformer = await listen('zipformer-model-download-complete', () => {
-        console.log('[useModalState] ZipFormer model download complete');
+      // Listen for ASR model download complete
+      const unlistenAsr = await listen('asr-model-download-complete', () => {
+        console.log('[useModalState] ASR model download complete');
         toast.success('Model tiếng Việt sẵn sàng!', { duration: 1500 });
         setTimeout(() => hideModal('modelSelector'), 1500);
       });
-      unlisteners.push(unlistenZipformer);
+      unlisteners.push(unlistenAsr);
 
       return () => {
         unlisteners.forEach(unsub => unsub());

@@ -70,6 +70,9 @@ silero_rs = { git = "https://github.com/emotechlab/silero-rs", rev = "26a6460", 
 # ZipFormer Vietnamese ASR via sherpa-onnx
 sherpa-onnx = "1.13.0"
 
+# Vietnamese ITN (inverse text normalization) via OpenFST FAR files
+arcweight = "0.3"
+
 # CAPU (punctuation + capitalization restoration) via ONNX Runtime
 # Pinned to rc.10 (not the newer rc.13) because the existing `silero_rs` git
 # dependency already pins `ort = "=2.0.0-rc.10"` for VAD — Cargo can't resolve
@@ -77,6 +80,10 @@ sherpa-onnx = "1.13.0"
 # between rc.10 and rc.13.
 ort = "2.0.0-rc.10"
 tokenizers = "0.23"
+kaldi-native-fbank = "0.1"
+similar = "3"
+unicode-normalization = "0.1"
+sentencepiece-model = "0.1"
 
 thiserror = "2.0.16"
 

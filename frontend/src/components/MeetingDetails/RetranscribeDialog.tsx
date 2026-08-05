@@ -92,13 +92,13 @@ export function RetranscribeDialog({
     const name = selectedModelKey.slice(colonIndex + 1);
     return availableModels.find(m => m.provider === provider && m.name === name);
   }, [selectedModelKey, availableModels]);
-  const isZipformerModel = true; // ZipFormer is Vietnamese-only: auto language always
+  const isAsrModel = true; // ASR models are Vietnamese-only: auto language always
 
   useEffect(() => {
-    if (isZipformerModel && selectedLang !== 'auto') {
+    if (isAsrModel && selectedLang !== 'auto') {
       setSelectedLang('auto');
     }
-  }, [isZipformerModel, selectedLang]);
+  }, [isAsrModel, selectedLang]);
 
   // Reset state only when dialog transitions from closed to open
   // This prevents re-initialization when config changes while dialog is already open
@@ -207,9 +207,9 @@ export function RetranscribeDialog({
     setProgress(null);
 
     try {
-      const languageToSend = isZipformerModel ? null : selectedLang === 'auto' ? null : selectedLang;
+      const languageToSend = isAsrModel ? null : selectedLang === 'auto' ? null : selectedLang;
       await Analytics.track('enhance_transcript_started', {
-        language: isZipformerModel ? 'auto' : (selectedLang === 'auto' ? 'auto' : selectedLang),
+        language: isAsrModel ? 'auto' : (selectedLang === 'auto' ? 'auto' : selectedLang),
         model_provider: selectedModelDetails?.provider || '',
         model_name: selectedModelDetails?.name || ''
       });
@@ -301,7 +301,7 @@ export function RetranscribeDialog({
 
         <div className="space-y-4 py-4">
           {!isProcessing && !error && (
-            !isZipformerModel ? (
+            !isAsrModel ? (
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
                   <Globe className="h-4 w-4 text-muted-foreground" />
@@ -330,7 +330,7 @@ export function RetranscribeDialog({
                   <span className="text-sm font-medium">Ngôn ngữ</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  ZipFormer chỉ hỗ trợ tiếng Việt — không cần chọn ngôn ngữ thủ công.
+                  Mô hình ASR chỉ hỗ trợ tiếng Việt — không cần chọn ngôn ngữ thủ công.
                 </p>
               </div>
             )

@@ -221,74 +221,44 @@ impl CapuEngine {
     /// Runs the GECToR iterative correction loop (max `CAPU_MAX_ITERATIONS` passes,
     /// stopping early once a pass predicts `$KEEP` for every word).
     ///
-    /// `boundary_index`, when set, is the index (into `words`, re-tracked every pass —
-    /// see `boundary_index_after_apply`) of the last trailing-context word. That word
-    /// was already emitted to the caller on a previous `restore_punctuation` call, so
-    /// it must never merge forward into the new segment — the predicted action there is
-    /// forced to `$KEEP` before every pass. A merge entirely *within* the context
-    /// region (at an earlier index) is unaffected and still applied normally.
+    /// `boundary_index`, when set, is the index (into `words`, re-tracked every pass by
+    /// `apply_pass`) of the last trailing-context word. That word was already emitted to
+    /// the caller on a previous `restore_punctuation` call, so it must never merge
+    /// forward into the new segment — the predicted action there is forced to `$KEEP`
+    /// before every pass. A merge entirely *within* the context region (at an earlier
+    /// index) is unaffected and still applied normally.
+    ///
+    /// Returns the final words alongside the final `boundary_index` — the caller
+    /// (`restore_punctuation`) uses it to know exactly where the new segment starts in
+    /// the output, however many merges happened on either side of it.
     fn restore_words(
         &mut self,
         mut words: Vec<String>,
         mut boundary_index: Option<usize>,
-    ) -> Result<Vec<String>> {
+    ) -> Result<(Vec<String>, Option<usize>)> {
         for _ in 0..CAPU_MAX_ITERATIONS {
             if words.is_empty() {
                 break;
             }
-            let mut actions = self.infer_once(&words)?;
-
-            if let Some(idx) = boundary_index {
-                if idx < actions.len() {
-                    actions[idx] = Action::Keep;
-                }
-            }
-
-            if actions.iter().all(|a| *a == Action::Keep) {
+            let actions = self.infer_once(&words)?;
+            let (new_words, new_boundary_index, done) = apply_pass(words, boundary_index, actions);
+            words = new_words;
+            boundary_index = new_boundary_index;
+            if done {
                 break;
             }
-
-            if let Some(idx) = boundary_index {
-                if idx < actions.len() {
-                    boundary_index = Some(boundary_index_after_apply(&actions, idx));
-                }
-            }
-
-            words = apply_actions(&words, &actions);
         }
-        Ok(words)
+        Ok((words, boundary_index))
     }
 
     /// Restores punctuation/capitalization for `new_text`, using `trailing_context`
     /// (raw words from the tail of the previously processed segment) as left-context so
     /// the model has a chance to see across VAD segment boundaries. Returns the
     /// restored text for `new_text` only (context words are stripped back out) plus the
-    /// trailing-context words to pass on the next call.
-    ///
-    /// # Known bug (unfixed): new-segment-internal `$MERGE_SPACE` duplicates a context word
-    ///
-    /// The boundary-masking logic (see `restore_words`'s `boundary_index` param) only
-    /// prevents a `$MERGE_SPACE` from crossing *from* the context region *into* the new
-    /// segment. It does nothing to protect the `take_from` calculation below from a
-    /// `$MERGE_SPACE` that fires entirely *within* the new segment, unrelated to the
-    /// boundary. `take_from = restored.len().saturating_sub(new_words.len())` implicitly
-    /// assumes any shrinkage in total word count came from the context side; when it
-    /// instead comes from a merge inside the new segment, `take_from` under-shoots and
-    /// the returned text incorrectly re-includes one or more tail words from
-    /// `trailing_context` — which were already emitted to the caller on the *previous*
-    /// call, so this reads as a duplicated word in the transcript.
-    ///
-    /// Concrete repro: `trailing_context = ["xin", "chào"]`, `new_text = "hôm nay đẹp"`.
-    /// If the model predicts `$MERGE_SPACE` on "hôm" (merging it with "nay", entirely
-    /// inside the new segment — the boundary word "chào" is untouched), the returned
-    /// `result_text` incorrectly includes "chào" as its first word.
-    ///
-    /// This is algebraically one-directional: it can only cause a context word to be
-    /// **re-included** (duplication), never cause a new-segment word to be **dropped**.
-    ///
-    /// Not yet fixed, and not yet reachable in production — as of this writing nothing
-    /// calls `restore_punctuation` (Task 9/10 will be the first callers). Fix this
-    /// before or as part of wiring up those callers; do not ship it unfixed.
+    /// trailing-context words to pass on the next call. Called repeatedly across a whole
+    /// file/session by `CapuBatcher::flush` (`capu_engine/batch.rs`), which threads
+    /// `next_context` back in as `trailing_context` on the following call — so this must
+    /// hold up across many consecutive calls, not just one.
     pub fn restore_punctuation(
         &mut self,
         trailing_context: &[String],
@@ -323,19 +293,18 @@ impl CapuEngine {
             Some(trailing_lower.len() - 1)
         };
 
-        let restored = self.restore_words(combined, boundary_index)?;
+        let (restored, final_boundary_index) = self.restore_words(combined, boundary_index)?;
 
-        // MERGE_SPACE can reduce word count, so recover the new-segment tail by count
-        // from the end rather than assuming a fixed offset from the start.
-        //
-        // TODO(capu): known bug — this assumes any word-count shrinkage came from the
-        // context region. A $MERGE_SPACE firing entirely within the new segment (not
-        // touching the boundary) also shrinks `restored.len()`, which makes `take_from`
-        // under-shoot and re-includes a tail word from `trailing_context` in
-        // `result_text` (duplication, never loss — see doc comment above on
-        // `restore_punctuation` for the full explanation and a concrete repro). Not yet
-        // fixed; fix before/while wiring up the first caller (Task 9/10).
-        let take_from = restored.len().saturating_sub(new_words.len());
+        // `final_boundary_index` is the position of the last trailing-context word in
+        // `restored`, tracked incrementally through every pass by `apply_pass` — so
+        // everything after it is exactly the new-segment output, regardless of whether a
+        // `$MERGE_SPACE` fired inside the context region, inside the new region, or both
+        // (the boundary mask in `apply_pass` guarantees merges never cross the two, so a
+        // word is never ambiguous about which side it belongs to). This intentionally
+        // does *not* derive the split point from `restored.len() - new_words.len()`,
+        // which breaks whenever a merge shrinks the new region's own word count instead
+        // of the context region's.
+        let take_from = final_boundary_index.map_or(0, |idx| idx + 1);
         let result_text = restored[take_from..].join(" ");
 
         let context_start = new_words.len().saturating_sub(CAPU_TRAILING_CONTEXT_WORDS);
@@ -353,6 +322,40 @@ impl CapuEngine {
 /// index into the post-apply word list, by walking `actions` with the exact same
 /// pairing logic `apply_actions` uses (step by 2 on a consumed `$MERGE_SPACE`, else by
 /// 1) until the word that contains `old_boundary_index` is found.
+/// One GECToR correction pass, factored out of `restore_words` so it can be exercised
+/// directly with fixture `actions` — no ONNX session required. Masks the boundary word's
+/// own action to `$KEEP` (a merge can never start *at* the boundary and reach into the
+/// new segment), checks whether every action is now `$KEEP` (nothing left to change,
+/// `words`/`boundary_index` returned unchanged), and otherwise advances `boundary_index`
+/// past whatever this pass merges before applying the actions to `words`. See
+/// `pass_tests` below — in particular
+/// `merge_entirely_inside_new_segment_leaves_boundary_index_unchanged`, which is the
+/// exact scenario `restore_punctuation`'s doc comment used to describe as an unfixed bug.
+fn apply_pass(
+    words: Vec<String>,
+    mut boundary_index: Option<usize>,
+    mut actions: Vec<Action>,
+) -> (Vec<String>, Option<usize>, bool) {
+    if let Some(idx) = boundary_index {
+        if idx < actions.len() {
+            actions[idx] = Action::Keep;
+        }
+    }
+
+    if actions.iter().all(|a| *a == Action::Keep) {
+        return (words, boundary_index, true);
+    }
+
+    if let Some(idx) = boundary_index {
+        if idx < actions.len() {
+            boundary_index = Some(boundary_index_after_apply(&actions, idx));
+        }
+    }
+
+    let words = apply_actions(&words, &actions);
+    (words, boundary_index, false)
+}
+
 fn boundary_index_after_apply(actions: &[Action], old_boundary_index: usize) -> usize {
     let mut i = 0;
     let mut out_index = 0;
@@ -467,5 +470,103 @@ mod bias_tests {
         let logits = vec![0.6, 0.0, 0.5];
         let idx = decode_row(&logits, 0, &[2], 4, 1);
         assert_eq!(idx, 0, "level=1 case bias (-1.5) should keep KEEP winning");
+    }
+}
+
+#[cfg(test)]
+mod pass_tests {
+    use super::*;
+
+    fn words(strs: &[&str]) -> Vec<String> {
+        strs.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn all_keep_actions_mark_the_pass_done_without_changing_words() {
+        let (out_words, out_boundary, done) = apply_pass(
+            words(&["xin", "chào"]),
+            Some(1),
+            vec![Action::Keep, Action::Keep],
+        );
+        assert!(done);
+        assert_eq!(out_words, words(&["xin", "chào"]));
+        assert_eq!(out_boundary, Some(1));
+    }
+
+    #[test]
+    fn boundary_words_own_merge_action_is_masked_to_keep() {
+        // The model wants to merge the boundary word ("chào", index 0) forward into the
+        // new segment's first word — forbidden, since "chào" was already emitted to the
+        // caller on a previous call. Masking it to $KEEP means every action is now
+        // $KEEP, so the pass reports done with words unchanged.
+        let (out_words, out_boundary, done) = apply_pass(
+            words(&["chào", "hôm", "nay"]),
+            Some(0),
+            vec![Action::MergeSpace, Action::Keep, Action::Keep],
+        );
+        assert!(done, "masking the boundary's MergeSpace should leave all-$KEEP");
+        assert_eq!(out_words, words(&["chào", "hôm", "nay"]));
+        assert_eq!(out_boundary, Some(0));
+    }
+
+    #[test]
+    fn merge_entirely_within_context_shifts_boundary_index_forward() {
+        // Context = ["xin", "chào"] (boundary at index 1). A merge at index 0 ("xin" +
+        // "chào") is entirely within the context region and allowed — the two collapse
+        // into one output word, so the boundary's position shifts from 1 to 0.
+        let (out_words, out_boundary, done) = apply_pass(
+            words(&["xin", "chào", "hôm"]),
+            Some(1),
+            vec![Action::MergeSpace, Action::Keep, Action::Keep],
+        );
+        assert!(!done);
+        assert_eq!(out_words, words(&["xinchào", "hôm"]));
+        assert_eq!(out_boundary, Some(0));
+    }
+
+    #[test]
+    fn merge_entirely_inside_new_segment_leaves_boundary_index_unchanged() {
+        // This is the exact scenario `restore_punctuation`'s doc comment used to
+        // describe as an unfixed bug: trailing_context = ["xin", "chào"] (boundary at
+        // index 1), new_text = "hôm nay đẹp". The model merges "hôm" (index 2) with
+        // "nay" (index 3) — entirely inside the new segment, not touching the boundary.
+        let (out_words, out_boundary, done) = apply_pass(
+            words(&["xin", "chào", "hôm", "nay", "đẹp"]),
+            Some(1),
+            vec![
+                Action::Keep,
+                Action::Keep,
+                Action::MergeSpace,
+                Action::Keep,
+                Action::Keep,
+            ],
+        );
+        assert!(!done);
+        assert_eq!(out_words, words(&["xin", "chào", "hômnay", "đẹp"]));
+        // Unchanged: the merge happened after the boundary, not at or before it.
+        assert_eq!(out_boundary, Some(1));
+
+        // Reproduce `restore_punctuation`'s take_from calculation directly: with the
+        // boundary still at index 1, only "hômnay" and "đẹp" (indices 2..) belong to
+        // the new segment — "chào" (the boundary word itself) must not reappear.
+        let take_from = out_boundary.map(|idx| idx + 1).unwrap();
+        assert_eq!(&out_words[take_from..], &words(&["hômnay", "đẹp"])[..]);
+
+        // The bug this replaces: `restored.len() - new_words.len()` = 4 - 3 = 1 would
+        // have taken from index 1 instead, incorrectly re-including "chào".
+        let buggy_take_from = out_words.len().saturating_sub(3);
+        assert_eq!(buggy_take_from, 1, "sanity-check the old formula would have picked index 1");
+    }
+
+    #[test]
+    fn no_boundary_index_treats_every_word_as_new() {
+        let (out_words, out_boundary, done) = apply_pass(
+            words(&["hôm", "nay"]),
+            None,
+            vec![Action::Keep, Action::Keep],
+        );
+        assert!(done);
+        assert_eq!(out_words, words(&["hôm", "nay"]));
+        assert_eq!(out_boundary, None);
     }
 }

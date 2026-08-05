@@ -304,21 +304,25 @@ export function ImportAudioDialog({
           )}
 
           {/* Progress display */}
-          {isProcessing && progress && (
+          {isProcessing && (
             <div className="space-y-2">
               <div className="relative">
                 <div className="w-full bg-gray-200 rounded-full h-3">
                   <div
                     className="bg-[#16478e] h-3 rounded-full transition-all duration-300 ease-out"
-                    style={{ width: `${Math.min(progress.progress_percentage, 100)}%` }}
+                    style={{
+                      width: `${Math.min(progress?.progress_percentage ?? 5, 100)}%`,
+                    }}
                   />
                 </div>
                 <div className="flex justify-between text-xs text-gray-600 mt-1">
-                  <span>{progress.stage}</span>
-                  <span>{Math.round(progress.progress_percentage)}%</span>
+                  <span>{progress?.stage ?? 'processing'}</span>
+                  <span>{Math.round(progress?.progress_percentage ?? 0)}%</span>
                 </div>
               </div>
-              <p className="text-sm text-muted-foreground text-center">{progress.message}</p>
+              <p className="text-sm text-muted-foreground text-center">
+                {progress?.message ?? 'Đang xử lý âm thanh...'}
+              </p>
             </div>
           )}
 

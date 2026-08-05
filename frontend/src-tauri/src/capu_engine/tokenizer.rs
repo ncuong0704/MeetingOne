@@ -66,11 +66,19 @@ impl CapuTokenizer {
     /// Encodes a list of whitespace-delimited words into model inputs, computing
     /// `input_offsets` by replicating the reference `gec_model.py` logic: append the
     /// token index every time `word_ids()` changes value versus the previous token.
+    ///
+    /// Words must be passed as a pretokenized sequence (`is_split_into_words=True` in the
+    /// reference) — joining and re-tokenizing would re-split on whitespace/punctuation and
+    /// break the word↔offset alignment the ONNX model expects.
     pub fn encode_words(&self, words: &[String]) -> Result<CapuEncoding> {
-        let text = words.join(" ");
+        if words.is_empty() {
+            return Err(anyhow!("Cannot encode empty word list"));
+        }
+
+        let word_refs: Vec<&str> = words.iter().map(|s| s.as_str()).collect();
         let encoding = self
             .tokenizer
-            .encode(text, true)
+            .encode(word_refs.as_slice(), true)
             .map_err(|e| anyhow!("Tokenization failed: {}", e))?;
 
         let word_ids = encoding.get_word_ids();

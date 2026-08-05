@@ -220,14 +220,17 @@ Thêm 3 cột vào `transcript_settings` (cùng bảng đang chứa `roverEnable
 
 ```sql
 ALTER TABLE transcript_settings ADD COLUMN capuCpuThreads INTEGER;
-ALTER TABLE transcript_settings ADD COLUMN capuPunctuationLevel INTEGER;
-ALTER TABLE transcript_settings ADD COLUMN capuCaseLevel INTEGER;
+ALTER TABLE transcript_settings ADD COLUMN capuPunctuationLevel INTEGER NOT NULL DEFAULT 7;
+ALTER TABLE transcript_settings ADD COLUMN capuCaseLevel INTEGER NOT NULL DEFAULT 3;
 ```
 
-- `capuCpuThreads` NULL = "auto" → resolve bằng `detect_cpu_topology().0` (physical cores) khi đọc,
-  giống cách `max_segment_seconds` NULL fallback về `DEFAULT_MAX_SEGMENT_SECONDS` hiện tại
-  ([setting.rs:217-222](../../../frontend/src-tauri/src/database/repositories/setting.rs)).
-- `capuPunctuationLevel` mặc định `7`, `capuCaseLevel` mặc định `3` — khớp app tham khảo.
+- `capuCpuThreads` để nullable **không có DEFAULT tĩnh** (khác 2 cột kia) vì "auto" nghĩa là số
+  physical core máy hiện tại — không phải hằng số SQL có thể khai báo trước. NULL → resolve bằng
+  `detect_cpu_topology().0` khi đọc.
+- `capuPunctuationLevel`/`capuCaseLevel` dùng `NOT NULL DEFAULT` ngay ở SQL (giống
+  `maxSegmentSeconds INTEGER NOT NULL DEFAULT 25` đã có,
+  [20260803100000_add_max_segment_seconds.sql](../../../frontend/src-tauri/migrations/20260803100000_add_max_segment_seconds.sql)) —
+  field Rust tương ứng có thể là `i32` thường (không `Option`), đơn giản hơn.
 
 Thread qua `TranscriptSetting` (model), `SettingsRepository::{get,save}_transcript_config`,
 `TranscriptConfig` (`api.rs`), `api_get_transcript_config`/`api_save_transcript_config` — thêm 3

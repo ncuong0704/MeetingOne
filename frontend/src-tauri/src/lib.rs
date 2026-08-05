@@ -508,6 +508,7 @@ pub fn run() {
             audio::recording_commands::get_meeting_folder_path,
             // Reload sync commands (retrieve transcript history and meeting name)
             audio::recording_commands::get_transcript_history,
+            audio::recording_commands::load_transcripts_from_folder,
             audio::recording_commands::update_live_transcript_segment,
             audio::recording_commands::get_recording_meeting_name,
             // Device monitoring commands (AirPods/Bluetooth disconnect/reconnect)
@@ -532,6 +533,9 @@ pub fn run() {
             api::api_get_api_key,
             api::api_get_transcript_config,
             api::api_save_transcript_config,
+            api::api_save_live_asr_config,
+            api::api_save_file_asr_config,
+            api::api_save_shared_transcript_config,
             api::api_get_transcript_api_key,
             api::api_delete_meeting,
             api::api_get_meeting,

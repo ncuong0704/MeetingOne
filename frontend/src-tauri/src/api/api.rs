@@ -67,6 +67,56 @@ pub struct GetApiKeyRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct LiveAsrConfigDto {
+    pub model: String,
+    #[serde(rename = "asrVariant")]
+    pub asr_variant: String,
+    #[serde(rename = "decodingMethod")]
+    pub decoding_method: String,
+    #[serde(rename = "numActivePaths")]
+    pub num_active_paths: i32,
+    #[serde(rename = "maxSegmentSeconds")]
+    pub max_segment_seconds: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FileAsrConfigDto {
+    pub model: String,
+    #[serde(rename = "asrVariant")]
+    pub asr_variant: String,
+    #[serde(rename = "decodingMethod")]
+    pub decoding_method: String,
+    #[serde(rename = "numActivePaths")]
+    pub num_active_paths: i32,
+    #[serde(rename = "maxSegmentSeconds")]
+    pub max_segment_seconds: i32,
+    #[serde(rename = "roverEnabled")]
+    pub rover_enabled: bool,
+    #[serde(rename = "roverFamilyB")]
+    pub rover_family_b: Option<String>,
+    #[serde(rename = "roverVariantB")]
+    pub rover_variant_b: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SharedTranscriptConfigDto {
+    pub hotwords: Option<String>,
+    #[serde(rename = "capuCpuThreads")]
+    pub capu_cpu_threads: Option<i32>,
+    #[serde(rename = "capuPunctuationLevel")]
+    pub capu_punctuation_level: i32,
+    #[serde(rename = "capuCaseLevel")]
+    pub capu_case_level: i32,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TranscriptConfigBundle {
+    pub live: LiveAsrConfigDto,
+    pub file: FileAsrConfigDto,
+    pub shared: SharedTranscriptConfigDto,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TranscriptConfig {
     pub provider: String,
     pub model: String,
@@ -383,68 +433,74 @@ pub async fn api_get_transcript_config<R: Runtime>(
     app: AppHandle<R>,
     state: tauri::State<'_, AppState>,
     _auth_token: Option<String>,
-) -> Result<Option<TranscriptConfig>, String> {
+) -> Result<TranscriptConfigBundle, String> {
     log_info!("api_get_transcript_config called (native)");
     let pool = state.db_manager.pool();
     let bundled_hotwords = crate::asr_engine::commands::load_bundled_hotwords_raw(&app);
 
     match SettingsRepository::get_transcript_config(pool).await {
         Ok(Some(config)) => {
-            // Migrate legacy providers to asr
-            let provider = match config.provider.as_str() {
-                "parakeet" | "localWhisper" | "whisper" | "zipformer" => "asr".to_string(),
-                other => other.to_string(),
-            };
-            let model = if (provider == "asr" || config.provider == "zipformer")
-                && (config.model.contains("parakeet") || config.model.contains("ggml"))
-            {
-                crate::config::ZIPFORMER_MODEL_NAME.to_string()
-            } else {
-                config.model.clone()
-            };
+            let live_cfg =
+                SettingsRepository::get_path_asr_config(pool, crate::asr_engine::config::AsrPath::Live).await;
+            let file_cfg =
+                SettingsRepository::get_path_asr_config(pool, crate::asr_engine::config::AsrPath::File).await;
 
-            log_info!(
-                "Found transcript config: provider={}, model={} (original: {}, {})",
-                provider, model, config.provider, config.model
-            );
-            Ok(Some(TranscriptConfig {
-                provider,
-                model,
-                api_key: None,
-                asr_variant: Some(config.asr_variant.clone()),
-                decoding_method: Some(config.decoding_method.clone()),
-                num_active_paths: Some(config.num_active_paths),
-                max_segment_seconds: Some(config.max_segment_seconds),
-                rover_enabled: config.rover_enabled,
-                rover_family_b: config.rover_family_b.clone(),
-                rover_variant_b: config.rover_variant_b.clone(),
-                hotwords: crate::asr_engine::hotwords::display_hotwords_text(
-                    config.hotwords.as_deref(),
-                    bundled_hotwords.as_deref(),
-                ),
-                capu_cpu_threads: config.capu_cpu_threads,
-                capu_punctuation_level: config.capu_punctuation_level,
-                capu_case_level: config.capu_case_level,
-            }))
+            Ok(TranscriptConfigBundle {
+                live: LiveAsrConfigDto {
+                    model: live_cfg.family_id,
+                    asr_variant: live_cfg.variant.as_str().to_string(),
+                    decoding_method: live_cfg.decoding_method,
+                    num_active_paths: live_cfg.num_active_paths,
+                    max_segment_seconds: live_cfg.max_segment_seconds as i32,
+                },
+                file: FileAsrConfigDto {
+                    model: file_cfg.family_id,
+                    asr_variant: file_cfg.variant.as_str().to_string(),
+                    decoding_method: file_cfg.decoding_method,
+                    num_active_paths: file_cfg.num_active_paths,
+                    max_segment_seconds: file_cfg.max_segment_seconds as i32,
+                    rover_enabled: file_cfg.rover_enabled,
+                    rover_family_b: file_cfg.rover_family_b,
+                    rover_variant_b: file_cfg.rover_variant_b,
+                },
+                shared: SharedTranscriptConfigDto {
+                    hotwords: crate::asr_engine::hotwords::display_hotwords_text(
+                        config.hotwords.as_deref(),
+                        bundled_hotwords.as_deref(),
+                    ),
+                    capu_cpu_threads: config.capu_cpu_threads,
+                    capu_punctuation_level: config.capu_punctuation_level,
+                    capu_case_level: config.capu_case_level,
+                },
+            })
         }
         Ok(None) => {
-            log_info!("No transcript config found, returning default.");
-            Ok(Some(TranscriptConfig {
-                provider: "asr".to_string(),
-                model: crate::config::ZIPFORMER_MODEL_NAME.to_string(),
-                api_key: None,
-                asr_variant: Some("int8".to_string()),
-                decoding_method: Some("modified_beam_search".to_string()),
-                num_active_paths: Some(15),
-                max_segment_seconds: Some(crate::audio::common::DEFAULT_MAX_SEGMENT_SECONDS as i32),
-                rover_enabled: false,
-                rover_family_b: None,
-                rover_variant_b: None,
-                hotwords: bundled_hotwords.clone(),
-                capu_cpu_threads: None,
-                capu_punctuation_level: 7,
-                capu_case_level: 3,
-            }))
+            log_info!("No transcript config found, returning default bundle.");
+            Ok(TranscriptConfigBundle {
+                live: LiveAsrConfigDto {
+                    model: crate::config::ZIPFORMER_MODEL_NAME.to_string(),
+                    asr_variant: "int8".to_string(),
+                    decoding_method: "modified_beam_search".to_string(),
+                    num_active_paths: 15,
+                    max_segment_seconds: crate::audio::common::DEFAULT_MAX_SEGMENT_SECONDS as i32,
+                },
+                file: FileAsrConfigDto {
+                    model: crate::config::ZIPFORMER_MODEL_NAME.to_string(),
+                    asr_variant: "int8".to_string(),
+                    decoding_method: "modified_beam_search".to_string(),
+                    num_active_paths: 15,
+                    max_segment_seconds: crate::audio::common::DEFAULT_MAX_SEGMENT_SECONDS as i32,
+                    rover_enabled: false,
+                    rover_family_b: None,
+                    rover_variant_b: None,
+                },
+                shared: SharedTranscriptConfigDto {
+                    hotwords: bundled_hotwords.clone(),
+                    capu_cpu_threads: None,
+                    capu_punctuation_level: 7,
+                    capu_case_level: 3,
+                },
+            })
         }
         Err(e) => {
             log_error!("Failed to get transcript config: {}", e);
@@ -473,6 +529,9 @@ pub async fn api_save_transcript_config<R: Runtime>(
     capu_case_level: Option<i32>,
     _auth_token: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    log_warn!(
+        "api_save_transcript_config is deprecated; use api_save_live_asr_config / api_save_file_asr_config / api_save_shared_transcript_config"
+    );
     log_info!(
         "api_save_transcript_config called (native) for provider '{}', model '{}'",
         &provider,
@@ -537,6 +596,41 @@ pub async fn api_save_transcript_config<R: Runtime>(
         return Err(e.to_string());
     }
 
+    // Backward compat: mirror legacy save into live/file path columns
+    if let Err(e) = SettingsRepository::save_live_asr_config(
+        pool,
+        &model,
+        variant,
+        dm,
+        paths,
+        max_seg as i32,
+    )
+    .await
+    {
+        log_error!("Failed to mirror live ASR config: {}", e);
+        return Err(e.to_string());
+    }
+    if let Err(e) = SettingsRepository::save_file_asr_config(
+        pool,
+        &model,
+        variant,
+        dm,
+        paths,
+        max_seg as i32,
+        rover_on,
+        rover_family_b.as_deref(),
+        if rover_on {
+            Some(rover_variant_b_resolved)
+        } else {
+            None
+        },
+    )
+    .await
+    {
+        log_error!("Failed to mirror file ASR config: {}", e);
+        return Err(e.to_string());
+    }
+
     if let Some(key) = api_key {
         if !key.is_empty() {
             log_info!("API key provided, saving for transcript provider...");
@@ -574,6 +668,183 @@ pub async fn api_save_transcript_config<R: Runtime>(
     Ok(
         serde_json::json!({ "status": "success", "message": "Transcript configuration saved successfully" }),
     )
+}
+
+#[tauri::command]
+pub async fn api_save_live_asr_config<R: Runtime>(
+    app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+    model: String,
+    asr_variant: Option<String>,
+    decoding_method: Option<String>,
+    num_active_paths: Option<i32>,
+    max_segment_seconds: Option<i32>,
+    _auth_token: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let pool = state.db_manager.pool();
+    let model = if model.is_empty() {
+        crate::config::ZIPFORMER_MODEL_NAME.to_string()
+    } else {
+        model
+    };
+    let family = crate::asr_engine::model_family::ModelFamily::from_id(&model);
+    let requested_variant =
+        crate::asr_engine::model_family::ModelVariant::from_str(asr_variant.as_deref().unwrap_or("int8"));
+    let resolved_variant = if family.available_variants().contains(&requested_variant) {
+        requested_variant
+    } else {
+        family.available_variants()[0]
+    };
+    let variant = resolved_variant.as_str();
+    let dm = decoding_method.as_deref().unwrap_or("modified_beam_search");
+    let paths = num_active_paths.unwrap_or(15);
+    let max_seg = crate::audio::common::clamp_max_segment_seconds(
+        max_segment_seconds.unwrap_or(crate::audio::common::DEFAULT_MAX_SEGMENT_SECONDS as i32),
+    );
+
+    if let Err(e) = SettingsRepository::save_live_asr_config(
+        pool,
+        &model,
+        variant,
+        dm,
+        paths,
+        max_seg as i32,
+    )
+    .await
+    {
+        return Err(e.to_string());
+    }
+
+    crate::asr_engine::commands::asr_validate_model_ready(
+        app.clone(),
+        Some(model.clone()),
+        Some(variant.to_string()),
+        Some(dm.to_string()),
+        Some(paths),
+    )
+    .await?;
+
+    Ok(serde_json::json!({ "status": "success", "message": "Live ASR configuration saved" }))
+}
+
+#[tauri::command]
+pub async fn api_save_file_asr_config<R: Runtime>(
+    app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+    model: String,
+    asr_variant: Option<String>,
+    decoding_method: Option<String>,
+    num_active_paths: Option<i32>,
+    max_segment_seconds: Option<i32>,
+    rover_enabled: Option<bool>,
+    rover_family_b: Option<String>,
+    rover_variant_b: Option<String>,
+    _auth_token: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let pool = state.db_manager.pool();
+    let model = if model.is_empty() {
+        crate::config::ZIPFORMER_MODEL_NAME.to_string()
+    } else {
+        model
+    };
+    let family = crate::asr_engine::model_family::ModelFamily::from_id(&model);
+    let requested_variant =
+        crate::asr_engine::model_family::ModelVariant::from_str(asr_variant.as_deref().unwrap_or("int8"));
+    let resolved_variant = if family.available_variants().contains(&requested_variant) {
+        requested_variant
+    } else {
+        family.available_variants()[0]
+    };
+    let variant = resolved_variant.as_str();
+    let dm = decoding_method.as_deref().unwrap_or("modified_beam_search");
+    let paths = num_active_paths.unwrap_or(15);
+    let max_seg = crate::audio::common::clamp_max_segment_seconds(
+        max_segment_seconds.unwrap_or(crate::audio::common::DEFAULT_MAX_SEGMENT_SECONDS as i32),
+    );
+    let rover_on = rover_enabled.unwrap_or(false);
+    let rover_variant_b_resolved = rover_variant_b.as_deref().unwrap_or("int8");
+
+    if let Err(e) = SettingsRepository::save_file_asr_config(
+        pool,
+        &model,
+        variant,
+        dm,
+        paths,
+        max_seg as i32,
+        rover_on,
+        rover_family_b.as_deref(),
+        if rover_on {
+            Some(rover_variant_b_resolved)
+        } else {
+            None
+        },
+    )
+    .await
+    {
+        return Err(e.to_string());
+    }
+
+    if rover_on {
+        crate::rover_engine::commands::rover_validate_model_ready(app.clone()).await?;
+    } else {
+        crate::asr_engine::commands::asr_validate_model_ready(
+            app.clone(),
+            Some(model.clone()),
+            Some(variant.to_string()),
+            Some(dm.to_string()),
+            Some(paths),
+        )
+        .await?;
+    }
+
+    Ok(serde_json::json!({ "status": "success", "message": "File ASR configuration saved" }))
+}
+
+#[tauri::command]
+pub async fn api_save_shared_transcript_config<R: Runtime>(
+    app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+    hotwords: Option<String>,
+    capu_cpu_threads: Option<i32>,
+    capu_punctuation_level: Option<i32>,
+    capu_case_level: Option<i32>,
+    _auth_token: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let pool = state.db_manager.pool();
+    let capu_threads_resolved = capu_cpu_threads.filter(|&t| t > 0);
+    let capu_punct_resolved = capu_punctuation_level.unwrap_or(7).clamp(1, 10);
+    let capu_case_resolved = capu_case_level.unwrap_or(3).clamp(1, 10);
+
+    if let Err(e) = SettingsRepository::save_shared_transcript_config(
+        pool,
+        hotwords.as_deref(),
+        capu_threads_resolved,
+        capu_punct_resolved,
+        capu_case_resolved,
+    )
+    .await
+    {
+        return Err(e.to_string());
+    }
+
+    if let Ok(engine) = crate::asr_engine::commands::get_engine_arc() {
+        let bundled = crate::asr_engine::commands::load_bundled_hotwords_raw(&app);
+        let text = crate::asr_engine::hotwords::effective_hotwords_text(
+            hotwords.as_deref(),
+            bundled.as_deref(),
+        );
+        engine.set_hotwords(text).await;
+    }
+
+    crate::capu_engine::commands::apply_settings_after_save(
+        app.clone(),
+        capu_threads_resolved,
+        capu_punct_resolved as u8,
+        capu_case_resolved as u8,
+    )
+    .await;
+
+    Ok(serde_json::json!({ "status": "success", "message": "Shared transcript configuration saved" }))
 }
 
 #[tauri::command]

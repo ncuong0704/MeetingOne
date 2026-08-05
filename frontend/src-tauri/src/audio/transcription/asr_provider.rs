@@ -2,18 +2,18 @@ use super::provider::{TranscriptionError, TranscriptionProvider, TranscriptResul
 use async_trait::async_trait;
 use std::sync::Arc;
 
-pub struct ZipFormerProvider {
-    engine: Arc<crate::zipformer_engine::ZipFormerEngine>,
+pub struct AsrProvider {
+    engine: Arc<crate::asr_engine::engine::AsrEngine>,
 }
 
-impl ZipFormerProvider {
-    pub fn new(engine: Arc<crate::zipformer_engine::ZipFormerEngine>) -> Self {
+impl AsrProvider {
+    pub fn new(engine: Arc<crate::asr_engine::engine::AsrEngine>) -> Self {
         Self { engine }
     }
 }
 
 #[async_trait]
-impl TranscriptionProvider for ZipFormerProvider {
+impl TranscriptionProvider for AsrProvider {
     async fn transcribe(
         &self,
         audio: Vec<f32>,
@@ -22,13 +22,11 @@ impl TranscriptionProvider for ZipFormerProvider {
         if !self.engine.is_model_loaded().await {
             return Err(TranscriptionError::ModelNotLoaded);
         }
-
         let text = self
             .engine
             .transcribe_audio(audio)
             .await
             .map_err(|e| TranscriptionError::EngineFailed(e.to_string()))?;
-
         Ok(TranscriptResult {
             text,
             confidence: None,
@@ -45,6 +43,6 @@ impl TranscriptionProvider for ZipFormerProvider {
     }
 
     fn provider_name(&self) -> &'static str {
-        "zipformer-vi"
+        "asr-vi"
     }
 }

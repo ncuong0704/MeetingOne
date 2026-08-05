@@ -28,6 +28,8 @@ use super::transcription::{
     self,
     reset_speech_detected_flag,
 };
+use crate::database::repositories::setting::SettingsRepository;
+use crate::state::AppState;
 
 // Re-export TranscriptUpdate for backward compatibility
 pub use super::transcription::TranscriptUpdate;
@@ -291,9 +293,15 @@ async fn start_recording_with_meeting_name_inner<R: Runtime>(
         let _ = app_for_error.emit("recording-error", error.user_message());
     });
 
+    let max_segment_seconds = SettingsRepository::get_max_segment_seconds(
+        app.state::<AppState>().db_manager.pool(),
+    )
+    .await;
+    info!("Using max segment length: {}s for live transcription", max_segment_seconds);
+
     // Start recording with resolved devices (replaces start_recording_with_defaults_and_auto_save call)
     let transcription_receiver = manager
-        .start_recording(microphone_device, system_device, auto_save)
+        .start_recording(microphone_device, system_device, auto_save, max_segment_seconds)
         .await
         .map_err(|e| format!("Failed to start recording: {}", e))?;
 
@@ -307,6 +315,14 @@ async fn start_recording_with_meeting_name_inner<R: Runtime>(
     // (IS_RECORDING was already set to true by the caller's atomic claim)
     info!("🔍 Resetting SPEECH_DETECTED_EMITTED for new recording session");
     reset_speech_detected_flag();
+
+    // Best-effort CAPU init before live transcription
+    if crate::capu_engine::commands::capu_is_model_downloaded(app.clone())
+        .await
+        .unwrap_or(false)
+    {
+        let _ = crate::capu_engine::commands::capu_init(app.clone()).await;
+    }
 
     // Start optimized parallel transcription task and store handle
     let task_handle = transcription::start_transcription_task(app.clone(), transcription_receiver);
@@ -534,9 +550,15 @@ async fn start_recording_with_devices_and_meeting_inner<R: Runtime>(
         let _ = app_for_error.emit("recording-error", error.user_message());
     });
 
+    let max_segment_seconds = SettingsRepository::get_max_segment_seconds(
+        app.state::<AppState>().db_manager.pool(),
+    )
+    .await;
+    info!("Using max segment length: {}s for live transcription", max_segment_seconds);
+
     // Start recording with specified devices and auto_save setting
     let transcription_receiver = manager
-        .start_recording(mic_device, system_device, auto_save)
+        .start_recording(mic_device, system_device, auto_save, max_segment_seconds)
         .await
         .map_err(|e| format!("Failed to start recording: {}", e))?;
 
@@ -550,6 +572,14 @@ async fn start_recording_with_devices_and_meeting_inner<R: Runtime>(
     // (IS_RECORDING was already set to true by the caller's atomic claim)
     info!("🔍 Resetting SPEECH_DETECTED_EMITTED for new recording session");
     reset_speech_detected_flag();
+
+    // Best-effort CAPU init before live transcription
+    if crate::capu_engine::commands::capu_is_model_downloaded(app.clone())
+        .await
+        .unwrap_or(false)
+    {
+        let _ = crate::capu_engine::commands::capu_init(app.clone()).await;
+    }
 
     // Start optimized parallel transcription task and store handle
     let task_handle = transcription::start_transcription_task(app.clone(), transcription_receiver);
@@ -723,12 +753,7 @@ pub async fn stop_recording<R: Runtime>(
         }
     }
 
-    // NOTE: transcript-finalized listener is intentionally NOT removed here. The CAPU
-    // background stage (Stage 2) is nested inside the transcription task awaited below —
-    // its guaranteed final flush (often the ONLY flush for short recordings) fires while
-    // that await is in progress. Unlistening this early would silently drop that event and
-    // permanently lose the punctuated text. It's removed further down, after the
-    // transcription task handle has fully completed.
+    // NOTE: transcript-finalized listener stays active until after live CAPU finalize below.
 
     // Step 2: Signal transcription workers to finish processing ALL queued chunks
     let _ = app.emit(
@@ -796,8 +821,55 @@ pub async fn stop_recording<R: Runtime>(
         info!("ℹ️ No transcription task found to wait for");
     }
 
-    // The transcription task (and, nested inside it, the CAPU background stage) has now
-    // fully completed or timed out — safe to stop listening for its final flush.
+    // Step 2.5: Apply CAPU once over the full live transcript (after ASR drain).
+    let _ = app.emit(
+        "recording-shutdown-progress",
+        serde_json::json!({
+            "stage": "applying_punctuation",
+            "message": "Đang thêm dấu câu...",
+            "progress": 55
+        }),
+    );
+
+    // Ensure CAPU engine is loaded before finalize (startup init may still be in progress).
+    if crate::capu_engine::commands::capu_is_model_downloaded(app.clone())
+        .await
+        .unwrap_or(false)
+    {
+        if let Err(e) = crate::capu_engine::commands::capu_init(app.clone()).await {
+            warn!("CAPU init before live finalize failed: {}", e);
+        }
+    }
+
+    if let Some(ref manager) = manager_for_cleanup {
+        let raw_segments = manager.get_transcript_segments();
+        let finalized_batches =
+            crate::capu_engine::live_finalize::finalize_live_with_capu(&raw_segments);
+        let batch_count = finalized_batches.len();
+        for finalized in finalized_batches {
+            manager.replace_transcript_segments(
+                &finalized.source_ids,
+                finalized.text.clone(),
+                finalized.audio_start_time,
+                finalized.audio_end_time,
+            );
+            let payload = crate::audio::transcription::TranscriptFinalized {
+                source_sequence_ids: finalized.source_ids,
+                text: finalized.text,
+                audio_start_time: finalized.audio_start_time,
+                audio_end_time: finalized.audio_end_time,
+            };
+            if let Err(e) = app.emit("transcript-finalized", &payload) {
+                warn!("Failed to emit transcript-finalized after live CAPU: {}", e);
+            }
+        }
+        info!(
+            "✅ Live CAPU finalize applied ({} batch(es))",
+            batch_count
+        );
+    }
+
+    // The transcription task has completed — safe to stop listening for transcript-finalized.
     {
         use tauri::Listener;
         if let Some(listener_id) = TRANSCRIPT_FINALIZED_LISTENER_ID.lock().take() {
@@ -829,8 +901,7 @@ pub async fn stop_recording<R: Runtime>(
     )
     .await
     {
-        Ok(Ok(Some(config))) => Some(config.provider),
-        Ok(Ok(None)) => None,
+        Ok(Ok(_config)) => Some("asr".to_string()),
         Ok(Err(e)) => {
             warn!("⚠️ Failed to get transcript config: {:?}", e);
             None
@@ -892,7 +963,7 @@ pub async fn stop_recording<R: Runtime>(
         )
         .await
         {
-            Ok(Some(config)) => Some((config.provider, config.model)),
+            Ok(config) => Some(("asr".to_string(), config.live.model.clone())),
             _ => None,
         };
 
@@ -1198,6 +1269,32 @@ pub async fn get_transcript_history() -> Result<Vec<crate::audio::recording_save
     } else {
         Ok(Vec::new()) // No recording active, return empty
     }
+}
+
+/// Load finalized transcript segments from a meeting folder's transcripts.json
+/// (used after stop_recording when CAPU has updated the on-disk file).
+#[tauri::command]
+pub async fn load_transcripts_from_folder(
+    folder_path: String,
+) -> Result<Vec<crate::audio::recording_saver::TranscriptSegment>, String> {
+    let path = std::path::PathBuf::from(&folder_path).join("transcripts.json");
+    if !path.exists() {
+        return Err(format!(
+            "Không tìm thấy transcripts.json trong {}",
+            folder_path
+        ));
+    }
+    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let json: serde_json::Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+    let segments_value = json
+        .get("segments")
+        .cloned()
+        .ok_or_else(|| "transcripts.json không có trường segments".to_string())?;
+    let segments = serde_json::from_value::<Vec<crate::audio::recording_saver::TranscriptSegment>>(
+        segments_value,
+    )
+    .map_err(|e| format!("Không đọc được segments từ transcripts.json: {}", e))?;
+    Ok(segments)
 }
 
 /// Update transcript text for one segment during an active recording (persists to transcripts.json).

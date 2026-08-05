@@ -227,40 +227,27 @@ pub async fn asr_validate_model_ready<R: Runtime>(
     let (f, v, dm, paths) = if family.is_none() {
         if let Some(state) = app.try_state::<crate::state::AppState>() {
             let pool = state.db_manager.pool();
-            match crate::database::repositories::setting::SettingsRepository::get_transcript_config(
-                pool,
+            let live_cfg =
+                crate::database::repositories::setting::SettingsRepository::get_path_asr_config(
+                    pool,
+                    crate::asr_engine::config::AsrPath::Live,
+                )
+                .await;
+            info!(
+                "Using saved live ASR config: family={}, variant={}, decoding={}, paths={}",
+                live_cfg.family_id,
+                live_cfg.variant.as_str(),
+                live_cfg.decoding_method,
+                live_cfg.num_active_paths
+            );
+            let family = ModelFamily::from_id(&live_cfg.family_id);
+            let v = live_cfg.variant;
+            (
+                family,
+                v,
+                live_cfg.decoding_method,
+                live_cfg.num_active_paths,
             )
-            .await
-            {
-                Ok(Some(config)) => {
-                    info!(
-                        "Using saved ASR config: family={}, variant={}, decoding={}, paths={}",
-                        config.model,
-                        config.asr_variant,
-                        config.decoding_method,
-                        config.num_active_paths
-                    );
-                    let family = ModelFamily::from_id(&config.model);
-                    let requested = ModelVariant::from_str(&config.asr_variant);
-                    let v = if family.available_variants().contains(&requested) {
-                        requested
-                    } else {
-                        family.available_variants()[0]
-                    };
-                    (
-                        family,
-                        v,
-                        config.decoding_method,
-                        config.num_active_paths,
-                    )
-                }
-                _ => (
-                    ModelFamily::ZipFormer30M,
-                    ModelVariant::from_str("int8"),
-                    decoding_method.unwrap_or_else(|| "modified_beam_search".to_string()),
-                    num_active_paths.unwrap_or(15),
-                ),
-            }
         } else {
             (
                 ModelFamily::ZipFormer30M,

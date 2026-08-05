@@ -6,7 +6,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core';
-import { TranscriptModelProps } from '@/components/TranscriptSettings';
+import { TranscriptConfigBundle } from '@/lib/asr';
 
 export interface ModelConfig {
   provider: 'claude' | 'openrouter' | 'openai' | 'custom-openai';
@@ -50,8 +50,8 @@ export class ConfigService {
    * Get saved transcript model configuration
    * @returns Promise with { provider, model, apiKey }
    */
-  async getTranscriptConfig(): Promise<TranscriptModelProps> {
-    return invoke<TranscriptModelProps>('api_get_transcript_config');
+  async getTranscriptConfig(): Promise<TranscriptConfigBundle> {
+    return invoke<TranscriptConfigBundle>('api_get_transcript_config');
   }
 
   /**

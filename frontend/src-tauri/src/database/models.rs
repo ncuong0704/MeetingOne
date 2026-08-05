@@ -153,4 +153,43 @@ pub struct TranscriptSetting {
     #[sqlx(rename = "capuCaseLevel")]
     #[serde(rename = "capuCaseLevel")]
     pub capu_case_level: i32,
+    #[sqlx(rename = "liveModel")]
+    #[serde(rename = "liveModel")]
+    pub live_model: Option<String>,
+    #[sqlx(rename = "liveAsrVariant")]
+    #[serde(rename = "liveAsrVariant")]
+    pub live_asr_variant: Option<String>,
+    #[sqlx(rename = "liveDecodingMethod")]
+    #[serde(rename = "liveDecodingMethod")]
+    pub live_decoding_method: Option<String>,
+    #[sqlx(rename = "liveNumActivePaths")]
+    #[serde(rename = "liveNumActivePaths")]
+    pub live_num_active_paths: Option<i32>,
+    #[sqlx(rename = "liveMaxSegmentSeconds")]
+    #[serde(rename = "liveMaxSegmentSeconds")]
+    pub live_max_segment_seconds: Option<i32>,
+    #[sqlx(rename = "fileModel")]
+    #[serde(rename = "fileModel")]
+    pub file_model: Option<String>,
+    #[sqlx(rename = "fileAsrVariant")]
+    #[serde(rename = "fileAsrVariant")]
+    pub file_asr_variant: Option<String>,
+    #[sqlx(rename = "fileDecodingMethod")]
+    #[serde(rename = "fileDecodingMethod")]
+    pub file_decoding_method: Option<String>,
+    #[sqlx(rename = "fileNumActivePaths")]
+    #[serde(rename = "fileNumActivePaths")]
+    pub file_num_active_paths: Option<i32>,
+    #[sqlx(rename = "fileMaxSegmentSeconds")]
+    #[serde(rename = "fileMaxSegmentSeconds")]
+    pub file_max_segment_seconds: Option<i32>,
+    #[sqlx(rename = "fileRoverEnabled")]
+    #[serde(rename = "fileRoverEnabled")]
+    pub file_rover_enabled: Option<bool>,
+    #[sqlx(rename = "fileRoverFamilyB")]
+    #[serde(rename = "fileRoverFamilyB")]
+    pub file_rover_family_b: Option<String>,
+    #[sqlx(rename = "fileRoverVariantB")]
+    #[serde(rename = "fileRoverVariantB")]
+    pub file_rover_variant_b: Option<String>,
 }

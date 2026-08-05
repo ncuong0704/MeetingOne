@@ -4,6 +4,43 @@ use log::{debug, info};
 use std::path::Path;
 use uuid::Uuid;
 
+pub const DEFAULT_MAX_SEGMENT_SECONDS: u32 = 25;
+pub const MIN_MAX_SEGMENT_SECONDS: u32 = 5;
+pub const MAX_MAX_SEGMENT_SECONDS: u32 = 30;
+
+/// Clamp user-configured max segment length to the supported range (5–30 seconds).
+pub fn clamp_max_segment_seconds(seconds: i32) -> u32 {
+    let seconds = if seconds <= 0 {
+        DEFAULT_MAX_SEGMENT_SECONDS as i32
+    } else {
+        seconds
+    };
+    (seconds as u32).clamp(MIN_MAX_SEGMENT_SECONDS, MAX_MAX_SEGMENT_SECONDS)
+}
+
+/// Split long VAD segments at silence boundaries before sending to ASR.
+pub fn expand_segments_at_silence(
+    segments: impl IntoIterator<Item = crate::audio::vad::SpeechSegment>,
+    max_seconds: u32,
+) -> Vec<crate::audio::vad::SpeechSegment> {
+    let max_samples = max_seconds as usize * 16000;
+    let mut result = Vec::new();
+    for segment in segments {
+        if segment.samples.len() > max_samples {
+            debug!(
+                "Splitting large segment ({:.0}ms, {} samples) at silence boundaries (max {}s)",
+                segment.end_timestamp_ms - segment.start_timestamp_ms,
+                segment.samples.len(),
+                max_seconds
+            );
+            result.extend(split_segment_at_silence(&segment, max_samples));
+        } else {
+            result.push(segment);
+        }
+    }
+    result
+}
+
 /// Release the ZipFormer model's memory after a one-off batch job (audio
 /// import, retranscription) finishes, unless a live recording is currently
 /// using the engine. This restores the memory-freeing behavior the original
@@ -15,7 +52,7 @@ pub(crate) async fn unload_engine_after_batch() {
         return;
     }
 
-    match crate::zipformer_engine::commands::get_engine_arc() {
+    match crate::asr_engine::commands::get_engine_arc() {
         Ok(engine) => {
             engine.unload_model().await;
         }

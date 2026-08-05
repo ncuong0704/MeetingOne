@@ -5,10 +5,11 @@ import { TranscriptView } from '@/components/TranscriptView';
 import { VirtualizedTranscriptView } from '@/components/VirtualizedTranscriptView';
 import { TranscriptButtonGroup } from './TranscriptButtonGroup';
 import { AudioPlayer } from './AudioPlayer';
-import { useMemo, useState, useCallback } from 'react';
+import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import { Headphones } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
+import { useTranscriptAudioSync } from '@/hooks/useTranscriptAudioSync';
 
 interface TranscriptPanelProps {
   transcripts: Transcript[];
@@ -68,6 +69,56 @@ export function TranscriptPanel({
   const segmentCount = usePagination ? (totalCount ?? convertedSegments.length) : (transcripts?.length || 0);
 
   const [showAudioPlayer, setShowAudioPlayer] = useState(false);
+  const seekRef = useRef<((time: number) => void) | null>(null);
+  const pendingSeekRef = useRef<number | null>(null);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [audioLoaded, setAudioLoaded] = useState(false);
+
+  const handleTimeUpdate = useCallback((t: number) => {
+    setCurrentTime(t);
+    setAudioLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    setAudioLoaded(false);
+    setCurrentTime(0);
+  }, [meetingFolderPath]);
+
+  useEffect(() => {
+    if (!showAudioPlayer) {
+      setAudioLoaded(false);
+      setCurrentTime(0);
+      pendingSeekRef.current = null;
+    }
+  }, [showAudioPlayer]);
+
+  useEffect(() => {
+    if (!audioLoaded || pendingSeekRef.current === null) return;
+    const t = pendingSeekRef.current;
+    pendingSeekRef.current = null;
+    seekRef.current?.(t);
+  }, [audioLoaded]);
+
+  const isPlaybackActive = showAudioPlayer && audioLoaded;
+
+  const { activeSegmentId, handleSegmentClick } = useTranscriptAudioSync({
+    segments: convertedSegments,
+    currentTime,
+    isPlaybackActive,
+    seekRef,
+    hasMore,
+    onLoadMore,
+  });
+
+  const onSegmentClick = useCallback(
+    (segment: TranscriptSegmentData) => {
+      const t = segment.timestamp ?? 0;
+      if (!showAudioPlayer) setShowAudioPlayer(true);
+      if (!seekRef.current) pendingSeekRef.current = t;
+      handleSegmentClick(segment);
+    },
+    [showAudioPlayer, handleSegmentClick],
+  );
 
   const handleSegmentEdit = useCallback(async (segmentId: string, newText: string, _sequenceId?: number) => {
     await invoke('api_update_transcript_text', { transcriptId: segmentId, newText });
@@ -117,7 +168,11 @@ export function TranscriptPanel({
 
       {/* Audio player — shown when toggled */}
       {showAudioPlayer && meetingFolderPath && (
-        <AudioPlayer meetingFolderPath={meetingFolderPath} />
+        <AudioPlayer
+          meetingFolderPath={meetingFolderPath}
+          seekRef={seekRef}
+          onTimeUpdate={handleTimeUpdate}
+        />
       )}
 
       {/* Transcript content */}
@@ -137,6 +192,9 @@ export function TranscriptPanel({
           totalCount={totalCount}
           loadedCount={loadedCount}
           onLoadMore={onLoadMore}
+          activeSegmentId={activeSegmentId}
+          onSegmentClick={meetingFolderPath ? onSegmentClick : undefined}
+          playbackFollow={showAudioPlayer && !!meetingFolderPath}
         />
       </div>
     </div>

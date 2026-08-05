@@ -1,7 +1,7 @@
-import ZipFormerModelManager from './ZipFormerModelManager';
+import AsrPathTabs from './AsrPathTabs';
 
 export interface TranscriptModelProps {
-  provider: 'zipformer';
+  provider: 'asr';
   model: string;
   apiKey?: string | null;
 }
@@ -21,7 +21,7 @@ export function TranscriptSettings({}: TranscriptSettingsProps) {
           <p className="text-sm text-gray-500 mt-1">Quản lý mô hình chuyển đổi giọng nói sang văn bản.</p>
         </div>
         <div className="px-5 py-5">
-          <ZipFormerModelManager />
+          <AsrPathTabs />
         </div>
       </div>
     </div>

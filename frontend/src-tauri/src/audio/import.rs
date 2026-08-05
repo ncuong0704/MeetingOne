@@ -508,53 +508,53 @@ async fn run_import<R: Runtime>(
 
     emit_progress(&app, "transcribing", 30, "Loading transcription engine...");
 
-    // Initialize ASR engine (ROVER or single-model, per saved config)
-    let rover_enabled = {
+    // Initialize ASR engine (ROVER or single-model, per file path config)
+    let file_cfg = {
         let app_state = app
             .try_state::<AppState>()
             .ok_or_else(|| anyhow!("App state not available"))?;
-        crate::database::repositories::setting::SettingsRepository::get_transcript_config(
+        crate::database::repositories::setting::SettingsRepository::get_path_asr_config(
             app_state.db_manager.pool(),
+            crate::asr_engine::config::AsrPath::File,
         )
         .await
-        .ok()
-        .flatten()
-        .map(|c| c.rover_enabled)
-        .unwrap_or(false)
     };
 
     let (asr, rover): (
         Option<std::sync::Arc<crate::asr_engine::engine::AsrEngine>>,
         Option<std::sync::Arc<tokio::sync::Mutex<crate::rover_engine::engine::RoverDecoder>>>,
-    ) = if rover_enabled {
+    ) = if file_cfg.rover_enabled {
+        emit_progress(&app, "transcribing", 32, "Đang khởi tạo ROVER...");
         crate::rover_engine::commands::rover_init().await
             .map_err(|e| anyhow!("Failed to init ROVER: {}", e))?;
+        emit_progress(&app, "transcribing", 35, "Đang tải model A và B cho ROVER...");
         crate::rover_engine::commands::rover_validate_model_ready(app.clone())
             .await
             .map_err(|e| anyhow!("{}", e))?;
+        emit_progress(&app, "transcribing", 38, "ROVER sẵn sàng, bắt đầu nhận dạng...");
         let rover = crate::rover_engine::commands::get_engine_arc()
             .map_err(|e| anyhow!("{}", e))?;
         (None, Some(rover))
     } else {
+        emit_progress(&app, "transcribing", 32, "Đang tải model nhận dạng...");
         crate::asr_engine::commands::asr_init().await
             .map_err(|e| anyhow!("Failed to init ASR: {}", e))?;
-        crate::asr_engine::commands::asr_validate_model_ready(app.clone(), None, None, None, None)
-            .await
-            .map_err(|e| anyhow!("{}", e))?;
+        crate::asr_engine::commands::asr_validate_model_ready(
+            app.clone(),
+            Some(file_cfg.family_id.clone()),
+            Some(file_cfg.variant.as_str().to_string()),
+            Some(file_cfg.decoding_method.clone()),
+            Some(file_cfg.num_active_paths),
+        )
+        .await
+        .map_err(|e| anyhow!("{}", e))?;
         let asr = crate::asr_engine::commands::get_engine_arc()
             .map_err(|e| anyhow!("{}", e))?;
+        emit_progress(&app, "transcribing", 38, "Model sẵn sàng, bắt đầu nhận dạng...");
         (Some(asr), None)
     };
 
-    let max_segment_seconds = {
-        let app_state = app
-            .try_state::<AppState>()
-            .ok_or_else(|| anyhow!("App state not available"))?;
-        crate::database::repositories::setting::SettingsRepository::get_max_segment_seconds(
-            app_state.db_manager.pool(),
-        )
-        .await
-    };
+    let max_segment_seconds = file_cfg.max_segment_seconds;
     info!(
         "Splitting long segments at silence boundaries (max {}s)",
         max_segment_seconds

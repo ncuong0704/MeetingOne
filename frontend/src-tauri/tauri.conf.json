@@ -98,7 +98,9 @@
             "icons/icon.ico"
         ],
         "resources": [
-            "templates/*.json"
+            "templates/*.json",
+            "resources/itn-vi/*",
+            "resources/hotwords.txt"
         ],
         "externalBin": [
             "binaries/ffmpeg"

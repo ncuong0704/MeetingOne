@@ -2,9 +2,11 @@
 //
 // Groups small raw ASR segments into larger batches before running CAPU, so punctuation
 // restoration pays its fixed per-call overhead far fewer times per meeting/file. Used by
-// both the live background stage (transcription/worker.rs, with a debounce timer) and the
-// file batch path (added in a later plan; no timer there — the segment list is already
-// complete). See docs/superpowers/specs/2026-08-04-asr-pipeline-performance-design.md.
+// the file batch path (`audio/batch_transcribe.rs`) during transcription, and by the live
+// path (`capu_engine/live_finalize.rs`) once, over the whole session, at `stop_recording` —
+// CAPU never runs per-chunk while a live recording is in progress, so there is no debounce
+// timer anywhere in this batcher. See
+// docs/superpowers/specs/2026-08-04-asr-pipeline-performance-design.md.
 
 use super::CapuEngine;
 
@@ -46,8 +48,10 @@ impl CapuBatcher {
         self.pending.is_empty()
     }
 
-    /// True once the accumulated pending word count has reached `word_budget`. Callers
-    /// (live: also a debounce timer; file: only this) decide when to act on it.
+    /// True once the accumulated pending word count has reached `word_budget`. This is
+    /// the only flush trigger either caller uses — file flushes mid-stream on this signal
+    /// then again for whatever remains at the end; live only ever hits the end-of-session
+    /// flush, since it buffers the entire recording before finalizing.
     pub fn should_flush(&self, word_budget: usize) -> bool {
         self.pending_word_count >= word_budget
     }

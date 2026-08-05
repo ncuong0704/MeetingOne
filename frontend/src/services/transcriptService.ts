@@ -39,6 +39,34 @@ export class TranscriptService {
   }
 
   /**
+   * Load finalized transcripts from meeting folder transcripts.json (post-CAPU).
+   */
+  async loadTranscriptsFromFolder(folderPath: string): Promise<Transcript[]> {
+    const segments = await invoke<
+      Array<{
+        id: string;
+        text: string;
+        display_time?: string;
+        sequence_id?: number;
+        audio_start_time?: number;
+        audio_end_time?: number;
+        duration?: number;
+        confidence?: number;
+      }>
+    >('load_transcripts_from_folder', { folderPath });
+    return segments.map((seg) => ({
+      id: seg.id,
+      text: seg.text,
+      timestamp: seg.display_time ?? '',
+      sequence_id: seg.sequence_id,
+      audio_start_time: seg.audio_start_time,
+      audio_end_time: seg.audio_end_time,
+      duration: seg.duration,
+      confidence: seg.confidence,
+    }));
+  }
+
+  /**
    * Get current transcription queue status
    * @returns Promise with transcription status
    */
@@ -102,10 +130,10 @@ export class TranscriptService {
   }
 
   /**
-   * Listen for ZipFormer model download complete event
+   * Listen for ASR model download complete event
    */
-  async onZipformerModelDownloadComplete(callback: () => void): Promise<UnlistenFn> {
-    return listen('zipformer-model-download-complete', () => {
+  async onAsrModelDownloadComplete(callback: () => void): Promise<UnlistenFn> {
+    return listen('asr-model-download-complete', () => {
       callback();
     });
   }

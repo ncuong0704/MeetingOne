@@ -50,24 +50,30 @@ export function useRecordingStart(
     return `Cuộc họp ${day}_${month}_${year}_${hours}_${minutes}_${seconds}`;
   }, []);
 
-  // Check if ZipFormer Vietnamese ASR model is ready
-  const checkZipformerReady = useCallback(async (): Promise<boolean> => {
+  // Check if Vietnamese ASR model is ready
+  const checkAsrReady = useCallback(async (): Promise<boolean> => {
     try {
-      await invoke('zipformer_init');
-      return await invoke<boolean>('zipformer_is_model_loaded');
+      await invoke('asr_init');
+      await invoke('asr_validate_model_ready', {
+        family: null,
+        variant: null,
+        decodingMethod: null,
+        numActivePaths: null,
+      });
+      return true;
     } catch (error) {
-      console.error('Failed to check ZipFormer status:', error);
+      console.error('Failed to validate live ASR model:', error);
       return false;
     }
   }, []);
 
-  // Check if ZipFormer model is currently downloading
+  // Check if ASR model is currently downloading
   const checkIfModelDownloading = useCallback(async (): Promise<boolean> => {
     try {
-      const status = await invoke<{ type: string }>('zipformer_get_model_status');
+      const status = await invoke<{ type: string }>('asr_get_model_status');
       return status?.type === 'Downloading';
     } catch (error) {
-      console.error('Failed to check ZipFormer download status:', error);
+      console.error('Failed to check ASR download status:', error);
       return false;
     }
   }, []);
@@ -75,11 +81,11 @@ export function useRecordingStart(
   // Handle manual recording start (from button click)
   const handleRecordingStart = useCallback(async () => {
     try {
-      console.log('handleRecordingStart called - checking ZipFormer model status');
+      console.log('handleRecordingStart called - checking ASR model status');
 
-      // Check if ZipFormer transcription model is ready before starting
-      const zipformerReady = await checkZipformerReady();
-      if (!zipformerReady) {
+      // Check if ASR transcription model is ready before starting
+      const asrReady = await checkAsrReady();
+      if (!asrReady) {
         const isDownloading = await checkIfModelDownloading();
         if (isDownloading) {
           toast.info('Đang tải mô hình', {
@@ -99,7 +105,14 @@ export function useRecordingStart(
         return;
       }
 
-      console.log('ZipFormer ready - setting up meeting title and state');
+      console.log('ASR ready - setting up meeting title and state');
+
+      // Best-effort CAPU init (usually already loaded at app startup)
+      try {
+        await invoke('capu_init');
+      } catch (e) {
+        console.warn('CAPU init skipped:', e);
+      }
 
       const randomTitle = generateMeetingTitle();
       setMeetingTitle(randomTitle);
@@ -145,7 +158,7 @@ export function useRecordingStart(
       // Re-throw so RecordingControls can handle device-specific errors
       throw error;
     }
-  }, [generateMeetingTitle, setMeetingTitle, setIsRecording, clearTranscripts, setIsMeetingActive, checkZipformerReady, checkIfModelDownloading, selectedDevices, micEnabled, hasMicrophoneAccess, showModal, setStatus]);
+  }, [generateMeetingTitle, setMeetingTitle, setIsRecording, clearTranscripts, setIsMeetingActive, checkAsrReady, checkIfModelDownloading, selectedDevices, micEnabled, hasMicrophoneAccess, showModal, setStatus]);
 
   // Check for autoStartRecording flag and start recording automatically
   useEffect(() => {
@@ -157,9 +170,9 @@ export function useRecordingStart(
           setIsAutoStarting(true);
           sessionStorage.removeItem('autoStartRecording'); // Clear the flag
 
-          // Check if ZipFormer transcription model is ready before starting
-          const zipformerReady = await checkZipformerReady();
-          if (!zipformerReady) {
+          // Check if ASR transcription model is ready before starting
+          const asrReady = await checkAsrReady();
+          if (!asrReady) {
             const isDownloading = await checkIfModelDownloading();
             if (isDownloading) {
               toast.info('Đang tải mô hình', {
@@ -242,7 +255,7 @@ export function useRecordingStart(
     setIsRecording,
     clearTranscripts,
     setIsMeetingActive,
-    checkZipformerReady,
+    checkAsrReady,
     checkIfModelDownloading,
     showModal,
     setStatus,
@@ -256,12 +269,12 @@ export function useRecordingStart(
         return;
       }
 
-      console.log('Direct start from sidebar - checking ZipFormer model status');
+      console.log('Direct start from sidebar - checking ASR model status');
       setIsAutoStarting(true);
 
-      // Check if ZipFormer transcription model is ready before starting
-      const zipformerReady = await checkZipformerReady();
-      if (!zipformerReady) {
+      // Check if ASR transcription model is ready before starting
+      const asrReady = await checkAsrReady();
+      if (!asrReady) {
         const isDownloading = await checkIfModelDownloading();
         if (isDownloading) {
           toast.info('Đang tải mô hình', {
@@ -345,7 +358,7 @@ export function useRecordingStart(
     setIsRecording,
     clearTranscripts,
     setIsMeetingActive,
-    checkZipformerReady,
+    checkAsrReady,
     checkIfModelDownloading,
     showModal,
     setStatus,

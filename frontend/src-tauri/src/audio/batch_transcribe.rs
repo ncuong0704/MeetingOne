@@ -16,6 +16,7 @@ use crate::capu_engine::cpu_topology::detect_cpu_topology;
 use crate::rover_engine::engine::RoverDecoder;
 use anyhow::anyhow;
 use anyhow::Result;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Runtime};
 use tokio::sync::Mutex as TokioMutex;
@@ -169,6 +170,7 @@ async fn run_worker(
     mut worker: Worker,
     indexed_segments: Vec<(usize, SpeechSegment)>,
     is_cancelled: impl Fn() -> bool,
+    done_counter: Option<Arc<AtomicUsize>>,
 ) -> Result<Vec<(usize, (String, f64, f64))>> {
     let mut results = Vec::with_capacity(indexed_segments.len());
     for (i, segment) in indexed_segments {
@@ -176,6 +178,9 @@ async fn run_worker(
             return Err(anyhow!("Cancelled"));
         }
         if segment.samples.len() < 1600 {
+            if let Some(c) = &done_counter {
+                c.fetch_add(1, Ordering::Relaxed);
+            }
             continue;
         }
         let text = match &mut worker {
@@ -192,6 +197,9 @@ async fn run_worker(
         };
         if !text.trim().is_empty() {
             results.push((i, (text, segment.start_timestamp_ms, segment.end_timestamp_ms)));
+        }
+        if let Some(c) = &done_counter {
+            c.fetch_add(1, Ordering::Relaxed);
         }
     }
     Ok(results)
@@ -335,10 +343,31 @@ async fn transcribe_parallel<R: Runtime>(
     let total = segments.len();
     let (even, odd) = split_even_odd(segments);
 
+    on_progress(0, total);
+
     let (worker_a, worker_b) = build_worker_pair(app, primary, physical_cores).await?;
 
-    let handle_a = tokio::spawn(run_worker(worker_a, even, is_cancelled.clone()));
-    let handle_b = tokio::spawn(run_worker(worker_b, odd, is_cancelled));
+    let done = Arc::new(AtomicUsize::new(0));
+    let done_a = done.clone();
+    let done_b = done.clone();
+
+    let handle_a = tokio::spawn(run_worker(
+        worker_a,
+        even,
+        is_cancelled.clone(),
+        Some(done_a),
+    ));
+    let handle_b = tokio::spawn(run_worker(worker_b, odd, is_cancelled, Some(done_b)));
+
+    let mut progress_interval = tokio::time::interval(tokio::time::Duration::from_millis(300));
+    loop {
+        progress_interval.tick().await;
+        let d = done.load(Ordering::Relaxed);
+        on_progress(d.min(total), total);
+        if handle_a.is_finished() && handle_b.is_finished() {
+            break;
+        }
+    }
 
     let (result_a, result_b) = tokio::join!(handle_a, handle_b);
 

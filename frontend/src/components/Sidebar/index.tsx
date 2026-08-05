@@ -72,7 +72,7 @@ const Sidebar: React.FC = () => {
     apiKey: null,
   });
   const [transcriptModelConfig, setTranscriptModelConfig] = useState<TranscriptModelProps>({
-    provider: 'zipformer',
+    provider: 'asr',
     model: 'zipformer-vi-30m',
   });
   const [settingsSaveSuccess, setSettingsSaveSuccess] = useState<boolean | null>(null);
@@ -149,9 +149,13 @@ const Sidebar: React.FC = () => {
       }
 
       try {
-        const data = await invoke('api_get_transcript_config') as any;
-        if (data && data.provider !== null) {
-          setTranscriptModelConfig(data);
+        const data = await invoke('api_get_transcript_config') as { live?: { model?: string } };
+        if (data?.live?.model) {
+          setTranscriptModelConfig({
+            provider: 'asr',
+            model: data.live.model,
+            apiKey: null,
+          });
         }
       } catch (error) {
         console.error('Failed to fetch transcript settings:', error);

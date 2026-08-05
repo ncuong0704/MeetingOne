@@ -199,10 +199,37 @@ export function useRecordingStop(
         console.warn('⏰ Transcription wait timeout reached after', elapsedTime, 'ms');
       } else {
         console.log('✅ Transcription completed after', elapsedTime, 'ms');
-        // Wait longer for any late transcript segments (increased from 1s to 4s)
-        console.log('⏳ Waiting for late transcript segments...');
-        await new Promise(resolve => setTimeout(resolve, 4000));
       }
+
+      // Wait for backend shutdown (CAPU finalize + transcripts.json write) before saving.
+      setStatus(RecordingStatus.PROCESSING_TRANSCRIPTS, 'Đang thêm dấu câu và lưu bản ghi...');
+      await new Promise<void>((resolve) => {
+        if (sessionStorage.getItem('last_recording_folder_path')) {
+          resolve();
+          return;
+        }
+        const timeout = setTimeout(() => {
+          console.warn('Timed out waiting for recording-stopped');
+          resolve();
+        }, 120000);
+        listen<{
+          folder_path?: string;
+          meeting_name?: string;
+        }>('recording-stopped', (event) => {
+          clearTimeout(timeout);
+          const { folder_path, meeting_name } = event.payload;
+          if (folder_path) {
+            sessionStorage.setItem('last_recording_folder_path', folder_path);
+          }
+          if (meeting_name) {
+            sessionStorage.setItem('last_recording_meeting_name', meeting_name);
+          }
+          resolve();
+        }).catch(() => {
+          clearTimeout(timeout);
+          resolve();
+        });
+      });
 
       // Final buffer flush: process ALL remaining transcripts regardless of timing
       const flushStartTime = Date.now();
@@ -233,11 +260,21 @@ export function useRecordingStop(
 
         setStatus(RecordingStatus.SAVING, 'Saving meeting to database...');
 
-        // Get fresh transcript state (ALL transcripts including late ones)
-        const freshTranscripts = [...transcriptsRef.current];
-
-        // Get folder_path and meeting_name from recording-stopped event
+        // Get fresh transcript state — prefer finalized transcripts.json (CAPU applied on stop)
+        let freshTranscripts = [...transcriptsRef.current];
         const folderPath = sessionStorage.getItem('last_recording_folder_path');
+        if (folderPath) {
+          try {
+            const fromDisk = await transcriptService.loadTranscriptsFromFolder(folderPath);
+            if (fromDisk.length > 0) {
+              freshTranscripts = fromDisk;
+              console.log('Loaded finalized transcripts from disk:', fromDisk.length);
+            }
+          } catch (loadErr) {
+            console.warn('Could not load finalized transcripts from folder, using in-memory', loadErr);
+          }
+        }
+
         const savedMeetingName = sessionStorage.getItem('last_recording_meeting_name');
 
         console.log('💾 Saving COMPLETE transcripts to database...', {

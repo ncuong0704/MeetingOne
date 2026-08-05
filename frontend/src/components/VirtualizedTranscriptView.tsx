@@ -3,6 +3,7 @@
 import { useCallback, useRef, useReducer, startTransition, useEffect, useState, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useAutoScroll } from "@/hooks/useAutoScroll";
+import { usePlaybackFollowScroll } from "@/hooks/usePlaybackFollowScroll";
 import { useTranscriptStreaming } from "@/hooks/useTranscriptStreaming";
 import { ConfidenceIndicator } from "./ConfidenceIndicator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
@@ -37,6 +38,13 @@ export interface VirtualizedTranscriptViewProps {
     totalCount?: number;
     loadedCount?: number;
     onLoadMore?: () => void;
+
+    /** Segment highlighted during audio playback */
+    activeSegmentId?: string | null;
+    /** Click whole row to seek audio */
+    onSegmentClick?: (segment: TranscriptSegmentData) => void;
+    /** Scroll to active segment only when out of viewport */
+    playbackFollow?: boolean;
 }
 
 // Threshold for enabling virtualization (below this, use simple rendering)
@@ -77,6 +85,8 @@ const TranscriptSegment = memo(function TranscriptSegment({
     showConfidence,
     sequenceId,
     onEdit,
+    isActive,
+    onRowClick,
 }: {
     id: string;
     timestamp: number;
@@ -87,6 +97,8 @@ const TranscriptSegment = memo(function TranscriptSegment({
     showConfidence: boolean;
     sequenceId?: number;
     onEdit?: (segmentId: string, newText: string, sequenceId?: number) => Promise<void>;
+    isActive?: boolean;
+    onRowClick?: () => void;
 }) {
     const displayText = cleanStopWords(text) || (text.trim() === '' ? '[Im lặng]' : text);
     const [isEditing, setIsEditing] = useState(false);
@@ -144,12 +156,24 @@ const TranscriptSegment = memo(function TranscriptSegment({
     const shownText = optimisticText ?? displayText;
 
     return (
-        <div id={`segment-${id}`} className="mb-3 group/seg">
+        <div
+            id={`segment-${id}`}
+            className={`mb-3 group/seg rounded-md transition-colors ${
+                isActive ? 'bg-[rgba(255,215,0,0.25)]' : ''
+            } ${onRowClick && !isEditing ? 'cursor-pointer hover:bg-gray-50' : ''}`}
+            onClick={() => {
+                if (!isEditing) onRowClick?.();
+            }}
+        >
             <div className="flex items-start gap-2">
                 {/* Timestamp */}
                 <Tooltip>
                     <TooltipTrigger>
-                        <span className="text-xs text-gray-400 mt-1 flex-shrink-0 min-w-[50px] tabular-nums">
+                        <span
+                            className={`text-xs mt-1 flex-shrink-0 min-w-[50px] tabular-nums ${
+                                isActive ? 'text-[#16478e] font-semibold' : 'text-gray-400'
+                            }`}
+                        >
                             {formatRecordingTime(timestamp)}
                         </span>
                     </TooltipTrigger>
@@ -202,7 +226,10 @@ const TranscriptSegment = memo(function TranscriptSegment({
                             </p>
                             {onEdit && (
                                 <button
-                                    onClick={handleStartEdit}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleStartEdit();
+                                    }}
                                     title="Chỉnh sửa đoạn này"
                                     className="opacity-0 group-hover/seg:opacity-100 mt-1 flex-shrink-0 p-1 rounded-md text-gray-400 hover:text-[#16478e] hover:bg-[rgba(22,71,142,0.08)] transition-all"
                                 >
@@ -232,6 +259,9 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
     totalCount = 0,
     loadedCount = 0,
     onLoadMore,
+    activeSegmentId = null,
+    onSegmentClick,
+    playbackFollow = false,
 }) => {
     // Create scroll ref first - shared between virtualizer and auto-scroll hook
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -331,6 +361,15 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
     // Use simple rendering for small lists, virtualization for large lists
     const useVirtualization = segments.length >= VIRTUALIZATION_THRESHOLD;
 
+    usePlaybackFollowScroll({
+        enabled: playbackFollow,
+        activeSegmentId,
+        segments,
+        scrollRef,
+        virtualizer,
+        useVirtualization,
+    });
+
     return (
         <div ref={scrollRef} className="flex h-full min-h-0 flex-col overflow-y-auto px-4 py-2">
             {/* Recording Status Bar - Sticky at top, always visible when recording */}
@@ -407,6 +446,10 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                         showConfidence={showConfidence}
                                         sequenceId={segment.sequenceId}
                                         onEdit={onSegmentEdit}
+                                        isActive={segment.id === activeSegmentId}
+                                        onRowClick={
+                                            onSegmentClick ? () => onSegmentClick(segment) : undefined
+                                        }
                                     />
                                 </div>
                             );
@@ -466,6 +509,10 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                         showConfidence={showConfidence}
                                         sequenceId={segment.sequenceId}
                                         onEdit={onSegmentEdit}
+                                        isActive={segment.id === activeSegmentId}
+                                        onRowClick={
+                                            onSegmentClick ? () => onSegmentClick(segment) : undefined
+                                        }
                                     />
                                 </motion.div>
                             );

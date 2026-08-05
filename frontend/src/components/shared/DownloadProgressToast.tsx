@@ -216,13 +216,13 @@ export function useDownloadProgressToast() {
     });
   }, [downloads, dismissedModels, showDownloadToast]);
 
-  // Listen to ZipFormer download events
+  // Listen to ASR download events
   useEffect(() => {
-    const modelName = 'zipformer-vi-30m';
-    const displayName = 'Mô hình nhận dạng ZipFormer';
+    const modelName = 'asr-model';
+    const displayName = 'Mô hình nhận dạng ASR';
 
     const unlistenProgress = listen<{ progress: number }>(
-      'zipformer-model-download-progress',
+      'asr-model-download-progress',
       (event) => {
         const progress = event.payload.progress;
         const downloadData: DownloadProgress = {
@@ -239,7 +239,7 @@ export function useDownloadProgressToast() {
       }
     );
 
-    const unlistenComplete = listen('zipformer-model-download-complete', () => {
+    const unlistenComplete = listen('asr-model-download-complete', () => {
       const downloadData: DownloadProgress = {
         modelName,
         displayName,
@@ -254,7 +254,7 @@ export function useDownloadProgressToast() {
     });
 
     const unlistenError = listen<{ error: string }>(
-      'zipformer-model-download-error',
+      'asr-model-download-error',
       (event) => {
         const { error } = event.payload;
         const downloadData: DownloadProgress = {
