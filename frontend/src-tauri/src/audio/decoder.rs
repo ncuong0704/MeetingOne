@@ -51,6 +51,21 @@ impl DecodedAudio {
 
     /// Convert decoded audio to Whisper format with optional progress callback
     pub fn to_whisper_format_with_progress(&self, progress_callback: Option<ProgressCallback>) -> Vec<f32> {
+        self.mono_normalized_at(16_000, progress_callback)
+    }
+
+    /// Convert decoded audio to 48kHz mono f32 — the sample rate RNNoise noise
+    /// suppression requires. Callers that want denoising should run
+    /// `HighPassFilter`/`NoiseSuppressionProcessor`/`LoudnessNormalizer` on this output
+    /// (same order as the live pipeline, `audio/pipeline.rs`), then resample the result
+    /// down to 16kHz with [`resample_mono_with_progress`] before VAD/ASR.
+    pub fn to_48khz_mono_with_progress(&self, progress_callback: Option<ProgressCallback>) -> Vec<f32> {
+        self.mono_normalized_at(48_000, progress_callback)
+    }
+
+    /// Shared mono-conversion + range-normalization + resample-to-`target_rate` logic
+    /// behind both `to_whisper_format_with_progress` and `to_48khz_mono_with_progress`.
+    fn mono_normalized_at(&self, target_rate: u32, progress_callback: Option<ProgressCallback>) -> Vec<f32> {
         // Step 1: Convert to mono if needed
         let mono_samples = if self.channels > 1 {
             info!(
@@ -67,45 +82,56 @@ impl DecodedAudio {
         // Some audio files may have samples slightly outside this range
         let mono_samples = normalize_audio_samples(mono_samples);
 
-        // Step 2: Resample to 16kHz if needed
-        const WHISPER_SAMPLE_RATE: u32 = 16000;
-        if self.sample_rate != WHISPER_SAMPLE_RATE {
-            // Large files are processed in chunks through the sinc resampler
-            // to keep memory bounded while preserving audio quality.
-            // Linear interpolation (fast_resample) was removed because it lacks
-            // an anti-aliasing filter, causing aliasing artifacts that make VAD
-            // miss ~99% of speech in long recordings.
-            const LARGE_FILE_THRESHOLD: usize = 14_400_000;
-
-            let mut resampled = if mono_samples.len() > LARGE_FILE_THRESHOLD {
-                info!(
-                    "Chunked sinc resampling {} samples from {}Hz to {}Hz (large file mode)",
-                    mono_samples.len(),
-                    self.sample_rate,
-                    WHISPER_SAMPLE_RATE
-                );
-                chunked_resample_with_progress(&mono_samples, self.sample_rate, WHISPER_SAMPLE_RATE, progress_callback)
-            } else {
-                info!(
-                    "Resampling {} samples from {}Hz to {}Hz",
-                    mono_samples.len(),
-                    self.sample_rate,
-                    WHISPER_SAMPLE_RATE
-                );
-                resample_audio(&mono_samples, self.sample_rate, WHISPER_SAMPLE_RATE)
-            };
-
-            // Clamp after resampling: the sinc resampler can overshoot
-            // slightly beyond [-1.0, 1.0] (Gibbs phenomenon), which causes
-            // VAD to reject samples with "Float sample must be in the range -1.0 to 1.0"
-            for s in &mut resampled {
-                *s = s.clamp(-1.0, 1.0);
-            }
-            resampled
-        } else {
-            mono_samples
-        }
+        // Step 2: Resample to the target rate if needed
+        resample_mono_with_progress(&mono_samples, self.sample_rate, target_rate, progress_callback)
     }
+}
+
+/// Resamples `samples` from `from_rate` to `to_rate`. Large inputs (>5 min at 48kHz) use
+/// chunked parallel sinc resampling to keep memory bounded; smaller ones use a single-pass
+/// sinc resample. Linear interpolation was intentionally never used here because it lacks
+/// an anti-aliasing filter, which caused VAD to miss ~99% of speech in long recordings.
+///
+/// Shared by `DecodedAudio`'s own resampling and by callers that resample a second time
+/// after processing at an intermediate rate — e.g. denoising at 48kHz, then calling this
+/// again to bring the result down to 16kHz for VAD/ASR.
+pub(crate) fn resample_mono_with_progress(
+    samples: &[f32],
+    from_rate: u32,
+    to_rate: u32,
+    progress_callback: Option<ProgressCallback>,
+) -> Vec<f32> {
+    if from_rate == to_rate {
+        return samples.to_vec();
+    }
+
+    const LARGE_FILE_THRESHOLD: usize = 14_400_000;
+
+    let mut resampled = if samples.len() > LARGE_FILE_THRESHOLD {
+        info!(
+            "Chunked sinc resampling {} samples from {}Hz to {}Hz (large file mode)",
+            samples.len(),
+            from_rate,
+            to_rate
+        );
+        chunked_resample_with_progress(samples, from_rate, to_rate, progress_callback)
+    } else {
+        info!(
+            "Resampling {} samples from {}Hz to {}Hz",
+            samples.len(),
+            from_rate,
+            to_rate
+        );
+        resample_audio(samples, from_rate, to_rate)
+    };
+
+    // Clamp after resampling: the sinc resampler can overshoot slightly beyond
+    // [-1.0, 1.0] (Gibbs phenomenon), which causes VAD to reject samples with
+    // "Float sample must be in the range -1.0 to 1.0"
+    for s in &mut resampled {
+        *s = s.clamp(-1.0, 1.0);
+    }
+    resampled
 }
 
 /// Resample large audio files in fixed-size chunks through the sinc resampler.

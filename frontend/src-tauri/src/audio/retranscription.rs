@@ -1,7 +1,7 @@
 // Retranscription module - re-processes stored audio with the ZipFormer Vietnamese ASR engine.
 
-use crate::audio::audio_processing::{HighPassFilter, LoudnessNormalizer};
-use crate::audio::decoder::decode_audio_file;
+use crate::audio::audio_processing::{HighPassFilter, LoudnessNormalizer, NoiseSuppressionProcessor};
+use crate::audio::decoder::{decode_audio_file, resample_mono_with_progress};
 use crate::audio::vad::get_speech_chunks_with_progress;
 use super::common::{create_transcript_segments, expand_segments_at_silence, write_transcripts_json};
 use super::constants::AUDIO_EXTENSIONS;
@@ -165,24 +165,41 @@ async fn run_retranscription<R: Runtime>(
         return Err(anyhow!("Retranscription cancelled"));
     }
 
-    let audio_samples = tokio::task::spawn_blocking(move || decoded.to_whisper_format())
+    let audio_samples_48k = tokio::task::spawn_blocking(move || decoded.to_48khz_mono_with_progress(None))
         .await
         .map_err(|e| anyhow!("Resample task panicked: {}", e))?;
-    info!("Converted to 16kHz mono: {} samples", audio_samples.len());
+    info!("Converted to 48kHz mono: {} samples", audio_samples_48k.len());
 
-    // Noise reduction pipeline at 16kHz (RNNoise requires 48kHz so not applicable here)
-    let audio_samples = {
-        let mut hpf = HighPassFilter::new(16000, 80.0);
-        let filtered = hpf.process(&audio_samples);
-        match LoudnessNormalizer::new(1, 16000) {
-            Ok(mut normalizer) => normalizer.normalize_loudness(&filtered),
+    // Noise reduction pipeline at 48kHz — RNNoise requires exactly 48kHz, so denoising
+    // happens here before the final downsample to 16kHz. Same order as the live pipeline
+    // (audio/pipeline.rs): high-pass -> RNNoise -> EBU R128 loudness normalization.
+    let denoised_48k = {
+        let mut hpf = HighPassFilter::new(48000, 80.0);
+        let filtered = hpf.process(&audio_samples_48k);
+        let denoised = match NoiseSuppressionProcessor::new(48000) {
+            Ok(mut suppressor) => {
+                let mut out = suppressor.process(&filtered);
+                out.extend(suppressor.flush());
+                out
+            }
+            Err(e) => {
+                warn!("Failed to create RNNoise noise suppressor for retranscription: {}, skipping noise suppression", e);
+                filtered
+            }
+        };
+        match LoudnessNormalizer::new(1, 48000) {
+            Ok(mut normalizer) => normalizer.normalize_loudness(&denoised),
             Err(e) => {
                 warn!("Failed to create loudness normalizer for retranscription: {}, skipping normalization", e);
-                filtered
+                denoised
             }
         }
     };
-    info!("Noise reduction applied: high-pass filter (80Hz) + EBU R128 normalization");
+    info!("Noise reduction applied: high-pass filter (80Hz) + RNNoise + EBU R128 normalization (48kHz)");
+
+    // Final downsample to 16kHz for VAD/ASR
+    let audio_samples = resample_mono_with_progress(&denoised_48k, 48000, 16000, None);
+    info!("Resampled denoised audio to 16kHz: {} samples", audio_samples.len());
 
     emit_progress(&app, &meeting_id, "vad", 20, "Detecting speech segments...");
 

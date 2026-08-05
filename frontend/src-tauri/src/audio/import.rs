@@ -13,7 +13,8 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
 
-use super::audio_processing::{create_meeting_folder, HighPassFilter, LoudnessNormalizer};
+use super::audio_processing::{create_meeting_folder, HighPassFilter, LoudnessNormalizer, NoiseSuppressionProcessor};
+use super::decoder::resample_mono_with_progress;
 use super::common::{create_transcript_segments, expand_segments_at_silence, write_transcripts_json};
 use super::constants::AUDIO_EXTENSIONS;
 
@@ -388,7 +389,8 @@ async fn run_import<R: Runtime>(
         return Err(anyhow!("Import cancelled"));
     }
 
-    // Convert to 16kHz mono format with progress updates
+    // Convert to 48kHz mono format with progress updates (RNNoise needs 48kHz; final
+    // downsample to 16kHz for VAD/ASR happens after denoising, below)
     let app_for_resample = app.clone();
     let resample_progress = Box::new(move |progress: u32, msg: &str| {
         // Map resample progress: 20% + (progress * 0.05) to go from 20% to 25%
@@ -396,29 +398,49 @@ async fn run_import<R: Runtime>(
         emit_progress(&app_for_resample, "resampling", overall_progress, msg);
     });
 
-    let audio_samples = tokio::task::spawn_blocking(move || {
-        decoded.to_whisper_format_with_progress(Some(resample_progress))
+    let audio_samples_48k = tokio::task::spawn_blocking(move || {
+        decoded.to_48khz_mono_with_progress(Some(resample_progress))
     })
     .await
     .map_err(|e| anyhow!("Resample task join error: {}", e))?;
     info!(
-        "Converted to 16kHz mono format: {} samples",
-        audio_samples.len()
+        "Converted to 48kHz mono format: {} samples",
+        audio_samples_48k.len()
     );
 
-    // Noise reduction pipeline at 16kHz (RNNoise requires 48kHz so not applicable here)
-    let audio_samples = {
-        let mut hpf = HighPassFilter::new(16000, 80.0);
-        let filtered = hpf.process(&audio_samples);
-        match LoudnessNormalizer::new(1, 16000) {
-            Ok(mut normalizer) => normalizer.normalize_loudness(&filtered),
+    // Noise reduction pipeline at 48kHz — RNNoise requires exactly 48kHz, so denoising
+    // happens here before the final downsample to 16kHz. Same order as the live pipeline
+    // (audio/pipeline.rs): high-pass -> RNNoise -> EBU R128 loudness normalization.
+    let denoised_48k = {
+        let mut hpf = HighPassFilter::new(48000, 80.0);
+        let filtered = hpf.process(&audio_samples_48k);
+        let denoised = match NoiseSuppressionProcessor::new(48000) {
+            Ok(mut suppressor) => {
+                let mut out = suppressor.process(&filtered);
+                out.extend(suppressor.flush());
+                out
+            }
+            Err(e) => {
+                warn!("Failed to create RNNoise noise suppressor for import: {}, skipping noise suppression", e);
+                filtered
+            }
+        };
+        match LoudnessNormalizer::new(1, 48000) {
+            Ok(mut normalizer) => normalizer.normalize_loudness(&denoised),
             Err(e) => {
                 warn!("Failed to create loudness normalizer for import: {}, skipping normalization", e);
-                filtered
+                denoised
             }
         }
     };
-    info!("Noise reduction applied: high-pass filter (80Hz) + EBU R128 normalization");
+    info!("Noise reduction applied: high-pass filter (80Hz) + RNNoise + EBU R128 normalization (48kHz)");
+
+    // Final downsample to 16kHz for VAD/ASR
+    let audio_samples = resample_mono_with_progress(&denoised_48k, 48000, 16000, None);
+    info!(
+        "Resampled denoised audio to 16kHz: {} samples",
+        audio_samples.len()
+    );
 
     emit_progress(&app, "vad", 25, "Detecting speech segments...");
 
