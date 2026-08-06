@@ -172,3 +172,7 @@ export const TranscriptConfigAPI = {
 export const CapuAPI = {
   getCpuTopology: (): Promise<CpuTopology> => invoke('capu_get_cpu_topology'),
 };
+
+export const GpuAPI = {
+  checkNvidiaAvailable: (): Promise<boolean> => invoke('check_nvidia_gpu_available'),
+};
