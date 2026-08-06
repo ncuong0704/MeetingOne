@@ -1,7 +1,7 @@
 // Audio file import module - allows importing external audio files as new meetings
 
 use crate::api::TranscriptSegment;
-use crate::audio::decoder::{decode_audio_file, decode_audio_file_with_progress};
+use crate::audio::decoder::{decode_audio_file, load_audio_for_file_pipeline};
 use crate::audio::vad::get_speech_chunks_with_progress;
 use crate::state::AppState;
 use anyhow::{anyhow, Result};
@@ -9,13 +9,14 @@ use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Instant;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
 
-use super::audio_processing::{create_meeting_folder, HighPassFilter, LoudnessNormalizer, NoiseSuppressionProcessor};
-use super::decoder::resample_mono_with_progress;
-use super::common::{create_transcript_segments, expand_segments_with_overlap, write_transcripts_json};
+use super::audio_processing::create_meeting_folder;
+use super::common::write_transcripts_json;
+use super::file_batch_prepare::{boost_audio_for_vad, prepare_file_asr_segments};
 use super::constants::AUDIO_EXTENSIONS;
 
 /// Global flag to track if import is in progress
@@ -55,6 +56,127 @@ const VAD_REDEMPTION_TIME_MS: u32 = 2000;
 
 /// Maximum file size: 20GB (prevents OOM and excessive processing time)
 const MAX_FILE_SIZE_BYTES: u64 = 20 * 1024 * 1024 * 1024; // 20GB
+
+/// Per-stage timer for import benchmark logging (`[BENCHMARK]` prefix in logs).
+struct ImportStageTimer {
+    tick: Instant,
+    stages: Vec<(String, f64)>,
+}
+
+impl ImportStageTimer {
+    fn new() -> Self {
+        Self {
+            tick: Instant::now(),
+            stages: Vec::new(),
+        }
+    }
+
+    fn mark(&mut self, name: &str) {
+        let elapsed = self.tick.elapsed().as_secs_f64();
+        info!("[BENCHMARK] stage={} duration_sec={:.3}", name, elapsed);
+        self.stages.push((name.to_string(), elapsed));
+        self.tick = Instant::now();
+    }
+
+    fn push_stage(&mut self, name: &str, elapsed: f64) {
+        info!("[BENCHMARK] stage={} duration_sec={:.3}", name, elapsed);
+        self.stages.push((name.to_string(), elapsed));
+    }
+
+    fn reset_tick(&mut self) {
+        self.tick = Instant::now();
+    }
+
+    fn total_sec(&self) -> f64 {
+        self.stages.iter().map(|(_, s)| s).sum()
+    }
+}
+
+fn benchmark_output_dir() -> PathBuf {
+    if let Ok(user_profile) = std::env::var("USERPROFILE") {
+        let dir = PathBuf::from(user_profile)
+            .join("Desktop")
+            .join("asr_benchmark");
+        let _ = std::fs::create_dir_all(&dir);
+        return dir;
+    }
+    PathBuf::from(".")
+}
+
+fn write_import_benchmark_report(
+    source_path: &str,
+    title: &str,
+    audio_duration_sec: f64,
+    stages: &[(String, f64)],
+    segments: &[TranscriptSegment],
+    meeting_id: &str,
+    meeting_folder: &Path,
+    vad_segments_count: usize,
+    asr_chunks_count: usize,
+    prepare_stats: &super::file_batch_prepare::FilePrepareStats,
+) {
+    let total_sec: f64 = stages.iter().map(|(_, s)| s).sum();
+    let full_text: String = segments
+        .iter()
+        .map(|s| s.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+
+    info!(
+        "[BENCHMARK] app=act_meetingone pipeline_total_sec={:.3} audio_duration_sec={:.1} vad_segments={} asr_chunks={} output_segments={} chars={}",
+        total_sec,
+        audio_duration_sec,
+        vad_segments_count,
+        asr_chunks_count,
+        segments.len(),
+        full_text.chars().count()
+    );
+    for (name, sec) in stages {
+        info!("[BENCHMARK]   {} = {:.3}s", name, sec);
+    }
+
+    let dir = benchmark_output_dir();
+    let now = chrono::Utc::now().to_rfc3339();
+    let report = serde_json::json!({
+        "app": "act_meetingone",
+        "completed_at": now,
+        "source_path": source_path,
+        "title": title,
+        "meeting_id": meeting_id,
+        "meeting_folder": meeting_folder.to_string_lossy(),
+        "audio_duration_sec": audio_duration_sec,
+        "pipeline_total_sec": total_sec,
+        "vad_segments_count": vad_segments_count,
+        "asr_chunks_count": asr_chunks_count,
+        "speech_coverage_pct": prepare_stats.speech_coverage_pct,
+        "used_full_audio_fallback": prepare_stats.used_full_audio_fallback,
+        "segments_count": segments.len(),
+        "char_count": full_text.chars().count(),
+        "stages_sec": stages.iter().map(|(k, v)| (k.clone(), *v)).collect::<std::collections::HashMap<_, _>>(),
+    });
+
+    let report_path = dir.join("act_meetingone_benchmark_latest.json");
+    let transcript_path = dir.join("act_meetingone_transcript_latest.txt");
+    if let Ok(json) = serde_json::to_string_pretty(&report) {
+        if let Err(e) = std::fs::write(&report_path, json) {
+            warn!("[BENCHMARK] Failed to write {}: {}", report_path.display(), e);
+        } else {
+            info!("[BENCHMARK] Wrote report to {}", report_path.display());
+        }
+    }
+    if let Err(e) = std::fs::write(&transcript_path, &full_text) {
+        warn!(
+            "[BENCHMARK] Failed to write {}: {}",
+            transcript_path.display(),
+            e
+        );
+    } else {
+        info!(
+            "[BENCHMARK] Wrote transcript to {}",
+            transcript_path.display()
+        );
+    }
+}
 
 /// Information about a selected audio file
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -314,6 +436,13 @@ async fn run_import<R: Runtime>(
         title, source_path, language, model, provider
     );
 
+    let pipeline_started = Instant::now();
+    let mut bench = ImportStageTimer::new();
+    info!(
+        "[BENCHMARK] app=act_meetingone event=pipeline_start source={}",
+        source_path
+    );
+
     // ZipFormer Vietnamese ASR is the only provider
 
     emit_progress(&app, "copying", 5, "Creating meeting folder...");
@@ -350,6 +479,7 @@ async fn run_import<R: Runtime>(
         .map_err(|e| anyhow!("Failed to copy audio file: {}", e))?;
 
     info!("Copied audio to: {}", dest_path.display());
+    bench.mark("copy");
 
     // Check for cancellation
     if IMPORT_CANCELLED.load(Ordering::SeqCst) {
@@ -358,30 +488,27 @@ async fn run_import<R: Runtime>(
         return Err(anyhow!("Import cancelled"));
     }
 
-    emit_progress(&app, "decoding", 15, "Decoding audio file...");
+    emit_progress(&app, "decoding", 15, "Loading audio file...");
 
-    // Decode the audio file with progress updates
     let app_for_decode = app.clone();
     let decode_progress = Box::new(move |progress: u32, msg: &str| {
-        // Map decode progress: 15% + (progress * 0.05) to go from 15% to 20%
-        let overall_progress = 15 + ((progress as f32 * 0.05) as u32);
-        emit_progress(&app_for_decode, "decoding", overall_progress, msg);
+        let overall_progress = 15 + ((progress as f32 * 0.10) as u32);
+        emit_progress(&app_for_decode, "decoding", overall_progress.min(25), msg);
     });
 
     let path_for_decode = dest_path.clone();
-    let decoded = tokio::task::spawn_blocking(move || {
-        decode_audio_file_with_progress(&path_for_decode, Some(decode_progress))
+    let (audio_samples, duration_seconds) = tokio::task::spawn_blocking(move || {
+        load_audio_for_file_pipeline(&path_for_decode, Some(decode_progress))
     })
     .await
     .map_err(|e| anyhow!("Decode task join error: {}", e))??;
-    let duration_seconds = decoded.duration_seconds;
 
     info!(
-        "Decoded audio: {:.2}s, {}Hz, {} channels",
-        duration_seconds, decoded.sample_rate, decoded.channels
+        "Loaded audio for pipeline: {:.2}s, {} samples @ 16kHz mono",
+        duration_seconds,
+        audio_samples.len()
     );
-
-    emit_progress(&app, "resampling", 20, "Converting audio format...");
+    bench.mark("decode_resample");
 
     // Check for cancellation
     if IMPORT_CANCELLED.load(Ordering::SeqCst) {
@@ -389,56 +516,8 @@ async fn run_import<R: Runtime>(
         return Err(anyhow!("Import cancelled"));
     }
 
-    // Convert to 48kHz mono format with progress updates (RNNoise needs 48kHz; final
-    // downsample to 16kHz for VAD/ASR happens after denoising, below)
-    let app_for_resample = app.clone();
-    let resample_progress = Box::new(move |progress: u32, msg: &str| {
-        // Map resample progress: 20% + (progress * 0.05) to go from 20% to 25%
-        let overall_progress = 20 + ((progress as f32 * 0.05) as u32);
-        emit_progress(&app_for_resample, "resampling", overall_progress, msg);
-    });
-
-    let audio_samples_48k = tokio::task::spawn_blocking(move || {
-        decoded.to_48khz_mono_with_progress(Some(resample_progress))
-    })
-    .await
-    .map_err(|e| anyhow!("Resample task join error: {}", e))?;
     info!(
-        "Converted to 48kHz mono format: {} samples",
-        audio_samples_48k.len()
-    );
-
-    // Noise reduction pipeline at 48kHz — RNNoise requires exactly 48kHz, so denoising
-    // happens here before the final downsample to 16kHz. Same order as the live pipeline
-    // (audio/pipeline.rs): high-pass -> RNNoise -> EBU R128 loudness normalization.
-    let denoised_48k = {
-        let mut hpf = HighPassFilter::new(48000, 80.0);
-        let filtered = hpf.process(&audio_samples_48k);
-        let denoised = match NoiseSuppressionProcessor::new(48000) {
-            Ok(mut suppressor) => {
-                let mut out = suppressor.process(&filtered);
-                out.extend(suppressor.flush());
-                out
-            }
-            Err(e) => {
-                warn!("Failed to create RNNoise noise suppressor for import: {}, skipping noise suppression", e);
-                filtered
-            }
-        };
-        match LoudnessNormalizer::new(1, 48000) {
-            Ok(mut normalizer) => normalizer.normalize_loudness(&denoised),
-            Err(e) => {
-                warn!("Failed to create loudness normalizer for import: {}, skipping normalization", e);
-                denoised
-            }
-        }
-    };
-    info!("Noise reduction applied: high-pass filter (80Hz) + RNNoise + EBU R128 normalization (48kHz)");
-
-    // Final downsample to 16kHz for VAD/ASR
-    let audio_samples = resample_mono_with_progress(&denoised_48k, 48000, 16000, None);
-    info!(
-        "Resampled denoised audio to 16kHz: {} samples",
+        "Audio ready for VAD (raw decode, preprocess deferred until after VAD concat): {} samples",
         audio_samples.len()
     );
 
@@ -452,10 +531,11 @@ async fn run_import<R: Runtime>(
 
     // Use VAD to find speech segments
     let app_for_vad = app.clone();
+    let audio_for_vad = boost_audio_for_vad(&audio_samples);
 
     let speech_segments = tokio::task::spawn_blocking(move || {
         get_speech_chunks_with_progress(
-            &audio_samples,
+            &audio_for_vad,
             VAD_REDEMPTION_TIME_MS,
             |vad_progress, segments_found| {
                 let overall_progress = 25 + (vad_progress as f32 * 0.05) as u32;
@@ -478,8 +558,59 @@ async fn run_import<R: Runtime>(
 
     let total_segments = speech_segments.len();
     info!("VAD detected {} speech segments (redemption_time={}ms)", total_segments, VAD_REDEMPTION_TIME_MS);
+    bench.mark("vad");
 
-    // Diagnostic: log segment duration distribution
+    let max_segment_seconds = {
+        let app_state = app
+            .try_state::<AppState>()
+            .ok_or_else(|| anyhow!("App state not available"))?;
+        crate::database::repositories::setting::SettingsRepository::get_path_asr_config(
+            app_state.db_manager.pool(),
+            crate::asr_engine::config::AsrPath::File,
+        )
+        .await
+        .max_segment_seconds
+    };
+
+    let prepare_wall_start = Instant::now();
+    let (processable_segments, leading_context_samples, prepare_stats) = if speech_segments.is_empty() {
+        (Vec::new(), Vec::new(), super::file_batch_prepare::FilePrepareStats {
+            vad_segments_in: 0,
+            vad_ranges_merged: 0,
+            asr_chunks_out: 0,
+            preprocess_sec: 0.0,
+            concat_speech_sec: 0.0,
+            speech_coverage_pct: 0.0,
+            used_full_audio_fallback: false,
+        })
+    } else {
+        let audio_for_prepare = audio_samples.clone();
+        let vad_for_prepare = speech_segments.clone();
+        let chunk_sec = max_segment_seconds;
+        tokio::task::spawn_blocking(move || {
+            prepare_file_asr_segments(&audio_for_prepare, vad_for_prepare, chunk_sec)
+        })
+        .await
+        .map_err(|e| anyhow!("Chunk prepare task panicked: {}", e))?
+    };
+    let prepare_wall_sec = prepare_wall_start.elapsed().as_secs_f64();
+    bench.push_stage("preprocess", prepare_stats.preprocess_sec);
+    bench.push_stage(
+        "prepare_chunks",
+        (prepare_wall_sec - prepare_stats.preprocess_sec).max(0.0),
+    );
+    bench.reset_tick();
+
+    let processable_count = processable_segments.len();
+    info!(
+        "Prepared {} ASR chunks (from {} VAD segments, {} merged ranges, {:.1}s speech)",
+        processable_count,
+        prepare_stats.vad_segments_in,
+        prepare_stats.vad_ranges_merged,
+        prepare_stats.concat_speech_sec
+    );
+
+    // Diagnostic: log segment duration distribution (VAD raw)
     if !speech_segments.is_empty() {
         let durations_ms: Vec<f64> = speech_segments.iter()
             .map(|s| s.end_timestamp_ms - s.start_timestamp_ms)
@@ -575,18 +706,7 @@ async fn run_import<R: Runtime>(
         emit_progress(&app, "transcribing", 38, "Model sẵn sàng, bắt đầu nhận dạng...");
         (Some(asr), None)
     };
-
-    let max_segment_seconds = file_cfg.max_segment_seconds;
-    info!(
-        "Splitting long segments at silence boundaries (max {}s)",
-        max_segment_seconds
-    );
-
-    let (processable_segments, leading_context_samples) =
-        expand_segments_with_overlap(speech_segments, max_segment_seconds);
-
-    let processable_count = processable_segments.len();
-    info!("Processing {} segments (after splitting)", processable_count);
+    bench.mark("asr_init");
 
     // Best-effort CAPU init before import transcription
     if crate::capu_engine::commands::capu_is_model_downloaded(app.clone())
@@ -634,6 +754,7 @@ async fn run_import<R: Runtime>(
     };
 
     info!("Transcription complete: {} segments", segments.len());
+    bench.mark("transcribe");
 
     // Check for cancellation
     if IMPORT_CANCELLED.load(Ordering::SeqCst) {
@@ -673,6 +794,27 @@ async fn run_import<R: Runtime>(
     ) {
         warn!("Failed to write metadata.json: {}", e);
     }
+    bench.mark("save");
+
+    write_import_benchmark_report(
+        &source_path,
+        &title,
+        duration_seconds,
+        &bench.stages,
+        &segments,
+        &meeting_id,
+        &meeting_folder,
+        total_segments,
+        processable_count,
+        &prepare_stats,
+    );
+
+    let wall_clock_sec = pipeline_started.elapsed().as_secs_f64();
+    info!(
+        "[BENCHMARK] app=act_meetingone event=pipeline_end wall_clock_sec={:.3} staged_total_sec={:.3}",
+        wall_clock_sec,
+        bench.total_sec()
+    );
 
     emit_progress(&app, "complete", 100, "Import complete");
 
@@ -891,7 +1033,7 @@ pub async fn is_import_in_progress_command() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::audio::common::split_segment_at_silence;
+    use crate::audio::common::{create_transcript_segments, split_segment_at_silence};
 
     #[test]
     fn test_audio_extensions() {

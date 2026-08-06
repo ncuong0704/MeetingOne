@@ -422,10 +422,22 @@ pub fn run() {
             //     });
             // }
 
-            // Initialize database (handles first launch detection and conditional setup)
-            let app_handle_for_db = _app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                if let Err(e) = database::setup::initialize_database_on_startup(&app_handle_for_db).await
+            // Initialize database (handles first launch detection and conditional setup).
+            //
+            // Blocking here (not spawning) is deliberate: `initialize_database_on_startup`
+            // calls `app.manage(AppState { .. })` for returning users (the `is_first_launch
+            // == false` branch), and every command that takes `tauri::State<'_, AppState>`
+            // (settings, meetings, transcripts, ...) fails with "state not managed" if
+            // invoked before that call runs. With `spawn`, the frontend could — and,
+            // once the migration count grew, reliably did — invoke one of those commands
+            // before the background task finished opening the DB and running pending
+            // `sqlx` migrations. Blocking `setup()` guarantees `AppState` is registered
+            // before Tauri starts routing any IPC command, closing that race for good.
+            // The first-launch branch is unaffected: it just spawns its own short-lived
+            // delayed event emission and returns immediately, so this adds no wait for
+            // brand-new installs.
+            tauri::async_runtime::block_on(async {
+                if let Err(e) = database::setup::initialize_database_on_startup(&_app.handle().clone()).await
                 {
                     log::error!("Failed to initialize database: {}", e);
                 }

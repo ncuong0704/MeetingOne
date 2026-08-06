@@ -42,30 +42,16 @@ pub struct DecodedAudio {
 impl DecodedAudio {
     /// Convert decoded audio to Whisper-compatible 16kHz mono f32 format.
     ///
-    /// Performs mono conversion, normalization, and resampling. Large files
-    /// (>5 min at 48kHz) use chunked sinc resampling to keep memory bounded
-    /// while preserving audio quality for downstream VAD and transcription.
+    /// Performs mono conversion, normalization, and resampling. Resampling always uses
+    /// chunked sinc resampling (see [`resample_mono_with_progress`]) regardless of file
+    /// size, to keep memory bounded and preserve audio quality for downstream VAD and
+    /// transcription.
     pub fn to_whisper_format(&self) -> Vec<f32> {
         self.to_whisper_format_with_progress(None)
     }
 
     /// Convert decoded audio to Whisper format with optional progress callback
     pub fn to_whisper_format_with_progress(&self, progress_callback: Option<ProgressCallback>) -> Vec<f32> {
-        self.mono_normalized_at(16_000, progress_callback)
-    }
-
-    /// Convert decoded audio to 48kHz mono f32 — the sample rate RNNoise noise
-    /// suppression requires. Callers that want denoising should run
-    /// `HighPassFilter`/`NoiseSuppressionProcessor`/`LoudnessNormalizer` on this output
-    /// (same order as the live pipeline, `audio/pipeline.rs`), then resample the result
-    /// down to 16kHz with [`resample_mono_with_progress`] before VAD/ASR.
-    pub fn to_48khz_mono_with_progress(&self, progress_callback: Option<ProgressCallback>) -> Vec<f32> {
-        self.mono_normalized_at(48_000, progress_callback)
-    }
-
-    /// Shared mono-conversion + range-normalization + resample-to-`target_rate` logic
-    /// behind both `to_whisper_format_with_progress` and `to_48khz_mono_with_progress`.
-    fn mono_normalized_at(&self, target_rate: u32, progress_callback: Option<ProgressCallback>) -> Vec<f32> {
         // Step 1: Convert to mono if needed
         let mono_samples = if self.channels > 1 {
             info!(
@@ -82,19 +68,29 @@ impl DecodedAudio {
         // Some audio files may have samples slightly outside this range
         let mono_samples = normalize_audio_samples(mono_samples);
 
-        // Step 2: Resample to the target rate if needed
-        resample_mono_with_progress(&mono_samples, self.sample_rate, target_rate, progress_callback)
+        // Step 2: Resample to 16kHz if needed
+        resample_mono_with_progress(&mono_samples, self.sample_rate, 16_000, progress_callback)
     }
 }
 
-/// Resamples `samples` from `from_rate` to `to_rate`. Large inputs (>5 min at 48kHz) use
-/// chunked parallel sinc resampling to keep memory bounded; smaller ones use a single-pass
-/// sinc resample. Linear interpolation was intentionally never used here because it lacks
-/// an anti-aliasing filter, which caused VAD to miss ~99% of speech in long recordings.
+/// Resamples `samples` from `from_rate` to `to_rate` using chunked, parallel sinc
+/// resampling (60s chunks, cross-faded at the boundaries — see
+/// `chunked_resample_with_progress`) regardless of input size.
 ///
-/// Shared by `DecodedAudio`'s own resampling and by callers that resample a second time
-/// after processing at an intermediate rate — e.g. denoising at 48kHz, then calling this
-/// again to bring the result down to 16kHz for VAD/ASR.
+/// This always chunks, even for short clips, because `resample_audio`'s single-pass sinc
+/// resampler (`audio_processing::resample`) sizes its internal buffers to the *entire*
+/// input length; passing it a whole multi-minute buffer in one call is dramatically
+/// slower than several ~60s chunks processed in parallel (measured: ~4 minutes to
+/// resample a single ~4-minute clip single-pass, before this change — a file well under
+/// the old size-based threshold that used to skip chunking entirely). A single short
+/// clip still ends up as exactly one chunk here, so there's no behavior change for
+/// already-fast small inputs, only for the ones that were slow.
+///
+/// Linear interpolation was intentionally never used here because it lacks an
+/// anti-aliasing filter, which caused VAD to miss ~99% of speech in long recordings.
+///
+/// Used by `DecodedAudio::to_whisper_format_with_progress` to bring decoded audio down
+/// to 16kHz for VAD/ASR.
 pub(crate) fn resample_mono_with_progress(
     samples: &[f32],
     from_rate: u32,
@@ -105,25 +101,13 @@ pub(crate) fn resample_mono_with_progress(
         return samples.to_vec();
     }
 
-    const LARGE_FILE_THRESHOLD: usize = 14_400_000;
-
-    let mut resampled = if samples.len() > LARGE_FILE_THRESHOLD {
-        info!(
-            "Chunked sinc resampling {} samples from {}Hz to {}Hz (large file mode)",
-            samples.len(),
-            from_rate,
-            to_rate
-        );
-        chunked_resample_with_progress(samples, from_rate, to_rate, progress_callback)
-    } else {
-        info!(
-            "Resampling {} samples from {}Hz to {}Hz",
-            samples.len(),
-            from_rate,
-            to_rate
-        );
-        resample_audio(samples, from_rate, to_rate)
-    };
+    info!(
+        "Chunked sinc resampling {} samples from {}Hz to {}Hz",
+        samples.len(),
+        from_rate,
+        to_rate
+    );
+    let mut resampled = chunked_resample_with_progress(samples, from_rate, to_rate, progress_callback);
 
     // Clamp after resampling: the sinc resampler can overshoot slightly beyond
     // [-1.0, 1.0] (Gibbs phenomenon), which causes VAD to reject samples with
@@ -603,6 +587,138 @@ pub fn decode_audio_file_with_progress(
     })
 }
 
+const FILE_PIPELINE_SAMPLE_RATE: u32 = 16_000;
+
+/// Decode + resample to mono f32 @ 16 kHz via FFmpeg stdout pipe (single pass).
+fn load_audio_ffmpeg_f32(path: &Path) -> Result<Vec<f32>> {
+    let ffmpeg_path = find_ffmpeg_path().ok_or_else(|| anyhow!("FFmpeg not found"))?;
+    let input_str = path
+        .to_str()
+        .ok_or_else(|| anyhow!("Invalid input path (non-UTF8)"))?;
+
+    let filter_candidates = [
+        Some("aresample=resampler=soxr:precision=20"),
+        None,
+    ];
+
+    let mut last_error = String::new();
+    for filter in filter_candidates {
+        let mut command = Command::new(&ffmpeg_path);
+        command
+            .args(["-hide_banner", "-nostdin", "-loglevel", "error", "-i", input_str, "-vn"]);
+        if let Some(af) = filter {
+            command.args(["-af", af]);
+        }
+        command.args([
+            "-ac",
+            "1",
+            "-ar",
+            &FILE_PIPELINE_SAMPLE_RATE.to_string(),
+            "-f",
+            "f32le",
+            "-acodec",
+            "pcm_f32le",
+            "pipe:1",
+        ]);
+        command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            command.creation_flags(CREATE_NO_WINDOW);
+        }
+
+        let output = command
+            .output()
+            .map_err(|e| anyhow!("Failed to run ffmpeg pipe: {}", e))?;
+
+        if output.status.success() {
+            let bytes = &output.stdout;
+            if bytes.len() < 4 {
+                return Err(anyhow!("FFmpeg produced empty audio output"));
+            }
+            if !bytes.len().is_multiple_of(4) {
+                warn!(
+                    "FFmpeg f32le output length {} is not a multiple of 4; truncating",
+                    bytes.len()
+                );
+            }
+            let sample_count = bytes.len() / 4;
+            let mut samples = Vec::with_capacity(sample_count);
+            for chunk in bytes.chunks_exact(4) {
+                samples.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
+            }
+            // Peak normalize quiet inputs (matches test ASR load_audio)
+            let peak = samples
+                .iter()
+                .map(|s| s.abs())
+                .fold(0.0f32, f32::max);
+            if peak > 0.0 && peak < 0.5 {
+                let scale = 0.95 / peak;
+                for s in &mut samples {
+                    *s *= scale;
+                }
+            }
+            samples = normalize_audio_samples(samples);
+            info!(
+                "FFmpeg pipe loaded {} samples ({:.2}s) from {}",
+                samples.len(),
+                samples.len() as f64 / FILE_PIPELINE_SAMPLE_RATE as f64,
+                path.display()
+            );
+            return Ok(samples);
+        }
+
+        last_error = String::from_utf8_lossy(&output.stderr).to_string();
+    }
+
+    Err(anyhow!(
+        "FFmpeg pipe decode failed: {}",
+        if last_error.is_empty() {
+            "unknown error".to_string()
+        } else {
+            last_error
+        }
+    ))
+}
+
+/// Fast path for file import/retranscription: FFmpeg 1-pass to 16 kHz mono, Symphonia fallback.
+pub fn load_audio_for_file_pipeline(
+    path: &Path,
+    progress_callback: Option<ProgressCallback>,
+) -> Result<(Vec<f32>, f64)> {
+    if let Some(cb) = &progress_callback {
+        cb(0, "Loading audio (FFmpeg)...");
+    }
+
+    match load_audio_ffmpeg_f32(path) {
+        Ok(samples) => {
+            if let Some(cb) = &progress_callback {
+                cb(100, "Audio loaded");
+            }
+            let duration_seconds = samples.len() as f64 / FILE_PIPELINE_SAMPLE_RATE as f64;
+            return Ok((samples, duration_seconds));
+        }
+        Err(e) => {
+            warn!(
+                "FFmpeg fast path failed for {}: {}; falling back to Symphonia",
+                path.display(),
+                e
+            );
+        }
+    }
+
+    if let Some(cb) = &progress_callback {
+        cb(0, "Decoding audio (fallback)...");
+    }
+    let decoded = decode_audio_file_with_progress(path, progress_callback)?;
+    let duration_seconds = decoded.duration_seconds;
+    // Resample progress omitted on Symphonia fallback (callback already consumed by decode).
+    let samples = decoded.to_whisper_format_with_progress(None);
+    Ok((samples, duration_seconds))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -772,10 +888,9 @@ mod tests {
     }
 
     #[test]
-    fn test_to_whisper_format_handles_large_file_threshold() {
-        // Test that large files use chunked sinc resampling path
-        // LARGE_FILE_THRESHOLD is 14_400_000 samples
-        // We'll test with a smaller sample to verify the path selection logic works
+    fn test_to_whisper_format_small_file_still_resamples_correctly() {
+        // Resampling always chunks now (no size threshold) — verify a tiny input
+        // that ends up as a single chunk still produces valid downsampled output.
         let audio = DecodedAudio {
             samples: vec![0.5; 1000], // Small file
             sample_rate: 48000,

@@ -10,6 +10,10 @@ use crate::api::TranscriptSegment;
 use crate::asr_engine::engine::AsrEngine;
 use crate::asr_engine::model_family::{ModelFamily, ModelVariant};
 use crate::asr_engine::thread_budget::{asr_thread_budget, DecodeConcurrency};
+use crate::audio::chunk_word_stitch::{
+    offset_rover_words, stitch_word_chunks, TimedWord,
+};
+use crate::audio::sentence_segment::finalize_rover_word_timeline;
 use crate::audio::vad::SpeechSegment;
 use crate::capu_engine::batch::{CapuBatcher, PendingSegment};
 use crate::capu_engine::cpu_topology::detect_cpu_topology;
@@ -97,11 +101,8 @@ fn trim_overlap_prefix(prev_text: &str, next_text: &str, max_words: usize) -> St
     next_text.to_string()
 }
 
-/// Walks `raw_results` (already reassembled into final chronological order, still
-/// tagged with each segment's original index) and, for every segment
-/// `expand_segments_with_overlap` marked as having leading context
-/// (`leading_context_samples[index] > 0`), trims the words that context caused to be
-/// duplicated from the end of the immediately preceding output segment's text.
+/// Walks `raw_results` and trims duplicate overlap prefix from each segment that
+/// was decoded with leading context. Each chunk stays a separate segment (no merge).
 fn stitch_overlapping_raw_results(
     raw_results: Vec<(usize, (String, f64, f64))>,
     leading_context_samples: &[usize],
@@ -115,9 +116,30 @@ fn stitch_overlapping_raw_results(
             }
             _ => text,
         };
-        out.push((text, start_ms, end_ms));
+        if !text.trim().is_empty() {
+            out.push((text, start_ms, end_ms));
+        }
     }
     out
+}
+
+fn raw_timed_results_to_segments(raw_results: Vec<(String, f64, f64)>) -> Vec<TranscriptSegment> {
+    raw_results
+        .into_iter()
+        .filter(|(text, _, _)| !text.trim().is_empty())
+        .map(|(text, start_ms, end_ms)| {
+            let start_sec = start_ms / 1000.0;
+            let end_sec = end_ms / 1000.0;
+            TranscriptSegment {
+                id: format!("transcript-{}", uuid::Uuid::new_v4()),
+                text,
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                audio_start_time: Some(start_sec),
+                audio_end_time: Some(end_sec),
+                duration: Some(end_sec - start_sec),
+            }
+        })
+        .collect()
 }
 
 /// Runs CAPU over the full list of raw ASR results, batching consecutive segments up to
@@ -127,9 +149,13 @@ fn stitch_overlapping_raw_results(
 fn finalize_with_capu(raw_results: Vec<(String, f64, f64)>) -> Vec<TranscriptSegment> {
     let mut batcher = CapuBatcher::new();
     let mut finalized_segments = Vec::new();
+    let mut itn_sec = 0.0f64;
+    let mut capu_sec = 0.0f64;
 
     for (i, (text, start_ms, end_ms)) in raw_results.into_iter().enumerate() {
+        let itn_start = std::time::Instant::now();
         let itn_text = crate::audio::post_asr::apply_itn(&text);
+        itn_sec += itn_start.elapsed().as_secs_f64();
         batcher.push(PendingSegment {
             source_id: i as u64,
             raw_text: itn_text,
@@ -138,12 +164,19 @@ fn finalize_with_capu(raw_results: Vec<(String, f64, f64)>) -> Vec<TranscriptSeg
         });
 
         if batcher.should_flush(crate::config::CAPU_BATCH_WORD_BUDGET) {
+            let capu_start = std::time::Instant::now();
             flush_into(&mut batcher, &mut finalized_segments);
+            capu_sec += capu_start.elapsed().as_secs_f64();
         }
     }
     if !batcher.is_empty() {
+        let capu_start = std::time::Instant::now();
         flush_into(&mut batcher, &mut finalized_segments);
+        capu_sec += capu_start.elapsed().as_secs_f64();
     }
+
+    log::info!("[BENCHMARK] stage=itn_only duration_sec={:.3}", itn_sec);
+    log::info!("[BENCHMARK] stage=capu_only duration_sec={:.3}", capu_sec);
 
     finalized_segments
 }
@@ -197,6 +230,151 @@ async fn transcribe_one(primary: &PrimaryEngine, samples: &[f32]) -> Result<Stri
             .map_err(|e| anyhow!("ROVER transcription failed: {}", e))
         }
     }
+}
+
+fn rover_word_base_sec(
+    segment: &SpeechSegment,
+    index: usize,
+    leading_context_samples: &[usize],
+) -> f64 {
+    let overlap_sec = leading_context_samples.get(index).copied().unwrap_or(0) as f64 / 16000.0;
+    segment.start_timestamp_ms / 1000.0 - overlap_sec
+}
+
+async fn decode_rover_words_for_segment(
+    rover: &Arc<TokioMutex<RoverDecoder>>,
+    segment: &SpeechSegment,
+    index: usize,
+    leading_context_samples: &[usize],
+) -> Result<Vec<TimedWord>> {
+    let samples = segment.samples.clone();
+    let base_sec = rover_word_base_sec(segment, index, leading_context_samples);
+    tokio::task::block_in_place(|| {
+        let mut guard = rover.blocking_lock();
+        guard.decode(&samples, 16000.0)
+    })
+    .map(|r| offset_rover_words(&r.words, base_sec))
+    .map_err(|e| anyhow!("ROVER word decode failed on segment {}: {}", index, e))
+}
+
+async fn transcribe_sequential_rover_words(
+    segments: Vec<SpeechSegment>,
+    rover: &Arc<TokioMutex<RoverDecoder>>,
+    on_progress: &mut impl FnMut(usize, usize),
+    is_cancelled: &impl Fn() -> bool,
+    leading_context_samples: &[usize],
+) -> Result<Vec<(usize, Vec<TimedWord>)>> {
+    let total = segments.len();
+    let mut results = Vec::with_capacity(total);
+    for (i, segment) in segments.into_iter().enumerate() {
+        if is_cancelled() {
+            return Err(anyhow!("Cancelled"));
+        }
+        on_progress(i, total);
+        if segment.samples.len() < 1600 {
+            continue;
+        }
+        let words = decode_rover_words_for_segment(rover, &segment, i, leading_context_samples).await?;
+        if !words.is_empty() {
+            results.push((i, words));
+        }
+    }
+    on_progress(total, total);
+    Ok(results)
+}
+
+async fn run_worker_rover_words(
+    mut worker: RoverDecoder,
+    indexed_segments: Vec<(usize, SpeechSegment)>,
+    leading_context_samples: Arc<Vec<usize>>,
+    is_cancelled: impl Fn() -> bool,
+    done_counter: Option<Arc<AtomicUsize>>,
+) -> Result<Vec<(usize, Vec<TimedWord>)>> {
+    let mut results = Vec::with_capacity(indexed_segments.len());
+    for (i, segment) in indexed_segments {
+        if is_cancelled() {
+            return Err(anyhow!("Cancelled"));
+        }
+        if segment.samples.len() < 1600 {
+            if let Some(c) = &done_counter {
+                c.fetch_add(1, Ordering::Relaxed);
+            }
+            continue;
+        }
+        let base_sec = rover_word_base_sec(&segment, i, &leading_context_samples);
+        let samples = segment.samples.clone();
+        let words = tokio::task::block_in_place(|| worker.decode(&samples, 16000.0))
+            .map(|r| offset_rover_words(&r.words, base_sec))
+            .map_err(|e| anyhow!("ROVER transcription failed on segment {}: {}", i, e))?;
+        if !words.is_empty() {
+            results.push((i, words));
+        }
+        if let Some(c) = &done_counter {
+            c.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+    Ok(results)
+}
+
+async fn transcribe_parallel_rover_words<R: Runtime>(
+    app: &AppHandle<R>,
+    segments: Vec<SpeechSegment>,
+    _rover: &Arc<TokioMutex<RoverDecoder>>,
+    physical_cores: usize,
+    on_progress: &mut impl FnMut(usize, usize),
+    is_cancelled: impl Fn() -> bool + Send + Sync + Clone + 'static,
+    leading_context_samples: &[usize],
+) -> Result<Vec<(usize, Vec<TimedWord>)>> {
+    let total = segments.len();
+    let (even, odd) = split_even_odd(segments);
+    on_progress(0, total);
+
+    let (worker_a, worker_b) =
+        build_worker_pair(app, &PrimaryEngine::Rover(_rover.clone()), physical_cores).await?;
+    let (Worker::Rover(worker_a), Worker::Rover(worker_b)) = (worker_a, worker_b) else {
+        return Err(anyhow!("Expected ROVER workers"));
+    };
+
+    let ctx = Arc::new(leading_context_samples.to_vec());
+    let done = Arc::new(AtomicUsize::new(0));
+    let done_a = done.clone();
+    let done_b = done.clone();
+    let ctx_a = ctx.clone();
+    let ctx_b = ctx.clone();
+
+    let handle_a = tokio::spawn(run_worker_rover_words(
+        worker_a,
+        even,
+        ctx_a,
+        is_cancelled.clone(),
+        Some(done_a),
+    ));
+    let handle_b = tokio::spawn(run_worker_rover_words(
+        worker_b,
+        odd,
+        ctx_b,
+        is_cancelled,
+        Some(done_b),
+    ));
+
+    let mut progress_interval = tokio::time::interval(tokio::time::Duration::from_millis(300));
+    loop {
+        progress_interval.tick().await;
+        let d = done.load(Ordering::Relaxed);
+        on_progress(d.min(total), total);
+        if handle_a.is_finished() && handle_b.is_finished() {
+            break;
+        }
+    }
+
+    let results_a = handle_a
+        .await
+        .map_err(|e| anyhow!("ROVER worker A task panicked: {}", e))??;
+    let results_b = handle_b
+        .await
+        .map_err(|e| anyhow!("ROVER worker B task panicked: {}", e))??;
+    on_progress(total, total);
+    Ok(merge_indexed_keep_index(results_a, results_b))
 }
 
 /// Sequential fallback: reuses the already-loaded shared `primary` engine directly (no
@@ -468,15 +646,73 @@ pub async fn batch_transcribe<R: Runtime>(
     let (physical_cores, _) = detect_cpu_topology();
     let total = segments.len();
 
+    if matches!(&primary, PrimaryEngine::Rover(_)) {
+        let rover = match &primary {
+            PrimaryEngine::Rover(r) => r.clone(),
+            _ => unreachable!(),
+        };
+        let asr_start = std::time::Instant::now();
+        let indexed_word_chunks = if should_parallelize(total, physical_cores) {
+            transcribe_parallel_rover_words(
+                app,
+                segments,
+                &rover,
+                physical_cores,
+                &mut on_progress,
+                is_cancelled.clone(),
+                &leading_context_samples,
+            )
+            .await?
+        } else {
+            transcribe_sequential_rover_words(
+                segments,
+                &rover,
+                &mut on_progress,
+                &is_cancelled,
+                &leading_context_samples,
+            )
+            .await?
+        };
+        log::info!(
+            "[BENCHMARK] stage=asr_inference_rover duration_sec={:.3}",
+            asr_start.elapsed().as_secs_f64()
+        );
+        let merged_words = stitch_word_chunks(indexed_word_chunks, &leading_context_samples);
+        let finalize_start = std::time::Instant::now();
+        let engine_arc = crate::capu_engine::commands::get_engine_arc();
+        let raw_results = if let Some(arc) = &engine_arc {
+            let mut engine = arc.lock().unwrap();
+            finalize_rover_word_timeline(&merged_words, Some(&mut engine))
+        } else {
+            finalize_rover_word_timeline(&merged_words, None)
+        };
+        log::info!(
+            "[BENCHMARK] stage=finalize_rover_capu duration_sec={:.3}",
+            finalize_start.elapsed().as_secs_f64()
+        );
+        return Ok(raw_timed_results_to_segments(raw_results));
+    }
+
+    let asr_start = std::time::Instant::now();
     let indexed_raw_results = if should_parallelize(total, physical_cores) {
         transcribe_parallel(app, segments, &primary, physical_cores, &mut on_progress, is_cancelled).await?
     } else {
         transcribe_sequential(segments, &primary, &mut on_progress, &is_cancelled).await?
     };
+    log::info!(
+        "[BENCHMARK] stage=asr_inference duration_sec={:.3}",
+        asr_start.elapsed().as_secs_f64()
+    );
 
     let raw_results = stitch_overlapping_raw_results(indexed_raw_results, &leading_context_samples);
 
-    Ok(finalize_with_capu(raw_results))
+    let finalize_start = std::time::Instant::now();
+    let result = finalize_with_capu(raw_results);
+    log::info!(
+        "[BENCHMARK] stage=finalize_capu_total duration_sec={:.3}",
+        finalize_start.elapsed().as_secs_f64()
+    );
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -543,7 +779,7 @@ mod tests {
     }
 
     #[test]
-    fn stitch_overlapping_raw_results_trims_only_segments_with_leading_context() {
+    fn stitch_overlapping_raw_results_trims_prefix_but_keeps_segments_separate() {
         let indexed = vec![
             (0, ("xin chào các bạn".to_string(), 0.0, 1000.0)),
             (1, ("các bạn hôm nay khỏe không".to_string(), 900.0, 2000.0)),
@@ -555,8 +791,8 @@ mod tests {
 
         assert_eq!(stitched.len(), 3);
         assert_eq!(stitched[0].0, "xin chào các bạn");
-        assert_eq!(stitched[1].0, "hôm nay khỏe không", "overlap prefix trimmed");
-        assert_eq!(stitched[2].0, "một câu hoàn toàn mới", "no leading context, untouched");
+        assert_eq!(stitched[1].0, "hôm nay khỏe không");
+        assert_eq!(stitched[2].0, "một câu hoàn toàn mới");
     }
 
     #[test]

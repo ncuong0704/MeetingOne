@@ -42,6 +42,9 @@ pub mod transcription;
 // Shared utilities for import and retranscription
 pub(crate) mod common;
 pub(crate) mod batch_transcribe;
+pub(crate) mod file_batch_prepare;
+pub(crate) mod chunk_word_stitch;
+pub(crate) mod sentence_segment;
 
 // Shared constants
 pub mod constants;

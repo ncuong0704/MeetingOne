@@ -32,28 +32,52 @@ fn softmax(logits: &[f32]) -> Vec<f32> {
     exps.into_iter().map(|x| x / sum).collect()
 }
 
-/// Picks the winning label index for one word's logits row: softmax -> add
-/// `punctuation_confidence(punctuation_level)` to `keep_index`'s probability -> add
-/// `case_confidence(case_level)` to every index in `case_label_indices` -> argmax. A pure
-/// function (no ONNX involved), so it's unit-testable with fixture logits — see `bias_tests`.
+/// Picks the winning label index for one word's logits row, with optional pause-hint nudge
+/// (ported from test ASR `gec_model._convert`).
 fn decode_row(
     row_logits: &[f32],
     keep_index: usize,
+    comma_index: usize,
+    period_index: usize,
     case_label_indices: &[usize],
     punctuation_level: u8,
     case_level: u8,
+    pause_gap: Option<f32>,
 ) -> usize {
     let mut probs = softmax(row_logits);
     probs[keep_index] += punctuation_confidence(punctuation_level);
     for &idx in case_label_indices {
         probs[idx] += case_confidence(case_level);
     }
+
+    if let Some(gap) = pause_gap {
+        let best_before = probs
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.total_cmp(b.1))
+            .map(|(idx, _)| idx)
+            .unwrap_or(keep_index);
+        let is_keep = best_before == keep_index;
+        if gap >= 1.0 {
+            if is_keep {
+                probs[keep_index] -= 0.2;
+                probs[period_index] += 0.2;
+            }
+        } else if gap >= 0.2 {
+            if is_keep {
+                probs[comma_index] += 0.2;
+            }
+        } else if gap < 0.1 {
+            probs[comma_index] -= 0.3;
+        }
+    }
+
     probs
         .iter()
         .enumerate()
         .max_by(|a, b| a.1.total_cmp(b.1))
         .map(|(idx, _)| idx)
-        .unwrap()
+        .unwrap_or(keep_index)
 }
 
 pub struct CapuEngine {
@@ -62,6 +86,8 @@ pub struct CapuEngine {
     labels: Vec<Action>,
     /// Index of `Action::Keep` in `labels` — found once at `load()` time.
     keep_index: usize,
+    comma_index: usize,
+    period_index: usize,
     /// Indices of every `Action::TransformCase*` variant in `labels` — found once at
     /// `load()` time.
     case_label_indices: Vec<usize>,
@@ -108,6 +134,14 @@ impl CapuEngine {
             .iter()
             .position(|a| *a == Action::Keep)
             .ok_or_else(|| anyhow!("Label file has no $KEEP action"))?;
+        let comma_index = labels
+            .iter()
+            .position(|a| *a == Action::AppendComma)
+            .ok_or_else(|| anyhow!("Label file has no $APPEND_, action"))?;
+        let period_index = labels
+            .iter()
+            .position(|a| *a == Action::AppendPeriod)
+            .ok_or_else(|| anyhow!("Label file has no $APPEND_. action"))?;
         let case_label_indices = labels
             .iter()
             .enumerate()
@@ -129,6 +163,8 @@ impl CapuEngine {
             tokenizer,
             labels,
             keep_index,
+            comma_index,
+            period_index,
             case_label_indices,
             threads: threads.max(1),
             punctuation_level: punctuation_level.clamp(1, 10),
@@ -155,7 +191,11 @@ impl CapuEngine {
     /// Runs one forward pass over `words` and returns one `Action` per word (already
     /// skipping the CLS/SEP sentinel offsets — see the offset-handling note at the top
     /// of this plan).
-    fn infer_once(&mut self, words: &[String]) -> Result<Vec<Action>> {
+    fn infer_once(
+        &mut self,
+        words: &[String],
+        pause_hints: Option<&[f32]>,
+    ) -> Result<Vec<Action>> {
         let encoding = self.tokenizer.encode_words(words)?;
         if encoding.input_ids.len() > CAPU_MAX_SEQ_LEN {
             return Err(anyhow!(
@@ -204,15 +244,19 @@ impl CapuEngine {
 
         // Real words are offsets[1..num_offsets-1] — skip CLS (index 0) and SEP (last).
         let mut actions = Vec::with_capacity(words.len());
-        for row in 1..(num_offsets - 1) {
+        for (word_idx, row) in (1..(num_offsets - 1)).enumerate() {
             let row_start = row * num_classes;
             let row_logits = &logits_data[row_start..row_start + num_classes];
+            let pause_gap = pause_hints.and_then(|hints| hints.get(word_idx).copied());
             let best_idx = decode_row(
                 row_logits,
                 self.keep_index,
+                self.comma_index,
+                self.period_index,
                 &self.case_label_indices,
                 self.punctuation_level,
                 self.case_level,
+                pause_gap,
             );
             actions.push(self.labels[best_idx]);
         }
@@ -245,12 +289,13 @@ impl CapuEngine {
         &mut self,
         mut words: Vec<String>,
         mut boundary_index: Option<usize>,
+        pause_hints: Option<&[f32]>,
     ) -> Result<(Vec<String>, Option<usize>)> {
         for _ in 0..CAPU_MAX_ITERATIONS {
             if words.is_empty() {
                 break;
             }
-            let actions = self.infer_once(&words)?;
+            let actions = self.infer_once(&words, pause_hints)?;
             let (new_words, new_boundary_index, done) = apply_pass(words, boundary_index, actions);
             words = new_words;
             boundary_index = new_boundary_index;
@@ -273,6 +318,17 @@ impl CapuEngine {
         &mut self,
         trailing_context: &[String],
         new_text: &str,
+    ) -> Result<(String, Vec<String>)> {
+        self.restore_punctuation_with_hints(trailing_context, new_text, None)
+    }
+
+    /// Like `restore_punctuation`, with optional per-word pause gaps (seconds after each
+    /// word in `new_text`) to nudge comma/period insertion — mirrors test ASR pause_hints.
+    pub fn restore_punctuation_with_hints(
+        &mut self,
+        trailing_context: &[String],
+        new_text: &str,
+        pause_hints: Option<&[f32]>,
     ) -> Result<(String, Vec<String>)> {
         // ZipFormer ASR outputs all-uppercase raw text; CAPU was trained on normally-cased
         // Vietnamese and predicts mostly $KEEP on all-caps input. Lowercase before inference.
@@ -303,7 +359,17 @@ impl CapuEngine {
             Some(trailing_lower.len() - 1)
         };
 
-        let (restored, final_boundary_index) = self.restore_words(combined, boundary_index)?;
+        let combined_hints: Option<Vec<f32>> = pause_hints.map(|hints| {
+            let mut combined = vec![0.5; trailing_lower.len()];
+            combined.extend_from_slice(hints);
+            combined
+        });
+
+        let (restored, final_boundary_index) = self.restore_words(
+            combined,
+            boundary_index,
+            combined_hints.as_deref(),
+        )?;
 
         // `final_boundary_index` is the position of the last trailing-context word in
         // `restored`, tracked incrementally through every pass by `apply_pass` — so
@@ -454,7 +520,7 @@ mod bias_tests {
     fn decode_row_min_punctuation_level_pulls_a_close_call_toward_keep() {
         // Without bias, softmax([0.5, 0.6, 0.0]) narrowly favors index 1 over KEEP (index 0).
         let logits = vec![0.5, 0.6, 0.0];
-        let idx = decode_row(&logits, 0, &[2], 1, 3);
+        let idx = decode_row(&logits, 0, 1, 2, &[2], 1, 3, None);
         assert_eq!(idx, 0, "level=1 (+0.5 to KEEP) should flip this close call toward KEEP");
     }
 
@@ -462,7 +528,7 @@ mod bias_tests {
     fn decode_row_max_punctuation_level_pulls_a_close_call_away_from_keep() {
         // Without bias, softmax([0.6, 0.5, 0.0]) narrowly favors KEEP (index 0).
         let logits = vec![0.6, 0.5, 0.0];
-        let idx = decode_row(&logits, 0, &[2], 10, 3);
+        let idx = decode_row(&logits, 0, 1, 2, &[2], 10, 3, None);
         assert_eq!(idx, 1, "level=10 (-0.8 to KEEP) should flip this close call away from KEEP");
     }
 
@@ -471,14 +537,14 @@ mod bias_tests {
         // KEEP (index 0) narrowly ahead of a case action (index 2); punctuation_level=4 gives
         // KEEP only a small +0.0667 boost, isolating the case-bias effect.
         let logits = vec![0.6, 0.0, 0.5];
-        let idx = decode_row(&logits, 0, &[2], 4, 10);
+        let idx = decode_row(&logits, 0, 1, 2, &[2], 4, 10, None);
         assert_eq!(idx, 2, "level=10 case bias (+0.5) should flip this close call toward the case action");
     }
 
     #[test]
     fn decode_row_min_case_level_suppresses_a_trailing_case_action() {
         let logits = vec![0.6, 0.0, 0.5];
-        let idx = decode_row(&logits, 0, &[2], 4, 1);
+        let idx = decode_row(&logits, 0, 1, 2, &[2], 4, 1, None);
         assert_eq!(idx, 0, "level=1 case bias (-1.5) should keep KEEP winning");
     }
 }

@@ -1,9 +1,10 @@
 // Retranscription module - re-processes stored audio with the ZipFormer Vietnamese ASR engine.
 
-use crate::audio::audio_processing::{HighPassFilter, LoudnessNormalizer, NoiseSuppressionProcessor};
-use crate::audio::decoder::{decode_audio_file, resample_mono_with_progress};
+use crate::audio::audio_processing::create_meeting_folder;
+use crate::audio::decoder::load_audio_for_file_pipeline;
 use crate::audio::vad::get_speech_chunks_with_progress;
-use super::common::{create_transcript_segments, expand_segments_with_overlap, write_transcripts_json};
+use super::common::write_transcripts_json;
+use super::file_batch_prepare::{boost_audio_for_vad, prepare_file_asr_segments};
 use super::constants::AUDIO_EXTENSIONS;
 use crate::state::AppState;
 use anyhow::{anyhow, Result};
@@ -152,56 +153,19 @@ async fn run_retranscription<R: Runtime>(
     }
 
     let path_for_decode = audio_path.clone();
-    let decoded = tokio::task::spawn_blocking(move || decode_audio_file(&path_for_decode))
-        .await
-        .map_err(|e| anyhow!("Decode task panicked: {}", e))??;
-    let duration_seconds = decoded.duration_seconds;
+    let (audio_samples, duration_seconds) = tokio::task::spawn_blocking(move || {
+        load_audio_for_file_pipeline(&path_for_decode, None)
+    })
+    .await
+    .map_err(|e| anyhow!("Decode task panicked: {}", e))??;
 
-    info!("Decoded audio: {:.2}s, {}Hz, {} channels", duration_seconds, decoded.sample_rate, decoded.channels);
+    info!(
+        "Loaded audio for retranscription: {:.2}s, {} samples @ 16kHz mono",
+        duration_seconds,
+        audio_samples.len()
+    );
 
-    emit_progress(&app, &meeting_id, "decoding", 15, "Converting audio format...");
-
-    if RETRANSCRIPTION_CANCELLED.load(Ordering::SeqCst) {
-        return Err(anyhow!("Retranscription cancelled"));
-    }
-
-    let audio_samples_48k = tokio::task::spawn_blocking(move || decoded.to_48khz_mono_with_progress(None))
-        .await
-        .map_err(|e| anyhow!("Resample task panicked: {}", e))?;
-    info!("Converted to 48kHz mono: {} samples", audio_samples_48k.len());
-
-    // Noise reduction pipeline at 48kHz — RNNoise requires exactly 48kHz, so denoising
-    // happens here before the final downsample to 16kHz. Same order as the live pipeline
-    // (audio/pipeline.rs): high-pass -> RNNoise -> EBU R128 loudness normalization.
-    let denoised_48k = {
-        let mut hpf = HighPassFilter::new(48000, 80.0);
-        let filtered = hpf.process(&audio_samples_48k);
-        let denoised = match NoiseSuppressionProcessor::new(48000) {
-            Ok(mut suppressor) => {
-                let mut out = suppressor.process(&filtered);
-                out.extend(suppressor.flush());
-                out
-            }
-            Err(e) => {
-                warn!("Failed to create RNNoise noise suppressor for retranscription: {}, skipping noise suppression", e);
-                filtered
-            }
-        };
-        match LoudnessNormalizer::new(1, 48000) {
-            Ok(mut normalizer) => normalizer.normalize_loudness(&denoised),
-            Err(e) => {
-                warn!("Failed to create loudness normalizer for retranscription: {}, skipping normalization", e);
-                denoised
-            }
-        }
-    };
-    info!("Noise reduction applied: high-pass filter (80Hz) + RNNoise + EBU R128 normalization (48kHz)");
-
-    // Final downsample to 16kHz for VAD/ASR
-    let audio_samples = resample_mono_with_progress(&denoised_48k, 48000, 16000, None);
-    info!("Resampled denoised audio to 16kHz: {} samples", audio_samples.len());
-
-    emit_progress(&app, &meeting_id, "vad", 20, "Detecting speech segments...");
+    emit_progress(&app, &meeting_id, "vad", 15, "Detecting speech segments...");
 
     if RETRANSCRIPTION_CANCELLED.load(Ordering::SeqCst) {
         return Err(anyhow!("Retranscription cancelled"));
@@ -209,10 +173,11 @@ async fn run_retranscription<R: Runtime>(
 
     let app_for_vad = app.clone();
     let meeting_id_for_vad = meeting_id.clone();
+    let audio_for_vad = boost_audio_for_vad(&audio_samples);
 
     let speech_segments = tokio::task::spawn_blocking(move || {
         get_speech_chunks_with_progress(
-            &audio_samples,
+            &audio_for_vad,
             VAD_REDEMPTION_TIME_MS,
             |vad_progress, segments_found| {
                 let overall_progress = 20 + (vad_progress as f32 * 0.05) as u32;
@@ -238,10 +203,7 @@ async fn run_retranscription<R: Runtime>(
         return Err(anyhow!("No speech detected in audio file"));
     }
 
-    emit_progress(&app, &meeting_id, "transcribing", 25, "Loading Vietnamese ASR...");
-
-    // Ensure ASR engine is ready (ROVER or single-model, per file path config)
-    let file_cfg = {
+    let file_cfg_preview = {
         let app_state = app
             .try_state::<AppState>()
             .ok_or_else(|| anyhow!("App state not available"))?;
@@ -251,6 +213,31 @@ async fn run_retranscription<R: Runtime>(
         )
         .await
     };
+
+    let (processable_segments, leading_context_samples, prepare_stats) = {
+        let audio_for_prepare = audio_samples.clone();
+        let vad_for_prepare = speech_segments.clone();
+        let chunk_sec = file_cfg_preview.max_segment_seconds;
+        tokio::task::spawn_blocking(move || {
+            prepare_file_asr_segments(&audio_for_prepare, vad_for_prepare, chunk_sec)
+        })
+        .await
+        .map_err(|e| anyhow!("Chunk prepare task panicked: {}", e))?
+    };
+
+    let processable_count = processable_segments.len();
+    info!(
+        "Prepared {} ASR chunks for retranscription (from {} VAD segments, {:.1}s speech, preprocess {:.3}s)",
+        processable_count,
+        prepare_stats.vad_segments_in,
+        prepare_stats.concat_speech_sec,
+        prepare_stats.preprocess_sec
+    );
+
+    emit_progress(&app, &meeting_id, "transcribing", 25, "Loading Vietnamese ASR...");
+
+    // Ensure ASR engine is ready (ROVER or single-model, per file path config)
+    let file_cfg = file_cfg_preview;
 
     let (engine, rover): (
         Option<std::sync::Arc<crate::asr_engine::engine::AsrEngine>>,
@@ -280,14 +267,6 @@ async fn run_retranscription<R: Runtime>(
             .map_err(|e| anyhow!("{}", e))?;
         (Some(engine), None)
     };
-
-    let max_segment_seconds = file_cfg.max_segment_seconds;
-
-    let (processable_segments, leading_context_samples) =
-        expand_segments_with_overlap(speech_segments, max_segment_seconds);
-
-    let processable_count = processable_segments.len();
-    info!("Processing {} segments", processable_count);
 
     // Best-effort CAPU init before retranscription
     if crate::capu_engine::commands::capu_is_model_downloaded(app.clone())
@@ -507,6 +486,7 @@ pub fn resolve_meeting_audio_file_path(folder_path: String) -> Result<String, St
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audio::common::create_transcript_segments;
 
     #[test]
     fn test_create_transcript_segments_empty() {
