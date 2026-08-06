@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { toast } from 'sonner';
 import {
   Dialog,
   DialogContent,
@@ -28,6 +29,7 @@ export default function GpuSetupGuidance() {
       setDialogOpen(true);
     } catch (e) {
       console.error('Failed to check GPU:', e);
+      toast.error('Không kiểm tra được GPU');
     } finally {
       setChecking(false);
     }
