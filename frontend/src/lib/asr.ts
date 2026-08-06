@@ -173,6 +173,12 @@ export const CapuAPI = {
   getCpuTopology: (): Promise<CpuTopology> => invoke('capu_get_cpu_topology'),
 };
 
+export interface GpuSetupStatus {
+  hasGpu: boolean;
+  hasCudaRuntime: boolean;
+  hasCudnn: boolean;
+}
+
 export const GpuAPI = {
-  checkNvidiaAvailable: (): Promise<boolean> => invoke('check_nvidia_gpu_available'),
+  checkSetupStatus: (): Promise<GpuSetupStatus> => invoke('check_gpu_setup_status'),
 };
