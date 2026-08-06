@@ -26,7 +26,13 @@ pub fn asr_thread_budget(physical_cores: usize, concurrency: DecodeConcurrency) 
         SingleLive => physical_cores.clamp(2, 4),
         RoverLive => (physical_cores.clamp(2, 4) / 2).max(1),
         SingleFileWorker => (physical_cores / 2).max(1),
-        RoverFileWorker => (physical_cores / 4).max(1),
+        // Was `/4` (exact-fill for 4 truly-concurrent ONNX sessions: 2 file-workers ×
+        // 2 ROVER model families). Benchmarked against a sibling app that gives each of
+        // its 2 concurrent decode workers the *full* physical core count (2x oversubscribed
+        // total) and measures a 1.68-1.70x speedup from it — `/4` was leaving cores idle.
+        // `/2` matches that same total-oversubscription ratio here (4 contexts × cores/2 =
+        // 2x cores) without going all the way to unbounded oversubscription.
+        RoverFileWorker => (physical_cores / 2).max(1),
     }
 }
 
@@ -63,11 +69,11 @@ mod tests {
     }
 
     #[test]
-    fn rover_file_worker_is_quarter_physical_cores_minimum_1() {
+    fn rover_file_worker_is_half_physical_cores_minimum_1() {
         assert_eq!(asr_thread_budget(1, DecodeConcurrency::RoverFileWorker), 1);
-        assert_eq!(asr_thread_budget(4, DecodeConcurrency::RoverFileWorker), 1);
-        assert_eq!(asr_thread_budget(8, DecodeConcurrency::RoverFileWorker), 2);
-        assert_eq!(asr_thread_budget(16, DecodeConcurrency::RoverFileWorker), 4);
+        assert_eq!(asr_thread_budget(4, DecodeConcurrency::RoverFileWorker), 2);
+        assert_eq!(asr_thread_budget(8, DecodeConcurrency::RoverFileWorker), 4);
+        assert_eq!(asr_thread_budget(16, DecodeConcurrency::RoverFileWorker), 8);
     }
 
     #[test]

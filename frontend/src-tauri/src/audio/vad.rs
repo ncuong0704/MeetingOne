@@ -5,6 +5,34 @@ use rubato::{Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolat
 use std::collections::VecDeque;
 use std::time::Duration;
 
+/// Silero speech-probability hysteresis thresholds (enter speech above `positive`,
+/// exit below `negative`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VadThresholds {
+    pub positive: f32,
+    pub negative: f32,
+}
+
+/// Vietnamese-tuned thresholds for the live recording pipeline (see rationale in
+/// `ContinuousVadProcessor::new`). Kept as before this change — live-recording behavior
+/// is unaffected.
+pub const LIVE_VAD_THRESHOLDS: VadThresholds = VadThresholds {
+    positive: 0.35,
+    negative: 0.20,
+};
+
+/// Lower thresholds for file-import/retranscription batch VAD. Confirmed empirically: a
+/// sibling app's Silero VAD (positive threshold 0.2, same underlying model family) fully
+/// detects a 95s trailing segment of a real meeting recording that this app's
+/// live-tuned 0.35 threshold silently drops — even though that segment's amplitude is
+/// normal (not quieter than the rest of the file, ruling out a gain/boost cause). File
+/// audio has no live-latency constraint, so a lower, more permissive threshold is safe
+/// here without the live-path tradeoffs (false speech starts interrupting silence UI).
+pub const FILE_BATCH_VAD_THRESHOLDS: VadThresholds = VadThresholds {
+    positive: 0.20,
+    negative: 0.10,
+};
+
 /// Represents a complete speech segment detected by VAD
 #[derive(Debug, Clone)]
 pub struct SpeechSegment {
@@ -33,7 +61,7 @@ pub struct ContinuousVadProcessor {
 }
 
 impl ContinuousVadProcessor {
-    pub fn new(input_sample_rate: u32, redemption_time_ms: u32) -> Result<Self> {
+    pub fn new(input_sample_rate: u32, redemption_time_ms: u32, thresholds: VadThresholds) -> Result<Self> {
         // Silero VAD MUST use 16kHz - this is hardcoded requirement
         const VAD_SAMPLE_RATE: u32 = 16000;
 
@@ -41,15 +69,12 @@ impl ContinuousVadProcessor {
         let mut config = VadConfig::default();
         config.sample_rate = VAD_SAMPLE_RATE as usize;
 
-        // Vietnamese-tuned VAD thresholds.
-        // Silero VAD was trained on non-tonal languages; Vietnamese's 6 tones create rapid
-        // F0 variation that causes Silero to underestimate speech probability. Lowering
-        // positive_speech_threshold from 0.50 → 0.35 catches tonal syllables (thanh sắc,
-        // thanh hỏi, thanh ngã) that previously scored below the activation gate.
-        // negative_speech_threshold lowered to 0.20 so VAD stays active through soft
-        // inter-syllable transitions common in Vietnamese.
-        config.positive_speech_threshold = 0.35;
-        config.negative_speech_threshold = 0.20;
+        // Vietnamese-tuned VAD thresholds (see `LIVE_VAD_THRESHOLDS`/`FILE_BATCH_VAD_THRESHOLDS`
+        // doc comments for the reasoning behind each). Silero VAD was trained on non-tonal
+        // languages; Vietnamese's 6 tones create rapid F0 variation that causes Silero to
+        // underestimate speech probability generally, on top of the live-vs-file distinction.
+        config.positive_speech_threshold = thresholds.positive;
+        config.negative_speech_threshold = thresholds.negative;
 
         config.redemption_time = Duration::from_millis(redemption_time_ms as u64);
         config.pre_speech_pad = Duration::from_millis(300);
@@ -351,7 +376,7 @@ impl ContinuousVadProcessor {
 
 /// Legacy function for backward compatibility - now uses the optimized approach
 pub fn extract_speech_16k(samples_mono_16k: &[f32]) -> Result<Vec<f32>> {
-    let mut processor = ContinuousVadProcessor::new(16000, 400)?;
+    let mut processor = ContinuousVadProcessor::new(16000, 400, LIVE_VAD_THRESHOLDS)?;
 
     // Process all audio
     let mut all_segments = processor.process_audio(samples_mono_16k)?;
@@ -405,7 +430,9 @@ pub fn get_speech_chunks_with_progress<F>(
 where
     F: FnMut(u32, usize) -> bool,
 {
-    let mut processor = ContinuousVadProcessor::new(16000, redemption_time_ms)?;
+    // All current callers are file-import/retranscription batch paths (no live-latency
+    // constraint), so use the more permissive file-batch thresholds.
+    let mut processor = ContinuousVadProcessor::new(16000, redemption_time_ms, FILE_BATCH_VAD_THRESHOLDS)?;
 
     let total_samples = samples_mono_16k.len();
 
@@ -476,6 +503,21 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn file_batch_vad_thresholds_are_more_permissive_than_live() {
+        // File-import has no live-latency constraint, so it should tolerate quieter/
+        // lower-confidence speech than the live pipeline without regressing live behavior.
+        assert!(
+            FILE_BATCH_VAD_THRESHOLDS.positive < LIVE_VAD_THRESHOLDS.positive,
+            "file-batch positive threshold must be lower than live's to catch the \
+             lower-confidence speech live's stricter threshold misses"
+        );
+        assert!(
+            FILE_BATCH_VAD_THRESHOLDS.negative < FILE_BATCH_VAD_THRESHOLDS.positive,
+            "negative threshold must stay below positive for valid hysteresis"
+        );
+    }
 
     /// Generate synthetic speech-like audio with alternating speech/silence
     fn generate_test_audio_with_speech(duration_seconds: f32, sample_rate: u32) -> Vec<f32> {
@@ -580,7 +622,7 @@ mod tests {
     #[test]
     fn test_vad_continuous_processor_state_across_chunks() {
         // Test that VAD state is correctly maintained across chunk boundaries
-        let mut processor = ContinuousVadProcessor::new(16000, 2000).expect("Failed to create processor");
+        let mut processor = ContinuousVadProcessor::new(16000, 2000, LIVE_VAD_THRESHOLDS).expect("Failed to create processor");
 
         // Generate audio with a speech segment that spans a chunk boundary
         let chunk_size = 160_000; // 10 seconds

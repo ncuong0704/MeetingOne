@@ -728,7 +728,7 @@ impl AudioPipeline {
         // Windows bridges those pauses so ZipFormer receives full-sentence segments.
         let redemption_time = if cfg!(target_os = "macos") { 1500 } else { 1200 };
 
-        let vad_processor = match ContinuousVadProcessor::new(sample_rate, redemption_time) {
+        let vad_processor = match ContinuousVadProcessor::new(sample_rate, redemption_time, crate::audio::vad::LIVE_VAD_THRESHOLDS) {
             Ok(processor) => {
                 info!(
                     "VAD-driven pipeline: segments split at silence when longer than {}s before ASR",
