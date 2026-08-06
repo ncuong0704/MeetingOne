@@ -209,6 +209,11 @@ async fn is_recording() -> bool {
 }
 
 #[tauri::command]
+fn check_nvidia_gpu_available() -> bool {
+    which::which("nvidia-smi").is_ok()
+}
+
+#[tauri::command]
 fn get_transcription_status() -> TranscriptionStatus {
     TranscriptionStatus {
         chunks_in_queue: 0,
@@ -443,6 +448,7 @@ pub fn run() {
             stop_recording,
             is_recording,
             get_transcription_status,
+            check_nvidia_gpu_available,
             analytics::commands::init_analytics,
             analytics::commands::disable_analytics,
             analytics::commands::track_event,
