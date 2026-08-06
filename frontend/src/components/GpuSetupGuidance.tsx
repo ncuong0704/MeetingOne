@@ -36,8 +36,13 @@ export default function GpuSetupGuidance() {
   };
 
   const handleRestart = async () => {
-    const { relaunch } = await import('@tauri-apps/plugin-process');
-    await relaunch();
+    try {
+      const { relaunch } = await import('@tauri-apps/plugin-process');
+      await relaunch();
+    } catch (e) {
+      console.error('Failed to restart app:', e);
+      toast.error('Không khởi động lại được ứng dụng');
+    }
   };
 
   return (
