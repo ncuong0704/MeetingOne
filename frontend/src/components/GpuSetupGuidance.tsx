@@ -35,6 +35,11 @@ export default function GpuSetupGuidance() {
     }
   };
 
+  const handleRestart = async () => {
+    const { relaunch } = await import('@tauri-apps/plugin-process');
+    await relaunch();
+  };
+
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-4">
@@ -91,6 +96,12 @@ export default function GpuSetupGuidance() {
                   className="px-4 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 font-medium transition-colors"
                 >
                   Tải cuDNN 9
+                </button>
+                <button
+                  onClick={handleRestart}
+                  className="px-4 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 font-medium transition-colors"
+                >
+                  Khởi động lại ngay
                 </button>
               </DialogFooter>
             </>
