@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { GpuAPI, GpuSetupStatus } from '@/lib/asr';
 import { openReleaseUrl } from '@/lib/appUpdate';
+import { usePlatform } from '@/hooks/usePlatform';
 
 const CUDA_ARCHIVE_URL_GENERIC = 'https://developer.nvidia.com/cuda-toolkit-archive';
 const CUDNN_URL_GENERIC = 'https://developer.nvidia.com/cudnn';
@@ -31,16 +32,15 @@ interface GpuSetupGuidanceProps {
 export default function GpuSetupGuidance({ disabled = false }: GpuSetupGuidanceProps) {
   const [checking, setChecking] = useState(false);
   const [status, setStatus] = useState<GpuSetupStatus | null>(null);
-  const [isWindows, setIsWindows] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const platform = usePlatform();
+  const isWindows = platform === 'windows';
 
   const handleCheckGpu = async () => {
     setChecking(true);
     try {
       const result = await GpuAPI.checkSetupStatus();
       setStatus(result);
-      const { platform } = await import('@tauri-apps/plugin-os');
-      setIsWindows(platform() === 'windows');
       setDialogOpen(true);
     } catch (e) {
       console.error('Failed to check GPU:', e);
