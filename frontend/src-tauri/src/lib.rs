@@ -208,9 +208,41 @@ async fn is_recording() -> bool {
     audio::recording_commands::is_recording().await
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GpuSetupStatus {
+    has_gpu: bool,
+    has_cuda_runtime: bool,
+    has_cudnn: bool,
+}
+
 #[tauri::command]
-fn check_nvidia_gpu_available() -> bool {
-    which::which("nvidia-smi").is_ok()
+fn check_gpu_setup_status() -> GpuSetupStatus {
+    let has_gpu = which::which("nvidia-smi").is_ok();
+    let (has_cuda_runtime, has_cudnn) = if cfg!(target_os = "windows") {
+        (
+            dll_findable_on_path("cudart64_12.dll"),
+            dll_findable_on_path("cudnn64_9.dll"),
+        )
+    } else {
+        (false, false)
+    };
+    GpuSetupStatus {
+        has_gpu,
+        has_cuda_runtime,
+        has_cudnn,
+    }
+}
+
+fn find_dll_in_dirs(filename: &str, dirs: impl Iterator<Item = std::path::PathBuf>) -> bool {
+    dirs.into_iter().any(|dir| dir.join(filename).is_file())
+}
+
+fn dll_findable_on_path(filename: &str) -> bool {
+    match std::env::var_os("PATH") {
+        Some(path) => find_dll_in_dirs(filename, std::env::split_paths(&path)),
+        None => false,
+    }
 }
 
 #[tauri::command]
@@ -460,7 +492,7 @@ pub fn run() {
             stop_recording,
             is_recording,
             get_transcription_status,
-            check_nvidia_gpu_available,
+            check_gpu_setup_status,
             analytics::commands::init_analytics,
             analytics::commands::disable_analytics,
             analytics::commands::track_event,
@@ -688,4 +720,32 @@ pub fn run() {
                 log::info!("Application cleanup complete");
             }
         });
+}
+
+#[cfg(test)]
+mod gpu_setup_status_tests {
+    use super::find_dll_in_dirs;
+
+    #[test]
+    fn finds_dll_when_present_in_one_of_the_dirs() {
+        let dir = std::env::temp_dir().join(format!("gpu-setup-test-found-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("cudart64_12.dll"), b"stub").unwrap();
+
+        let missing_dir = std::env::temp_dir().join("gpu-setup-test-does-not-exist");
+        let dirs = vec![missing_dir, dir.clone()].into_iter();
+
+        assert!(find_dll_in_dirs("cudart64_12.dll", dirs));
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn returns_false_when_dll_not_in_any_dir() {
+        let dir_a = std::env::temp_dir().join("gpu-setup-test-a-does-not-exist");
+        let dir_b = std::env::temp_dir().join("gpu-setup-test-b-does-not-exist");
+        let dirs = vec![dir_a, dir_b].into_iter();
+
+        assert!(!find_dll_in_dirs("cudnn64_9.dll", dirs));
+    }
 }
