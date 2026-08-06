@@ -108,7 +108,8 @@ export default function GpuSetupGuidance({ disabled = false }: GpuSetupGuidanceP
                 </button>
                 <button
                   onClick={handleRestart}
-                  className="px-4 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 font-medium transition-colors"
+                  disabled={disabled}
+                  className="px-4 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 text-gray-700 dark:text-gray-200 font-medium transition-colors"
                 >
                   Khởi động lại ngay
                 </button>
