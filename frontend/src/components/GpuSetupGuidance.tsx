@@ -16,7 +16,11 @@ import { openReleaseUrl } from '@/lib/appUpdate';
 const CUDA_ARCHIVE_URL = 'https://developer.nvidia.com/cuda-toolkit-archive';
 const CUDNN_URL = 'https://developer.nvidia.com/cudnn';
 
-export default function GpuSetupGuidance() {
+interface GpuSetupGuidanceProps {
+  disabled?: boolean;
+}
+
+export default function GpuSetupGuidance({ disabled = false }: GpuSetupGuidanceProps) {
   const [checking, setChecking] = useState(false);
   const [hasGpu, setHasGpu] = useState<boolean | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -58,7 +62,7 @@ export default function GpuSetupGuidance() {
         </div>
         <button
           onClick={handleCheckGpu}
-          disabled={checking}
+          disabled={checking || disabled}
           className="px-4 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 text-gray-700 dark:text-gray-200 font-medium transition-colors whitespace-nowrap"
         >
           {checking ? 'Đang kiểm tra...' : 'Chạy GPU'}

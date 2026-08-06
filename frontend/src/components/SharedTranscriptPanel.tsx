@@ -78,7 +78,7 @@ export default function SharedTranscriptPanel({
         </p>
       </div>
 
-      <GpuSetupGuidance />
+      <GpuSetupGuidance disabled={disabled} />
 
       <div className="space-y-2">
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
