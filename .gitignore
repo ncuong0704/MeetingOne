@@ -19,6 +19,11 @@ dist/
 build/
 .next/
 out/
+# ...except frontend/src-tauri/build/, which is Rust build-script SOURCE (build.rs helper
+# modules like ffmpeg.rs), not build output — the generic `build/` rule above would
+# otherwise silently hide new files added there from `git status`/`git add`.
+!frontend/src-tauri/build/
+!frontend/src-tauri/build/*.rs
 
 # Rust
 target/
@@ -32,6 +37,7 @@ target/
 
 # Tauri
 frontend/src-tauri/binaries/
+frontend/src-tauri/onnxruntime-gpu-cache/
 frontend/.tauri/
 
 # Whisper / large weights (any depth)

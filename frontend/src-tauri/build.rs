@@ -1,5 +1,7 @@
 ﻿#[path = "build/ffmpeg.rs"]
 mod ffmpeg;
+#[path = "build/onnxruntime_gpu.rs"]
+mod onnxruntime_gpu;
 
 fn main() {
     // GPU Acceleration Detection and Build Guidance
@@ -17,6 +19,14 @@ fn main() {
 
     // Download and bundle FFmpeg binary at build-time
     ffmpeg::ensure_ffmpeg_binary();
+
+    // With the `cuda` feature, `ort` uses `load-dynamic` linking, which needs a real
+    // onnxruntime.dll + CUDA provider DLLs at runtime. `ort-sys`'s own download only
+    // provides a static .lib (no usable .dll), so fetch Microsoft's official GPU release
+    // and place matching dylibs in the profile output directory. See build/onnxruntime_gpu.rs.
+    if cfg!(feature = "cuda") {
+        onnxruntime_gpu::ensure_onnxruntime_gpu_dylibs();
+    }
 
     tauri_build::build()
 }
