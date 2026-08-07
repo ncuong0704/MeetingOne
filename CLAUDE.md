@@ -37,12 +37,6 @@ pnpm install                # Install dependencies
 pnpm run dev                # Next.js dev server (port 3118)
 pnpm run tauri:dev          # Full Tauri development mode
 pnpm run tauri:build        # Production build
-
-# GPU-Specific Builds (for testing acceleration)
-pnpm run tauri:dev:metal    # macOS Metal GPU
-pnpm run tauri:dev:cuda     # NVIDIA CUDA
-pnpm run tauri:dev:vulkan   # AMD/Intel Vulkan
-pnpm run tauri:dev:cpu      # CPU-only (no GPU)
 ```
 
 ### Backend Development (FastAPI Server)
@@ -199,19 +193,6 @@ await listen<TranscriptUpdate>('transcript-update', (event) => {
 - **Development**: `frontend/models/` or `backend/whisper-server-package/models/`
 - **Production (macOS)**: `~/Library/Application Support/Meetily/models/`
 - **Production (Windows)**: `%APPDATA%\Meetily\models\`
-
-**Model Loading** (frontend/src-tauri/src/whisper_engine/whisper_engine.rs):
-```rust
-pub async fn load_model(&self, model_name: &str) -> Result<()> {
-    // Automatically detects GPU capabilities (Metal/CUDA/Vulkan)
-    // Falls back to CPU if GPU unavailable
-}
-```
-
-**GPU Acceleration**:
-- **macOS**: Metal + CoreML (automatically enabled)
-- **Windows/Linux**: CUDA (NVIDIA), Vulkan (AMD/Intel), or CPU
-- Configure via Cargo features: `--features cuda`, `--features vulkan`
 
 ## Critical Development Patterns
 

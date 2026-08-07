@@ -15,41 +15,12 @@ name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 
-[features]
-default = []
-# Enables the CUDA execution provider for the `ort`-backed engines (CAPU punctuation
-# restoration and the ROVER RNNT decoder). Falls back to CPU automatically at runtime if
-# the CUDA/cuDNN libraries required by ONNX Runtime aren't present on the machine — see
-# `capu_engine::capu_engine::CapuEngine::load` and `rnnt_decoder::sessions::load_session`.
-# Does NOT affect the primary sherpa-onnx ASR engine (single-model live/file path), which
-# has no GPU build available through its Rust crate's automatic download mechanism.
-#
-# `dep:ort-sys` forces Cargo to fully run ort-sys's own build script (which copies its own,
-# version-mismatched onnxruntime dylibs into target/{profile}/) before this crate's build
-# script runs. Without that ordering edge, Cargo is free to run the two build scripts in
-# either order, and whichever's dylib copy lands last wins — a real race on a clean build.
-# Our build script (build/onnxruntime_gpu.rs) always runs last and overwrites with the
-# correct official GPU dylibs, guaranteeing the final result regardless of ort-sys's copy.
-cuda = ["ort/cuda", "ort/load-dynamic", "dep:ort-sys"]
-vulkan = []
-metal = []
-
 [build-dependencies]
 tauri-build = { version = "2.3.0", features = [] }
 reqwest = { version = "0.11", features = ["blocking", "multipart", "json", "stream"] }
-which = "6.0.1"
 zip = "2.2"           # ZIP extraction (Windows, macOS)
 tar = "0.4"           # TAR extraction (Linux)
 xz2 = "0.1"           # XZ decompression (Linux)
-# Not used directly from build.rs — listed only to give our GPU-dylib fix build script
-# (build/onnxruntime_gpu.rs) an explicit ordering edge against ort-sys's own build script.
-# This does NOT fully eliminate the race (Cargo's resolver still builds a second,
-# separately-featured ort-sys instance for the regular dependency graph — see the comment
-# at the top of build/onnxruntime_gpu.rs), so that script also self-heals on every build
-# rather than relying on ordering alone. Features MUST match what `ort`'s
-# `cuda`/`load-dynamic`/default features resolve to for ort-sys (cuda, load-dynamic,
-# download-binaries, copy-dylibs), or this becomes a third, useless ort-sys instance.
-ort-sys = { version = "=2.0.0-rc.10", optional = true, features = ["cuda", "load-dynamic", "download-binaries", "copy-dylibs"] }
 
 [dependencies]
 serde_json = "1.0"

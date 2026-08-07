@@ -5,7 +5,7 @@ use crate::config::{CAPU_MAX_ITERATIONS, CAPU_MAX_SEQ_LEN, CAPU_TRAILING_CONTEXT
 use anyhow::{anyhow, Result};
 use ort::session::Session;
 use ort::value::TensorRef;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Converts a punctuation-level UI slider value (1..10, default 7) into the probability
 /// bias added to the `$KEEP` (no-op) label before argmax. Formula ported verbatim from the
@@ -25,66 +25,17 @@ fn case_confidence(level: u8) -> f32 {
     -1.5 + (level - 1.0) * (2.0 / 9.0)
 }
 
-fn build_cpu_capu_session(threads: usize) -> Result<ort::session::builder::SessionBuilder> {
+fn load_capu_session(model_path_str: &str, threads: usize) -> Result<Session> {
     Session::builder()
         .map_err(|e| anyhow!("Failed to create ONNX session builder: {}", e))?
         .with_intra_threads(threads.max(1))
-        .map_err(|e| anyhow!("Failed to set CAPU intra-op threads: {}", e))
-}
-
-#[cfg(feature = "cuda")]
-fn reload_cpu_only_capu(model_path: &Path, threads: usize) -> Result<Session> {
-    let model_path_str = model_path
-        .to_str()
-        .ok_or_else(|| anyhow!("Non-UTF8 model path: {:?}", model_path))?;
-    build_cpu_capu_session(threads)?
+        .map_err(|e| anyhow!("Failed to set CAPU intra-op threads: {}", e))?
         .commit_from_file(model_path_str)
-        .map_err(|e| anyhow!("Failed to reload CAPU model {:?} CPU-only: {}", model_path, e))
-}
-
-/// Returns the loaded session plus whether it ended up CUDA-backed (always `false` when
-/// the crate-level `cuda` feature is off).
-#[cfg(feature = "cuda")]
-fn load_capu_session(model_path_str: &str, model_path: &Path, threads: usize) -> Result<(Session, bool)> {
-    // See the matching comment in `rnnt_decoder::sessions::load_session` — CUDA can
-    // register successfully here and still fail at first-execution time on older GPUs.
-    // `commit_from_file` catches only the load-time case; `infer_once` below retries
-    // CPU-only on a `.run()` failure too, since that's where it actually surfaced on a
-    // Quadro P600 for the RNNT encoder (CAPU itself ran fine there, but the failure mode
-    // is per-model/per-GPU, so both engines defend against it the same way).
-    let cuda_builder = build_cpu_capu_session(threads)?
-        .with_execution_providers([ort::execution_providers::CUDAExecutionProvider::default().build()])
-        .map_err(|e| anyhow!("Failed to configure CUDA execution provider for CAPU: {}", e))?;
-
-    match cuda_builder.commit_from_file(model_path_str) {
-        Ok(session) => Ok((session, true)),
-        Err(e) => {
-            log::warn!(
-                "CUDA execution provider failed loading CAPU model ({:?}): {}. Retrying CPU-only.",
-                model_path,
-                e
-            );
-            let session = build_cpu_capu_session(threads)?
-                .commit_from_file(model_path_str)
-                .map_err(|e2| anyhow!("Failed to load CAPU model {:?} (CPU fallback after CUDA failure): {}", model_path, e2))?;
-            Ok((session, false))
-        }
-    }
-}
-
-#[cfg(not(feature = "cuda"))]
-fn load_capu_session(model_path_str: &str, model_path: &Path, threads: usize) -> Result<(Session, bool)> {
-    let session = build_cpu_capu_session(threads)?
-        .commit_from_file(model_path_str)
-        .map_err(|e| anyhow!("Failed to load CAPU model {:?}: {}", model_path, e))?;
-    Ok((session, false))
+        .map_err(|e| anyhow!("Failed to load CAPU model: {}", e))
 }
 
 /// Runs the CAPU model once and returns the raw `logits` output (shape, flattened data) as
-/// owned data. Kept as a plain function over `&mut Session` — see
-/// `rnnt_decoder::sessions::run_and_extract_encoder` for why: it lets `infer_once` below
-/// reassign `self.session` in its CUDA-failure fallback branch without the borrow checker
-/// treating the first (failed) attempt's output as still borrowing the session.
+/// owned data.
 fn run_capu_inference(
     session: &mut Session,
     input_ids: &[i64],
@@ -186,10 +137,6 @@ pub struct CapuEngine {
     threads: usize,
     punctuation_level: u8,
     case_level: u8,
-    #[cfg(feature = "cuda")]
-    model_path: PathBuf,
-    #[cfg(feature = "cuda")]
-    is_cuda: bool,
 }
 
 impl CapuEngine {
@@ -204,7 +151,7 @@ impl CapuEngine {
         let model_path_str = model_path
             .to_str()
             .ok_or_else(|| anyhow!("Non-UTF8 model path: {:?}", model_path))?;
-        let (session, _is_cuda) = load_capu_session(model_path_str, model_path, threads)?;
+        let session = load_capu_session(model_path_str, threads)?;
 
         let tokenizer = CapuTokenizer::from_vocab_file(vocab_path)?;
         let labels = load_action_labels(labels_path)?;
@@ -247,10 +194,6 @@ impl CapuEngine {
             threads: threads.max(1),
             punctuation_level: punctuation_level.clamp(1, 10),
             case_level: case_level.clamp(1, 10),
-            #[cfg(feature = "cuda")]
-            model_path: model_path.to_path_buf(),
-            #[cfg(feature = "cuda")]
-            is_cuda: _is_cuda,
         })
     }
 
@@ -290,7 +233,7 @@ impl CapuEngine {
         let seq_len = encoding.input_ids.len();
         let num_offsets = encoding.input_offsets.len();
 
-        let (logits_shape, logits_data) = match run_capu_inference(
+        let (logits_shape, logits_data) = run_capu_inference(
             &mut self.session,
             &encoding.input_ids,
             &encoding.attention_mask,
@@ -298,35 +241,7 @@ impl CapuEngine {
             &encoding.input_offsets,
             seq_len,
             num_offsets,
-        ) {
-            Ok(v) => v,
-            Err(e) => {
-                #[cfg(feature = "cuda")]
-                if self.is_cuda {
-                    log::warn!(
-                        "CUDA execution failed for CAPU during inference ({:?}): {}. Reloading CPU-only.",
-                        self.model_path,
-                        e
-                    );
-                    self.session = reload_cpu_only_capu(&self.model_path, self.threads)?;
-                    self.is_cuda = false;
-                    run_capu_inference(
-                        &mut self.session,
-                        &encoding.input_ids,
-                        &encoding.attention_mask,
-                        &encoding.token_type_ids,
-                        &encoding.input_offsets,
-                        seq_len,
-                        num_offsets,
-                    )
-                    .map_err(|e2| anyhow!("CAPU inference failed even after CPU fallback: {}", e2))?
-                } else {
-                    return Err(e);
-                }
-                #[cfg(not(feature = "cuda"))]
-                return Err(e);
-            }
-        };
+        )?;
 
         let num_classes = self.labels.len();
         if logits_shape.len() != 3

@@ -37,7 +37,6 @@ target/
 
 # Tauri
 frontend/src-tauri/binaries/
-frontend/src-tauri/onnxruntime-gpu-cache/
 frontend/.tauri/
 
 # Whisper / large weights (any depth)

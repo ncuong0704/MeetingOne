@@ -115,7 +115,7 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
-          key: ${{ inputs.platform }}-${{ inputs.target }}-vulkan-v2
+          key: ${{ inputs.platform }}-${{ inputs.target }}-v3
 
       - name: install dependencies (ubuntu 24.04)
         if: contains(inputs.platform, 'ubuntu-24.04')
@@ -307,24 +307,6 @@ jobs:
           # Note: Healthcheck may show cert path/password warning but if keypair ls works,
           # the signing should still work. We'll test in the pre-build signing test.
 
-      - name: Prepare Vulkan SDK for Ubuntu 24.04
-        if: contains(inputs.platform, 'ubuntu-24.04')
-        run: |
-          wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc
-          sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-1.3.290-noble.list https://packages.lunarg.com/vulkan/1.3.290/lunarg-vulkan-1.3.290-noble.list
-          sudo apt update
-          sudo apt install vulkan-sdk -y
-          sudo apt-get install -y mesa-vulkan-drivers
-
-      - name: Prepare Vulkan SDK for Ubuntu 22.04
-        if: contains(inputs.platform, 'ubuntu-22.04')
-        run: |
-          wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc
-          sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-1.3.290-jammy.list https://packages.lunarg.com/vulkan/1.3.290/lunarg-vulkan-1.3.290-jammy.list
-          sudo apt update
-          sudo apt install vulkan-sdk -y
-          sudo apt-get install -y mesa-vulkan-drivers
-
       - name: Install frontend dependencies
         run: |
           cd frontend
@@ -357,12 +339,6 @@ jobs:
           CERT_ID=$(echo "$CERT_INFO" | awk -F'"' '{print $2}')
           echo "CERT_ID=$CERT_ID" >> $GITHUB_ENV
           echo "Certificate imported: $CERT_ID"
-
-      - name: Configure build acceleration
-        if: contains(inputs.platform, 'macos')
-        run: |
-          echo "✓ macOS build will use Metal GPU acceleration (enabled by default)"
-          echo "✓ CoreML acceleration available for Apple Silicon"
 
       - name: Patch asset name pattern
         id: patch-release-name

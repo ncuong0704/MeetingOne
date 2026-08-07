@@ -8,7 +8,6 @@ import {
   FALLBACK_PHYSICAL_CORES,
   levelLabel,
 } from './asrSettingsConstants';
-import GpuSetupGuidance from './GpuSetupGuidance';
 
 interface SharedTranscriptPanelProps {
   config?: SharedTranscriptConfig | null;
@@ -77,8 +76,6 @@ export default function SharedTranscriptPanel({
           câu/viết hoa chỉ áp dụng sau khi kết thúc cuộc họp.
         </p>
       </div>
-
-      <GpuSetupGuidance disabled={disabled} />
 
       <div className="space-y-2">
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
