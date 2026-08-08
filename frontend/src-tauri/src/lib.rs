@@ -55,7 +55,6 @@ pub mod asr_engine;
 pub mod rnnt_decoder;
 pub mod rover_engine;
 pub mod capu_engine;
-pub mod itn_engine;
 
 use audio::{list_audio_devices, AudioDevice, trigger_audio_permission};
 use log::{error as log_error, info as log_info};
@@ -404,9 +403,6 @@ pub fn run() {
             // Initialize CAPU punctuation restoration if model already downloaded
             capu_engine::commands::init_on_startup(&_app.handle());
 
-            // Initialize Vietnamese ITN (bundled FAR resources)
-            itn_engine::commands::init_on_startup(&_app.handle());
-
             // Trigger system audio permission request on startup (similar to microphone permission)
             // #[cfg(target_os = "macos")]
             // {
@@ -502,7 +498,6 @@ pub fn run() {
             capu_engine::commands::capu_download_model,
             capu_engine::commands::capu_init,
             capu_engine::commands::capu_get_cpu_topology,
-            itn_engine::commands::itn_is_ready,
             get_audio_devices,
             trigger_microphone_permission,
             check_microphone_access,

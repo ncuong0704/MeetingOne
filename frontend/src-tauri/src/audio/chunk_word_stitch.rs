@@ -5,6 +5,11 @@ use crate::rover_engine::normalize::normalize_word;
 
 const MAX_OVERLAP_WORDS: usize = 100;
 const MIN_MATCH_RATIO: f32 = 0.5;
+/// Below this, a "backward" start is treated as normal ASR word-boundary imprecision
+/// (adjacent words routinely land a few tens of ms into each other) rather than a real
+/// chunk-stitch problem — roughly half a typical short word's duration. The confirmed
+/// real-run bug this guards against was a 0.28s jump, well above this tolerance.
+const BACKWARD_JUMP_TOLERANCE_SEC: f64 = 0.15;
 
 #[derive(Debug, Clone)]
 pub struct TimedWord {
@@ -87,6 +92,19 @@ pub fn find_overlap_cut_index(tail: &[TimedWord], head: &[TimedWord]) -> usize {
     best_cut.min(head.len())
 }
 
+/// Index in `words` of the first word starting at or after `min_start_sec` (or
+/// `words.len()` if none). A pure timestamp cut — unlike `find_overlap_cut_index`, it
+/// can't be fooled by a missing or partial text match, at the cost of occasionally
+/// dropping one legitimate word whose ASR-decoded start time lands slightly early. That
+/// trade favors a correct, monotonic timeline over completeness, matching test_asr's
+/// timestamp-anchored fallback.
+fn timestamp_cut_index(words: &[TimedWord], min_start_sec: f64) -> usize {
+    words
+        .iter()
+        .position(|w| w.start_sec >= min_start_sec)
+        .unwrap_or(words.len())
+}
+
 /// Merge per-chunk word lists, dropping duplicated overlap regions.
 pub fn stitch_word_chunks(
     mut chunks: Vec<(usize, Vec<TimedWord>)>,
@@ -108,7 +126,25 @@ pub fn stitch_word_chunks(
         let tail_take = merged.len().min(MAX_OVERLAP_WORDS);
         let tail = &merged[merged.len() - tail_take..];
         let head_take = words.len().min(MAX_OVERLAP_WORDS);
-        let cut = find_overlap_cut_index(tail, &words[..head_take]);
+        let mut cut = find_overlap_cut_index(tail, &words[..head_take]);
+
+        // Safety net: text-matching found no reliable alignment (cut stayed 0 despite
+        // real overlap) or the cut it did find still leaves a word starting before the
+        // previous chunk's kept content ends — a backward timestamp jump. Fall back to a
+        // pure timestamp cut, correct by construction regardless of what text-matching
+        // found. Mirrors test_asr's `find_overlap_alignment` divergence guard, whose
+        // fallback is likewise anchored to the known overlap time window rather than to a
+        // possibly-wrong text-match position.
+        if let Some(prev_end) = merged.last().map(|w| w.end_sec) {
+            let backward = words
+                .get(cut)
+                .map(|w| w.start_sec < prev_end - BACKWARD_JUMP_TOLERANCE_SEC)
+                .unwrap_or(false);
+            if backward {
+                cut = timestamp_cut_index(&words, prev_end);
+            }
+        }
+
         merged.extend(words.into_iter().skip(cut));
     }
 
@@ -182,5 +218,61 @@ mod tests {
         let merged = stitch_word_chunks(chunks, &[0, 16000]);
         let texts: Vec<&str> = merged.iter().map(|w| w.text.as_str()).collect();
         assert_eq!(texts, vec!["một", "hai", "ba", "bốn", "năm"]);
+    }
+
+    fn assert_no_backward_jump(merged: &[TimedWord]) {
+        for i in 1..merged.len() {
+            assert!(
+                merged[i].start_sec >= merged[i - 1].end_sec - 1e-6,
+                "backward jump: {:?} (end={}) then {:?} (start={})",
+                merged[i - 1].text,
+                merged[i - 1].end_sec,
+                merged[i].text,
+                merged[i].start_sec
+            );
+        }
+    }
+
+    // Reproduces the confirmed real-run bug (timing_debug.log chunk_idx=4): the next
+    // chunk's head text has nothing in common with the previous chunk's tail, so
+    // `find_overlap_cut_index` finds no match at all and returns 0 — keeping every head
+    // word, including ones that start before the previous chunk's kept content already
+    // ended. Mirrors test_asr's `find_overlap_alignment` divergence guard
+    // (`best_score == 0`), which falls back to a timestamp-anchored cut instead.
+    #[test]
+    fn stitch_word_chunks_avoids_backward_jump_when_no_text_match_found() {
+        let chunks = vec![
+            (0, vec![tw("một", 0.0), tw("hai", 0.5), tw("ba", 1.0)]), // tail ends at 1.3
+            (
+                1,
+                vec![tw("xyz", 0.8), tw("bốn", 1.2), tw("năm", 1.5)], // "xyz" matches nothing
+            ),
+        ];
+        let merged = stitch_word_chunks(chunks, &[0, 16000]);
+        assert_no_backward_jump(&merged);
+    }
+
+    // Reproduces the confirmed real-run bug (timing_debug.log chunk_idx=7,
+    // BACKWARD_JUMP=true): text-matching finds *a* cut, but an extra unmatched word
+    // sitting right after the matched span still starts before the previous chunk's kept
+    // content ends. Mirrors test_asr's `is_diverged` guard (a match was found but doesn't
+    // fully explain the overlap window) — must still fall back to a timestamp cut rather
+    // than trusting the text-match position outright.
+    #[test]
+    fn stitch_word_chunks_avoids_backward_jump_when_text_match_is_incomplete() {
+        let chunks = vec![
+            (0, vec![tw("một", 0.0), tw("hai", 0.5), tw("ba", 1.0)]), // tail ends at 1.3
+            (
+                1,
+                vec![
+                    tw("hai", 0.6),
+                    tw("ba", 0.9),
+                    tw("khác", 1.1),  // unmatched, starts before prev's 1.3 end
+                    tw("bốn", 1.4),
+                ],
+            ),
+        ];
+        let merged = stitch_word_chunks(chunks, &[0, 16000]);
+        assert_no_backward_jump(&merged);
     }
 }

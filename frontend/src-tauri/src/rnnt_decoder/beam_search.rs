@@ -17,7 +17,7 @@ pub fn greedy_decode(sessions: &mut RnntSessions, encoder_frames: &[Vec<f32>]) -
 
     for enc_frame in encoder_frames {
         let logits = sessions
-            .run_joiner(&[enc_frame.clone()], &[decoder_out.clone()])?
+            .run_joiner(&[enc_frame.as_slice()], &[decoder_out.as_slice()])?
             .remove(0);
         let (best_idx, _) = logits
             .iter()
@@ -81,38 +81,70 @@ pub struct BeamSearchResult {
     pub logits: Vec<Vec<f32>>,
 }
 
+/// Which of `hyps`' 2-token decoder contexts aren't already in `cache`, deduplicated.
+/// The decoder is a stateless, pure function of its context (see
+/// `RnntSessions::run_decoder`'s doc comment), so `cache` is safe and correct to reuse
+/// across separate `modified_beam_search` calls, not just within one — the caller is
+/// expected to pass the same cache across an entire file's chunks (see `RnntDecoder`).
+fn missing_contexts(
+    hyps: &[Hypothesis],
+    cache: &HashMap<[i64; CONTEXT_SIZE], Vec<f32>>,
+) -> Vec<[i64; CONTEXT_SIZE]> {
+    let mut seen: std::collections::HashSet<[i64; CONTEXT_SIZE]> = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for h in hyps {
+        let ctx = h.context();
+        if !cache.contains_key(&ctx) && seen.insert(ctx) {
+            out.push(ctx);
+        }
+    }
+    out
+}
+
+/// Indices of the `k` largest values in `scores`, descending, in O(n) average time via
+/// partial selection (`select_nth_unstable_by`) instead of sorting the whole slice —
+/// `scores` is `beam_size * vocab_size` elements and this runs once per encoder frame,
+/// so avoiding a full O(n log n) sort on every call adds up over a long chunk.
+fn top_k_indices(scores: &[f32], k: usize) -> Vec<usize> {
+    let k = k.min(scores.len());
+    let mut indices: Vec<usize> = (0..scores.len()).collect();
+    if k > 0 && k < indices.len() {
+        indices.select_nth_unstable_by(k - 1, |&a, &b| {
+            scores[b].partial_cmp(&scores[a]).unwrap()
+        });
+    }
+    indices.truncate(k);
+    indices.sort_unstable_by(|&a, &b| scores[b].partial_cmp(&scores[a]).unwrap());
+    indices
+}
+
 pub fn modified_beam_search(
     sessions: &mut RnntSessions,
     encoder_frames: &[Vec<f32>],
     beam_size: usize,
     vocab_size: usize,
+    decoder_cache: &mut HashMap<[i64; CONTEXT_SIZE], Vec<f32>>,
 ) -> Result<BeamSearchResult> {
     let mut hyps: HashMap<Vec<i64>, Hypothesis> = HashMap::new();
     let init = Hypothesis::initial();
     hyps.insert(init.ys.clone(), init);
 
-    let mut decoder_cache: HashMap<[i64; CONTEXT_SIZE], Vec<f32>> = HashMap::new();
-
     for (t, enc_frame) in encoder_frames.iter().enumerate() {
         let prev: Vec<Hypothesis> = hyps.values().cloned().collect();
         let b = prev.len();
 
-        let missing_contexts: Vec<[i64; CONTEXT_SIZE]> = prev
-            .iter()
-            .map(|h| h.context())
-            .filter(|ctx| !decoder_cache.contains_key(ctx))
-            .collect();
-        if !missing_contexts.is_empty() {
-            let results = sessions.run_decoder(&missing_contexts)?;
-            for (ctx, out) in missing_contexts.iter().zip(results.into_iter()) {
+        let missing = missing_contexts(&prev, decoder_cache);
+        if !missing.is_empty() {
+            let results = sessions.run_decoder(&missing)?;
+            for (ctx, out) in missing.iter().zip(results.into_iter()) {
                 decoder_cache.insert(*ctx, out);
             }
         }
-        let decoder_outs: Vec<Vec<f32>> = prev
+        let decoder_outs: Vec<&[f32]> = prev
             .iter()
-            .map(|h| decoder_cache[&h.context()].clone())
+            .map(|h| decoder_cache[&h.context()].as_slice())
             .collect();
-        let encoder_outs: Vec<Vec<f32>> = std::iter::repeat(enc_frame.clone()).take(b).collect();
+        let encoder_outs: Vec<&[f32]> = std::iter::repeat(enc_frame.as_slice()).take(b).collect();
 
         let logits_batch = sessions.run_joiner(&encoder_outs, &decoder_outs)?;
 
@@ -126,10 +158,7 @@ pub fn modified_beam_search(
             }
         }
 
-        let k = beam_size.min(flat_scores.len());
-        let mut indices: Vec<usize> = (0..flat_scores.len()).collect();
-        indices.sort_unstable_by(|&a, &b| flat_scores[b].partial_cmp(&flat_scores[a]).unwrap());
-        indices.truncate(k);
+        let indices = top_k_indices(&flat_scores, beam_size);
 
         let mut new_hyps: HashMap<Vec<i64>, Hypothesis> = HashMap::new();
         for &idx in &indices {
@@ -195,6 +224,81 @@ mod tests {
         let a = 0.0_f32;
         let b = -100.0_f32;
         assert!((log_add(a, b) - a).abs() < 1e-4);
+    }
+
+    fn hyp_with_context(ctx: [i64; CONTEXT_SIZE]) -> Hypothesis {
+        Hypothesis {
+            ys: vec![ctx[0], ctx[1]],
+            log_prob: 0.0,
+            emitted_frames: Vec::new(),
+            emitted_logits: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn missing_contexts_excludes_already_cached_entries() {
+        let mut cache: HashMap<[i64; CONTEXT_SIZE], Vec<f32>> = HashMap::new();
+        cache.insert([0, 5], vec![1.0, 2.0]);
+        let hyps = vec![hyp_with_context([0, 5]), hyp_with_context([0, 7])];
+
+        let missing = missing_contexts(&hyps, &cache);
+
+        assert_eq!(missing, vec![[0, 7]]);
+    }
+
+    #[test]
+    fn missing_contexts_dedupes_repeated_contexts_across_hypotheses() {
+        let cache: HashMap<[i64; CONTEXT_SIZE], Vec<f32>> = HashMap::new();
+        let hyps = vec![hyp_with_context([1, 2]), hyp_with_context([1, 2])];
+
+        let missing = missing_contexts(&hyps, &cache);
+
+        assert_eq!(missing, vec![[1, 2]]);
+    }
+
+    #[test]
+    fn missing_contexts_is_empty_when_everything_is_cached() {
+        let mut cache: HashMap<[i64; CONTEXT_SIZE], Vec<f32>> = HashMap::new();
+        cache.insert([3, 4], vec![0.1]);
+        let hyps = vec![hyp_with_context([3, 4])];
+
+        let missing = missing_contexts(&hyps, &cache);
+
+        assert!(missing.is_empty());
+    }
+
+    #[test]
+    fn top_k_indices_returns_the_k_largest_scores_in_descending_order() {
+        let scores = vec![0.1, 0.9, 0.3, 0.7, 0.2];
+
+        let top = top_k_indices(&scores, 3);
+
+        assert_eq!(top, vec![1, 3, 2]);
+    }
+
+    #[test]
+    fn top_k_indices_clamps_k_to_the_available_length() {
+        let scores = vec![0.5, 0.1];
+
+        let top = top_k_indices(&scores, 10);
+
+        assert_eq!(top, vec![0, 1]);
+    }
+
+    #[test]
+    fn top_k_indices_matches_full_sort_for_random_scores() {
+        let scores: Vec<f32> = (0..500u32)
+            .map(|i| (i.wrapping_mul(2654435761) % 10007) as f32)
+            .collect();
+        let k = 17;
+
+        let top = top_k_indices(&scores, k);
+
+        let mut expected: Vec<usize> = (0..scores.len()).collect();
+        expected.sort_unstable_by(|&a, &b| scores[b].partial_cmp(&scores[a]).unwrap());
+        expected.truncate(k);
+
+        assert_eq!(top, expected);
     }
 }
 
@@ -270,9 +374,15 @@ mod manual_smoke_tests {
         let encoder_frames = sessions.run_encoder(&fbank).expect("encoder");
 
         let greedy_tokens = greedy_decode(&mut sessions, &encoder_frames).expect("greedy");
-        let beam_result =
-            modified_beam_search(&mut sessions, &encoder_frames, 4, vocab.vocab_size())
-                .expect("beam search");
+        let mut decoder_cache = HashMap::new();
+        let beam_result = modified_beam_search(
+            &mut sessions,
+            &encoder_frames,
+            4,
+            vocab.vocab_size(),
+            &mut decoder_cache,
+        )
+        .expect("beam search");
 
         let greedy_text: String = greedy_tokens
             .iter()

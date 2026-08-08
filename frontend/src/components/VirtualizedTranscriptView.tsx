@@ -45,6 +45,10 @@ export interface VirtualizedTranscriptViewProps {
     onSegmentClick?: (segment: TranscriptSegmentData) => void;
     /** Scroll to active segment only when out of viewport */
     playbackFollow?: boolean;
+    /** Show the [MM:SS] label next to each segment. Off for post-hoc meeting/file-import
+     * review (matches the reference app's plain-text transcript); on during live
+     * recording, where it's useful for tracking progress. */
+    showTimestamps?: boolean;
 }
 
 // Threshold for enabling virtualization (below this, use simple rendering)
@@ -83,6 +87,7 @@ const TranscriptSegment = memo(function TranscriptSegment({
     confidence,
     isStreaming,
     showConfidence,
+    showTimestamps,
     sequenceId,
     onEdit,
     isActive,
@@ -95,6 +100,7 @@ const TranscriptSegment = memo(function TranscriptSegment({
     confidence?: number;
     isStreaming: boolean;
     showConfidence: boolean;
+    showTimestamps: boolean;
     sequenceId?: number;
     onEdit?: (segmentId: string, newText: string, sequenceId?: number) => Promise<void>;
     isActive?: boolean;
@@ -167,6 +173,7 @@ const TranscriptSegment = memo(function TranscriptSegment({
         >
             <div className="flex items-start gap-2">
                 {/* Timestamp */}
+                {showTimestamps && (
                 <Tooltip>
                     <TooltipTrigger>
                         <span
@@ -183,6 +190,7 @@ const TranscriptSegment = memo(function TranscriptSegment({
                         )}
                     </TooltipContent>
                 </Tooltip>
+                )}
 
                 {/* Content */}
                 <div className="flex-1 min-w-0">
@@ -262,6 +270,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
     activeSegmentId = null,
     onSegmentClick,
     playbackFollow = false,
+    showTimestamps = true,
 }) => {
     // Create scroll ref first - shared between virtualizer and auto-scroll hook
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -444,6 +453,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                         confidence={segment.confidence}
                                         isStreaming={isStreaming}
                                         showConfidence={showConfidence}
+                                        showTimestamps={showTimestamps}
                                         sequenceId={segment.sequenceId}
                                         onEdit={onSegmentEdit}
                                         isActive={segment.id === activeSegmentId}
@@ -507,6 +517,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                         confidence={segment.confidence}
                                         isStreaming={isStreaming}
                                         showConfidence={showConfidence}
+                                        showTimestamps={showTimestamps}
                                         sequenceId={segment.sequenceId}
                                         onEdit={onSegmentEdit}
                                         isActive={segment.id === activeSegmentId}

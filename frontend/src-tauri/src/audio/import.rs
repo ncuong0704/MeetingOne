@@ -516,6 +516,17 @@ async fn run_import<R: Runtime>(
         return Err(anyhow!("Import cancelled"));
     }
 
+    // Persist the exact audio ASR decoded, so playback uses this decode instead of a
+    // separately-decoded copy of the original file — different decoders (ffmpeg here vs.
+    // the browser's native decoder for playback) can disagree on frame timing for lossy
+    // formats like MP3, causing transcript highlighting to drift out of sync with
+    // playback over the file's duration. See `find_audio_file` in retranscription.rs,
+    // which now prefers this file when present.
+    let decoded_wav_path = meeting_folder.join("audio_decoded.wav");
+    if let Err(e) = crate::audio::audio_processing::write_pcm_wav(&audio_samples, 16_000, &decoded_wav_path) {
+        warn!("Failed to save decoded audio for playback sync: {}", e);
+    }
+
     info!(
         "Audio ready for VAD (raw decode, preprocess deferred until after VAD concat): {} samples",
         audio_samples.len()

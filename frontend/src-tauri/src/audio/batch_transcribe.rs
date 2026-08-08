@@ -149,16 +149,16 @@ fn raw_timed_results_to_segments(raw_results: Vec<(String, f64, f64)>) -> Vec<Tr
 fn finalize_with_capu(raw_results: Vec<(String, f64, f64)>) -> Vec<TranscriptSegment> {
     let mut batcher = CapuBatcher::new();
     let mut finalized_segments = Vec::new();
-    let mut itn_sec = 0.0f64;
+    let mut normalize_sec = 0.0f64;
     let mut capu_sec = 0.0f64;
 
     for (i, (text, start_ms, end_ms)) in raw_results.into_iter().enumerate() {
-        let itn_start = std::time::Instant::now();
-        let itn_text = crate::audio::post_asr::apply_itn(&text);
-        itn_sec += itn_start.elapsed().as_secs_f64();
+        let normalize_start = std::time::Instant::now();
+        let normalized_text = crate::audio::post_asr::normalize_asr_text(&text);
+        normalize_sec += normalize_start.elapsed().as_secs_f64();
         batcher.push(PendingSegment {
             source_id: i as u64,
-            raw_text: itn_text,
+            raw_text: normalized_text,
             audio_start_time: start_ms / 1000.0,
             audio_end_time: end_ms / 1000.0,
         });
@@ -175,7 +175,7 @@ fn finalize_with_capu(raw_results: Vec<(String, f64, f64)>) -> Vec<TranscriptSeg
         capu_sec += capu_start.elapsed().as_secs_f64();
     }
 
-    log::info!("[BENCHMARK] stage=itn_only duration_sec={:.3}", itn_sec);
+    log::info!("[BENCHMARK] stage=lowercase_only duration_sec={:.3}", normalize_sec);
     log::info!("[BENCHMARK] stage=capu_only duration_sec={:.3}", capu_sec);
 
     finalized_segments
@@ -184,7 +184,7 @@ fn finalize_with_capu(raw_results: Vec<(String, f64, f64)>) -> Vec<TranscriptSeg
 /// Flushes whatever `batcher` has pending into `out` as one `TranscriptSegment`, if
 /// anything was pending. Uses `flush_with_fallback` so a batch is never silently lost
 /// even if the CAPU model isn't loaded (e.g. not yet downloaded) — falls back to the
-/// raw (ITN-only) text in that case.
+/// raw (lowercased-only) text in that case.
 fn flush_into(batcher: &mut CapuBatcher, out: &mut Vec<TranscriptSegment>) {
     let engine_arc = crate::capu_engine::commands::get_engine_arc();
     let finalized = match &engine_arc {

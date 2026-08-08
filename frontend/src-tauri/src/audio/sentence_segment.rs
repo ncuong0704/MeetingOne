@@ -423,7 +423,7 @@ pub fn finalize_rover_word_timeline(
         .map(|w| w.text.as_str())
         .collect::<Vec<_>>()
         .join(" ");
-    let raw_text = crate::audio::post_asr::apply_itn(&raw_text);
+    let raw_text = crate::audio::post_asr::normalize_asr_text(&raw_text);
     let pause_hints = compute_pause_hints(words);
 
     let punctuated = match engine {

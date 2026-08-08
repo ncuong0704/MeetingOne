@@ -6,6 +6,7 @@ use realfft::RealFftPlanner;
 use rubato::{
     Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
 };
+use std::io::Write;
 use std::path::PathBuf;
 use nnnoiseless::DenoiseState;
 
@@ -162,8 +163,23 @@ impl LoudnessNormalizer {
         const TRUE_PEAK_LIMIT: f64 = -1.0;
         const ANALYZE_CHUNK_SIZE: usize = 512;
 
-        let ebur128 = ebur128::EbuR128::new(channels, sample_rate, ebur128::Mode::I | ebur128::Mode::TRUE_PEAK)
-            .map_err(|e| anyhow::anyhow!("Failed to create EBU R128 normalizer: {}", e))?;
+        // `Mode::HISTOGRAM` makes `loudness_global()` O(1) (a fixed 1000-bin histogram
+        // lookup) instead of O(gating blocks measured so far) — without it, every call
+        // re-sorts every accumulated 100ms block from the start of the stream (see the
+        // `ebur128` crate's `history.rs`), which on a long recording turns this call
+        // (made once per `ANALYZE_CHUNK_SIZE` samples below) into a real cost that grows
+        // with file length. Histogram mode is a standard, ITU-precision-matching
+        // approximation (~0.1 LU bins) used by reference EBU R128 implementations for
+        // exactly this reason — it doesn't change the incremental convergence behavior,
+        // only how cheaply each `loudness_global()` call is computed.
+        //
+        // `Mode::TRUE_PEAK` is deliberately NOT requested: it makes every `add_frames`
+        // call run true-peak oversampling/interpolation (see the crate's `filter.rs`,
+        // `Filter::process`'s `tp.check_true_peak` call) whether or not anything reads
+        // the result — and nothing here does, since true-peak limiting is handled by our
+        // own `TruePeakLimiter` below instead. Requesting it was pure wasted computation.
+        let ebur128 = ebur128::EbuR128::new(channels, sample_rate, ebur128::Mode::I | ebur128::Mode::HISTOGRAM)
+        .map_err(|e| anyhow::anyhow!("Failed to create EBU R128 normalizer: {}", e))?;
 
         let true_peak_limit = 10_f32.powf(TRUE_PEAK_LIMIT as f32 / 20.0);
 
@@ -661,6 +677,45 @@ pub fn write_audio_to_file_with_meeting_name(
     Ok(file_path_clone)
 }
 
+/// Writes `samples` (mono, roughly [-1.0, 1.0]) as a 16-bit PCM WAV file.
+///
+/// Used to persist the *exact* audio ASR decoded so playback can use that same decode
+/// instead of a separately-decoded copy of the original file. Different decoders (ffmpeg
+/// for ASR vs. the browser's native decoder for playback) can disagree on frame timing
+/// for lossy formats like MP3 — a small per-second discrepancy that compounds into a
+/// linearly growing drift between what's highlighted and what's actually playing.
+pub fn write_pcm_wav(samples: &[f32], sample_rate: u32, output_path: &PathBuf) -> Result<()> {
+    let mut file = std::fs::File::create(output_path)?;
+    let bits_per_sample: u16 = 16;
+    let channels: u16 = 1;
+    let data_size = (samples.len() * 2) as u32;
+    let byte_rate = sample_rate * channels as u32 * (bits_per_sample as u32 / 8);
+    let block_align = channels * (bits_per_sample / 8);
+
+    file.write_all(b"RIFF")?;
+    file.write_all(&(36 + data_size).to_le_bytes())?;
+    file.write_all(b"WAVE")?;
+    file.write_all(b"fmt ")?;
+    file.write_all(&16u32.to_le_bytes())?; // fmt chunk size
+    file.write_all(&1u16.to_le_bytes())?; // PCM
+    file.write_all(&channels.to_le_bytes())?;
+    file.write_all(&sample_rate.to_le_bytes())?;
+    file.write_all(&byte_rate.to_le_bytes())?;
+    file.write_all(&block_align.to_le_bytes())?;
+    file.write_all(&bits_per_sample.to_le_bytes())?;
+    file.write_all(b"data")?;
+    file.write_all(&data_size.to_le_bytes())?;
+
+    let mut pcm = Vec::with_capacity(samples.len() * 2);
+    for &s in samples {
+        let v = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+        pcm.extend_from_slice(&v.to_le_bytes());
+    }
+    file.write_all(&pcm)?;
+
+    Ok(())
+}
+
 /// Write transcript text to a file alongside the recording (legacy plain text format)
 pub fn write_transcript_to_file(
     transcript_text: &str,
@@ -736,4 +791,98 @@ pub fn write_transcript_json_to_file(
     std::fs::write(&file_path, json_string)?;
 
     Ok(file_path.to_string_lossy().to_string())
+}
+
+#[cfg(test)]
+mod write_pcm_wav_tests {
+    use super::*;
+
+    fn read_u32_le(bytes: &[u8], offset: usize) -> u32 {
+        u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap())
+    }
+
+    fn read_u16_le(bytes: &[u8], offset: usize) -> u16 {
+        u16::from_le_bytes(bytes[offset..offset + 2].try_into().unwrap())
+    }
+
+    #[test]
+    fn write_pcm_wav_produces_a_valid_header_and_sample_count() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("write_pcm_wav_test_{}.wav", std::process::id()));
+        let samples = vec![0.0f32, 0.5, -0.5, 1.0, -1.0];
+
+        write_pcm_wav(&samples, 16000, &path).expect("write wav");
+        let bytes = std::fs::read(&path).expect("read back wav");
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(&bytes[0..4], b"RIFF");
+        assert_eq!(&bytes[8..12], b"WAVE");
+        assert_eq!(&bytes[12..16], b"fmt ");
+        assert_eq!(read_u16_le(&bytes, 20), 1, "PCM format");
+        assert_eq!(read_u16_le(&bytes, 22), 1, "mono");
+        assert_eq!(read_u32_le(&bytes, 24), 16000, "sample rate");
+        assert_eq!(read_u16_le(&bytes, 34), 16, "bits per sample");
+        assert_eq!(&bytes[36..40], b"data");
+        let data_size = read_u32_le(&bytes, 40);
+        assert_eq!(data_size as usize, samples.len() * 2);
+        assert_eq!(bytes.len(), 44 + samples.len() * 2);
+    }
+
+    #[test]
+    fn write_pcm_wav_clamps_out_of_range_samples() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("write_pcm_wav_clamp_test_{}.wav", std::process::id()));
+        write_pcm_wav(&[2.0, -2.0], 16000, &path).expect("write wav");
+        let bytes = std::fs::read(&path).expect("read back wav");
+        std::fs::remove_file(&path).ok();
+
+        let s0 = i16::from_le_bytes(bytes[44..46].try_into().unwrap());
+        let s1 = i16::from_le_bytes(bytes[46..48].try_into().unwrap());
+        assert_eq!(s0, i16::MAX);
+        assert_eq!(s1, -i16::MAX);
+    }
+}
+
+#[cfg(test)]
+mod loudness_normalizer_tests {
+    use super::*;
+
+    fn sine(amplitude: f32, freq: f32, sample_rate: u32, duration_sec: f32) -> Vec<f32> {
+        let n = (sample_rate as f32 * duration_sec) as usize;
+        (0..n)
+            .map(|i| {
+                amplitude
+                    * (2.0 * std::f32::consts::PI * freq * i as f32 / sample_rate as f32).sin()
+            })
+            .collect()
+    }
+
+    fn measure_lufs(samples: &[f32], sample_rate: u32) -> f64 {
+        let mut ebur128 = ebur128::EbuR128::new(1, sample_rate, ebur128::Mode::I).unwrap();
+        ebur128.add_frames_f32(samples).unwrap();
+        ebur128.loudness_global().unwrap()
+    }
+
+    /// A long enough signal (many minutes) to exercise the same many-gating-block path a
+    /// real meeting recording hits — this is also an implicit regression guard for the
+    /// O(blocks-so-far)-per-call cost `Mode::HISTOGRAM` fixes: without it, this test would
+    /// take a very long time in debug builds.
+    #[test]
+    fn normalize_loudness_converges_close_to_target_lufs_over_a_long_signal() {
+        let sample_rate = 16000u32;
+        let samples = sine(0.05, 440.0, sample_rate, 180.0);
+
+        let mut normalizer = LoudnessNormalizer::new(1, sample_rate).expect("create normalizer");
+        let normalized = normalizer.normalize_loudness(&samples);
+
+        // Only the back half: the incremental gain hasn't converged yet at the start.
+        let tail = &normalized[normalized.len() / 2..];
+        let lufs = measure_lufs(tail, sample_rate);
+
+        assert!(
+            (lufs - (-23.0)).abs() < 1.0,
+            "expected ~-23 LUFS in the converged tail, got {}",
+            lufs
+        );
+    }
 }

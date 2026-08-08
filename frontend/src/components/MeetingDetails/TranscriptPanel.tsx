@@ -2,7 +2,7 @@
 
 import { Transcript, TranscriptSegmentData } from '@/types';
 import { TranscriptView } from '@/components/TranscriptView';
-import { VirtualizedTranscriptView } from '@/components/VirtualizedTranscriptView';
+import { FlowingTranscriptView } from '@/components/FlowingTranscriptView';
 import { TranscriptButtonGroup } from './TranscriptButtonGroup';
 import { AudioPlayer } from './AudioPlayer';
 import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
@@ -177,16 +177,9 @@ export function TranscriptPanel({
 
       {/* Transcript content */}
       <div className="min-h-0 flex-1 overflow-hidden">
-        <VirtualizedTranscriptView
+        <FlowingTranscriptView
           segments={convertedSegments}
           onSegmentEdit={handleSegmentEdit}
-          isRecording={isRecording}
-          isPaused={false}
-          isProcessing={false}
-          isStopping={false}
-          enableStreaming={false}
-          showConfidence={true}
-          disableAutoScroll={disableAutoScroll}
           hasMore={hasMore}
           isLoadingMore={isLoadingMore}
           totalCount={totalCount}

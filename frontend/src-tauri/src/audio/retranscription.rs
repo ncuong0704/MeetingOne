@@ -109,6 +109,11 @@ pub async fn start_retranscription<R: Runtime>(
 
 fn find_audio_file(folder: &Path) -> Result<PathBuf> {
     let candidates = [
+        // The exact audio ASR decoded (see `import.rs`'s `write_pcm_wav` call) — preferred
+        // so playback and retranscription both use the same decode ffmpeg produced,
+        // rather than a separately-decoded copy of the original file that a different
+        // decoder (e.g. the browser's, for playback) could time slightly differently.
+        "audio_decoded.wav",
         "audio.mp4", "audio.m4a", "audio.wav", "audio.mp3",
         "audio.flac", "audio.ogg", "recording.mp4",
         "audio.mkv", "audio.webm", "audio.wma",

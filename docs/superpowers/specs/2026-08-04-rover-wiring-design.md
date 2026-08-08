@@ -12,8 +12,13 @@ import file, retranscribe).
 
 ## Ngoài phạm vi
 
-- Expose `beam_size` thành setting cho người dùng chỉnh — giữ cố định = 4 (mặc định app tham khảo
-  dùng cho decoder này), như đã chốt ở Phase A.
+- Expose `beam_size` thành setting cho người dùng chỉnh — giữ cố định = 4, lựa chọn có chủ đích của
+  Meetily đánh đổi bớt độ rộng tìm kiếm lấy tốc độ. **Sửa 2026-08-07**: dòng này trước đây ghi nhầm
+  4 là "mặc định app tham khảo dùng cho decoder này" — thực ra app tham khảo dùng
+  `max_active_paths=8` cho ROVER; con số 4 ở đó là `cpu_threads` (số luồng CPU), một tham số khác bị
+  nhầm lẫn. Đã đối chiếu lại trực tiếp `core/asr_engine.py`, benchmark cả 2 giá trị trên audio thật
+  (4 → nhanh hơn đáng kể, 8 → khớp đúng "công sức tìm kiếm" của app tham khảo nhưng chậm hơn nhiều),
+  và người dùng quyết định giữ 4 cho Meetily.
 - Hiển thị `disagree` flag (từ nào bị ghi đè bởi model B) lên UI transcript — dữ liệu đã có sẵn
   trong `MergedWord`, nhưng chưa thiết kế UI cho việc này; có thể làm sau như một cải tiến riêng.
 - Hợp nhất kiến trúc gọi ASR giữa `worker.rs` (đi qua `TranscriptionProvider` trait) và

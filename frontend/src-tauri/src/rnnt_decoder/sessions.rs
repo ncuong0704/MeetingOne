@@ -102,10 +102,16 @@ impl RnntSessions {
     /// Runs the joiner for a batch of (encoder_out, decoder_out) pairs, returning raw
     /// (pre-softmax) logits per row. Callers must not treat these as probabilities —
     /// `confidence.rs` and `beam_search.rs` both apply their own softmax.
+    ///
+    /// Takes borrowed rows (not owned `Vec<f32>`) so beam search's per-timestep,
+    /// per-hypothesis batch — often the same encoder frame repeated `beam_size` times,
+    /// plus decoder outputs already sitting in a cache — can be assembled without cloning
+    /// each row just to hand it over; this function copies each row into the flat tensor
+    /// buffer exactly once, not twice.
     pub fn run_joiner(
         &mut self,
-        encoder_outs: &[Vec<f32>],
-        decoder_outs: &[Vec<f32>],
+        encoder_outs: &[&[f32]],
+        decoder_outs: &[&[f32]],
     ) -> Result<Vec<Vec<f32>>> {
         let b = encoder_outs.len();
         let enc_dim = encoder_outs[0].len();

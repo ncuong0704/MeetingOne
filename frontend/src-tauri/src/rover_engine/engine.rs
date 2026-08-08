@@ -1,4 +1,5 @@
 use crate::rnnt_decoder::engine::RnntDecoder;
+use crate::rnnt_decoder::features::compute_fbank;
 use crate::rover_engine::merge::{rover_merge_words, MergedWord};
 use anyhow::{anyhow, Result};
 use std::path::Path;
@@ -32,12 +33,18 @@ impl RoverDecoder {
         Ok(Self { decoder_a, decoder_b })
     }
 
+    /// Computes fbank once and shares it between both concurrently-running models —
+    /// they decode the same audio, so a second fbank pass over identical samples is
+    /// pure waste. Concurrency (A and B on separate OS threads) is unchanged from
+    /// before; only the redundant feature computation is removed.
     pub fn decode(&mut self, samples: &[f32], sample_rate: f32) -> Result<RoverDecodeResult> {
+        let fbank = compute_fbank(samples, sample_rate)?;
         let (result_a, result_b) = std::thread::scope(|scope| {
             let decoder_a = &mut self.decoder_a;
             let decoder_b = &mut self.decoder_b;
-            let handle_a = scope.spawn(move || decoder_a.decode(samples, sample_rate));
-            let handle_b = scope.spawn(move || decoder_b.decode(samples, sample_rate));
+            let fbank_ref = &fbank;
+            let handle_a = scope.spawn(move || decoder_a.decode_with_fbank(fbank_ref));
+            let handle_b = scope.spawn(move || decoder_b.decode_with_fbank(fbank_ref));
             let result_a = handle_a.join().map_err(|_| anyhow!("Decoder A thread panicked"));
             let result_b = handle_b.join().map_err(|_| anyhow!("Decoder B thread panicked"));
             (result_a, result_b)

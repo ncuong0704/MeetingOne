@@ -1,9 +1,10 @@
-use crate::rnnt_decoder::beam_search::modified_beam_search;
+use crate::rnnt_decoder::beam_search::{modified_beam_search, CONTEXT_SIZE};
 use crate::rnnt_decoder::confidence::{compute_token_confidence, word_confidence};
 use crate::rnnt_decoder::features::compute_fbank;
 use crate::rnnt_decoder::sessions::RnntSessions;
 use crate::rnnt_decoder::vocab::{pieces_to_words, PieceToken, Vocab};
 use anyhow::Result;
+use std::collections::HashMap;
 use std::path::Path;
 
 #[derive(Clone)]
@@ -24,15 +25,36 @@ pub struct DecodeResult {
     pub words: Vec<WordResult>,
 }
 
+/// Every model family this app uses (ZipFormer, Gipformer, the 2025 sherpa export) is a
+/// non-streaming Zipformer2 encoder, which subsamples its input 4x relative to the 10ms
+/// fbank frame shift (verified empirically: feeding a 3000-fbank-frame input to each of
+/// the 3 encoders returns `encoder_out_lens` around 748, i.e. a ~4.01 ratio — the small
+/// excess over exactly 4.0 is fixed conv padding overhead that shrinks toward 0 as the
+/// input grows). So one *encoder output* frame — what beam search's `emitted_frames`
+/// indexes into — spans 40ms of real audio, not 10ms. Using 10ms here (as this code did
+/// before) understated every word's timestamp by ~4x, an error that starts small (a
+/// fraction of a second for early words) and grows without bound as more frames
+/// accumulate — exactly the "transcript highlight drifts further ahead of the audio the
+/// longer playback runs" symptom this constant fixes.
+const ENCODER_FRAME_SHIFT_MS: f32 = 40.0;
+
 pub struct RnntDecoder {
     sessions: RnntSessions,
     vocab: Vocab,
     frame_shift_ms: f32,
     beam_size: usize,
+    /// Decoder-network outputs keyed by 2-token context, reused across every `decode`
+    /// call this instance makes (i.e. across a whole file's worth of chunks for a given
+    /// worker, not just within one chunk) — the decoder is a stateless, pure function of
+    /// its context, so a hit here is always correct and skips a real ONNX call. See
+    /// `beam_search::missing_contexts`.
+    decoder_cache: HashMap<[i64; CONTEXT_SIZE], Vec<f32>>,
 }
 
 impl RnntDecoder {
-    /// `beam_size` defaults to 4 in the reference app for this exact decoder; pass a
+    /// Meetily deliberately uses 4 here, trading a little search width for speed — the
+    /// reference app's equivalent (`max_active_paths`) is 8, but that isn't a
+    /// requirement, just a different point on the same quality/speed tradeoff. Pass a
     /// different value to tune quality vs. speed.
     pub fn load(
         encoder_path: &Path,
@@ -47,20 +69,29 @@ impl RnntDecoder {
         Ok(Self {
             sessions,
             vocab,
-            frame_shift_ms: 10.0,
+            frame_shift_ms: ENCODER_FRAME_SHIFT_MS,
             beam_size,
+            decoder_cache: HashMap::new(),
         })
     }
 
     pub fn decode(&mut self, samples: &[f32], sample_rate: f32) -> Result<DecodeResult> {
         let fbank = compute_fbank(samples, sample_rate)?;
-        let encoder_frames = self.sessions.run_encoder(&fbank)?;
+        self.decode_with_fbank(&fbank)
+    }
+
+    /// Same as `decode`, but for callers that already have fbank features computed
+    /// (ROVER decodes A and B from the same audio, so the caller shares one fbank pass
+    /// between both instead of recomputing it per model).
+    pub fn decode_with_fbank(&mut self, fbank: &[Vec<f32>]) -> Result<DecodeResult> {
+        let encoder_frames = self.sessions.run_encoder(fbank)?;
 
         let result = modified_beam_search(
             &mut self.sessions,
             &encoder_frames,
             self.beam_size,
             self.vocab.vocab_size(),
+            &mut self.decoder_cache,
         )?;
 
         let mut pieces: Vec<PieceToken> = Vec::with_capacity(result.token_ids.len());

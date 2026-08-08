@@ -146,11 +146,16 @@ fn build_chunks_from_audio(
         .max(SAMPLE_RATE)
         .min(DEFAULT_CHUNK_SAMPLES.max(SAMPLE_RATE));
     let silent_regions = find_silent_regions(&concat_audio, 0.01, 0.3);
+    // Every OffsetEntry after the first starts right after a discarded silence gap — the
+    // concat->original mapping jumps there, so chunking must never cross it.
+    let mandatory_boundaries: Vec<usize> =
+        offset_map.iter().skip(1).map(|e| e.concat_start).collect();
     let plan = build_chunk_plan(
         concat_audio.len(),
         &silent_regions,
         chunk_samples,
         CHUNK_OVERLAP_SAMPLES,
+        &mandatory_boundaries,
     );
 
     let mut out_segments = Vec::with_capacity(plan.len());
@@ -302,36 +307,66 @@ fn find_best_split_point(
 }
 
 /// Build chunk boundaries on concat audio (~`chunk_samples` per chunk, split at silence).
+///
+/// `mandatory_boundaries` (sorted ascending) are `OffsetEntry` starts — points where the
+/// concat→original time mapping jumps because a real (>=250ms) silence gap was discarded
+/// there. A chunk must never span one of these: `batch_transcribe::rover_word_base_sec`
+/// converts every word in a chunk with a single per-chunk offset, which is only valid
+/// within one continuous original-timeline span. Splits forced at a mandatory boundary
+/// get no stitch-overlap lookback either — the boundary sits exactly on a real gap (no
+/// word is being cut), and a lookback would pull in audio from the *other side* of the
+/// gap, where that single-offset assumption breaks down too.
 fn build_chunk_plan(
     concat_total: usize,
     silent_regions: &[(usize, usize)],
     chunk_samples: usize,
     overlap_samples: usize,
+    mandatory_boundaries: &[usize],
 ) -> Vec<(usize, usize, usize)> {
     if concat_total == 0 {
         return Vec::new();
     }
 
-    let mut boundaries = vec![0usize];
+    // (position, forced-by-a-mandatory-boundary)
+    let mut boundaries: Vec<(usize, bool)> = vec![(0, false)];
     let mut current_pos = 0usize;
     while current_pos + chunk_samples < concat_total {
         let target = current_pos + chunk_samples;
-        let best_split = find_best_split_point(target, concat_total, silent_regions, 2 * SAMPLE_RATE);
-        let split = if best_split <= current_pos + 20 * SAMPLE_RATE {
-            target
-        } else {
-            best_split
+        let next_mandatory = mandatory_boundaries.iter().copied().find(|&b| b > current_pos);
+
+        let (split, forced) = match next_mandatory {
+            Some(b) if b <= target => (b, true),
+            Some(b) => {
+                let best_split =
+                    find_best_split_point(target, concat_total, silent_regions, 2 * SAMPLE_RATE);
+                let candidate = if best_split <= current_pos + 20 * SAMPLE_RATE {
+                    target
+                } else {
+                    best_split
+                };
+                (candidate.min(b), false)
+            }
+            None => {
+                let best_split =
+                    find_best_split_point(target, concat_total, silent_regions, 2 * SAMPLE_RATE);
+                let candidate = if best_split <= current_pos + 20 * SAMPLE_RATE {
+                    target
+                } else {
+                    best_split
+                };
+                (candidate, false)
+            }
         };
-        boundaries.push(split);
+        boundaries.push((split, forced));
         current_pos = split;
     }
-    boundaries.push(concat_total);
+    boundaries.push((concat_total, false));
 
     let mut plan = Vec::new();
     for i in 0..boundaries.len() - 1 {
-        let logical_start = boundaries[i];
-        let logical_end = boundaries[i + 1];
-        if i == 0 {
+        let (logical_start, start_is_forced) = boundaries[i];
+        let (logical_end, _) = boundaries[i + 1];
+        if i == 0 || start_is_forced {
             plan.push((logical_start, logical_end, 0));
         } else {
             let actual_start = logical_start.saturating_sub(overlap_samples);
@@ -507,6 +542,50 @@ mod tests {
                 "chunk timestamps must be monotonic (logical, no overlap)"
             );
         }
+    }
+
+    #[test]
+    fn build_chunk_plan_forces_split_at_mandatory_boundary_before_target() {
+        // A discarded-silence (offset-map) boundary at 10s, well before the ~30s target —
+        // without forcing a split here, the first chunk would span [0, 30s] and cross the
+        // boundary, breaking the single-base_sec-per-chunk assumption in
+        // batch_transcribe::rover_word_base_sec for every word after 10s in that chunk.
+        let concat_total = 60 * SAMPLE_RATE;
+        let chunk_samples = 30 * SAMPLE_RATE;
+        let overlap_samples = SAMPLE_RATE;
+        let mandatory = vec![10 * SAMPLE_RATE];
+
+        let plan = build_chunk_plan(concat_total, &[], chunk_samples, overlap_samples, &mandatory);
+
+        let logical_starts: Vec<usize> = plan.iter().map(|(start, _, overlap)| start + overlap).collect();
+        assert_eq!(
+            logical_starts,
+            vec![0, 10 * SAMPLE_RATE, 40 * SAMPLE_RATE],
+            "must split exactly at the mandatory boundary instead of the ~30s target"
+        );
+    }
+
+    #[test]
+    fn build_chunk_plan_applies_no_overlap_at_a_forced_boundary() {
+        // The forced split sits exactly on a real silence gap (>=250ms, already discarded
+        // from concat audio) — there's no word being cut there, so the usual 1s
+        // stitch-overlap lookback would only pull in audio from the *other side* of the
+        // gap, where the linear (single-offset) time mapping no longer holds.
+        let concat_total = 60 * SAMPLE_RATE;
+        let chunk_samples = 30 * SAMPLE_RATE;
+        let overlap_samples = SAMPLE_RATE;
+        let mandatory = vec![10 * SAMPLE_RATE];
+
+        let plan = build_chunk_plan(concat_total, &[], chunk_samples, overlap_samples, &mandatory);
+
+        let (actual_start, _, overlap_at_start) = plan[1];
+        assert_eq!(actual_start, 10 * SAMPLE_RATE, "no lookback into the gap");
+        assert_eq!(overlap_at_start, 0, "forced boundary must carry no overlap");
+
+        // The next split (40s) is a normal/soft boundary — overlap still applies there.
+        let (actual_start_2, _, overlap_at_start_2) = plan[2];
+        assert_eq!(actual_start_2, 40 * SAMPLE_RATE - overlap_samples);
+        assert_eq!(overlap_at_start_2, overlap_samples);
     }
 
     #[test]

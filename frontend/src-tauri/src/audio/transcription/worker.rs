@@ -235,13 +235,13 @@ pub fn start_transcription_task<R: Runtime>(
                                         // The recording_commands module listens to these events and saves them
                                         // This decouples the transcription worker from direct RECORDING_MANAGER access
 
-                                        // ITN only — CAPU now runs off the hot path (Stage 2 below).
-                                        let itn_text = crate::audio::post_asr::apply_itn(&transcript);
+                                        // Lowercase-normalize only — CAPU now runs off the hot path (Stage 2 below).
+                                        let normalized_text = crate::audio::post_asr::normalize_asr_text(&transcript);
 
                                         // Emit transcript update with NEW recording-relative timestamps
 
                                         let update = TranscriptUpdate {
-                                            text: itn_text.clone(),
+                                            text: normalized_text.clone(),
                                             timestamp: format_current_timestamp(), // Wall-clock for reference
                                             source: "Audio".to_string(),
                                             sequence_id,
