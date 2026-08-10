@@ -809,8 +809,18 @@ git commit -m "feat(diarization): sliding-window segmentation + cross-chunk reco
 
 - [ ] **Step 1: Fetch and read the real reference source**
 
-Same file as Task 4 (`offline-speaker-diarization-impl.cc`, already fetched to `/tmp/`). This time
-read `GetChunkSpeakerSampleIndexes` (or equivalently named function) specifically. Understand:
+**Correction from Task 4** (verified by the controller by re-fetching and reading the file
+directly, not just trusting Task 4's implementer report): the plan originally pointed at
+`offline-speaker-diarization-impl.cc`, but that file is only a 60-line factory with no diarization
+logic in it. Everything lives in the header:
+
+```bash
+curl -s https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/master/sherpa-onnx/csrc/offline-speaker-diarization-pyannote-impl.h -o /tmp/pyannote-impl.h
+```
+
+Read `GetChunkSpeakerSampleIndexes` (header, confirmed at line ~412) and `ExcludeOverlap` (header,
+confirmed at line ~487, called from inside `GetChunkSpeakerSampleIndexes` at its very first line —
+port both together, `ExcludeOverlap` is not a separate task). Understand:
 - For each `(chunk_index, local_speaker)` pair, how contiguous runs of "this speaker active" frames
   within that chunk get converted into sample ranges `(start_sample, end_sample)` in the *original*
   audio — this uses the same frame→sample mapping convention confirmed in Task 4.
@@ -1228,39 +1238,85 @@ git commit -m "feat(diarization): complete-linkage agglomerative clustering (fix
 **Files:**
 - Create: `frontend/src-tauri/src/diarization_engine/finalize.rs`
 - Modify: `frontend/src-tauri/src/diarization_engine/mod.rs`
+- Modify: `frontend/src-tauri/src/config.rs` (one new constant, see Step 3)
+
+**This task's design was rewritten after Task 4 was implemented.** The original text here assumed
+`relabel` would operate on Task 4's `GlobalFrameLabels` and produce `Vec<Option<usize>>` — that
+doesn't work and was never implementable: local speaker slots are chunk-local (chunk 0's slot 1 and
+chunk 5's slot 1 are unrelated voices), so there is no meaningful global per-local-speaker identity
+to relabel. Task 4's implementer caught this by actually reading the reference (see its commit
+`2bc432b`'s report) and correctly changed `GlobalFrameLabels` to carry `speakers_per_frame: Vec<usize>`
+(a *count*, not identities) instead. The controller independently re-verified the entire reference
+chain below by re-fetching and reading the header directly — every function/line reference here is
+confirmed against the real source, not carried over from the original (wrong) plan text.
 
 - [ ] **Step 1: Fetch and read the real reference source**
 
-Two files, already summarized at a high level by prior research but not yet read verbatim — read
-them now:
 ```bash
-curl -s https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/master/sherpa-onnx/csrc/offline-speaker-diarization-impl.cc -o /tmp/offline-speaker-diarization-impl.cc  # if not already fetched
-curl -s https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/master/sherpa-onnx/csrc/offline-speaker-diarization-result.cc -o /tmp/offline-speaker-diarization-result.cc
+curl -s https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/master/sherpa-onnx/csrc/offline-speaker-diarization-pyannote-impl.h -o /tmp/pyannote-impl.h
+curl -s https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/master/sherpa-onnx/csrc/offline-speaker-diarization-result.h -o /tmp/result.h
+curl -s https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/master/sherpa-onnx/csrc/offline-speaker-diarization-result.cc -o /tmp/result.cc
+curl -s https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/master/sherpa-onnx/csrc/math.h -o /tmp/math.h
 ```
 
-Understand, specifically:
-- `ReLabel` — how the global per-frame local-speaker activity (Task 4's `GlobalFrameLabels`) gets
-  rewritten using GLOBAL cluster ids (from Task 7's clustering, applied per `(chunk, local_speaker)`
-  pair from Task 5) instead of per-chunk-local speaker indices — i.e. the final mapping from
-  `(chunk_index, local_speaker) -> global_cluster_id` back onto the frame timeline.
-- `FinalizeLabels` — the exact `min_duration_on` (drop segments shorter than 0.3s) and
-  `min_duration_off` (merge same-cluster segments separated by a gap shorter than 0.5s) smoothing
-  logic, applied in what order.
-- `ComputeResult` — how the smoothed per-frame cluster labels become the final list of
-  `(start_time, end_time, cluster_id)` turns (contiguous same-cluster runs → one turn each).
+Read, in `pyannote-impl.h`:
+- `ReLabel` (~line 593) — takes the **original, un-excluded** per-chunk multi-label matrices (Task
+  4's `ChunkLabels.labels` — the same values Task 5 reads too, *not* the overlap-excluded version
+  `ExcludeOverlap` produces; that exclusion is local to Task 5's embedding extraction only) plus
+  `max_cluster_index` and the `(chunk_index, local_speaker) -> cluster_id` map (built by
+  `ConvertChunkSpeakerToCluster`, ~line 574 — a trivial zip of the `(chunk,speaker)` pairs Task 5
+  produced against the cluster labels Task 7's clustering produced, in the same order — this part
+  belongs in Task 9's orchestrator, not here). For each chunk, per frame, per local speaker: if that
+  `(chunk, speaker)` has a cluster mapping, copy that speaker's active/inactive flag at that frame
+  into the corresponding **cluster column** of a new per-chunk matrix shaped
+  `(num_frames_in_chunk, max_cluster_index + 1)`. A `(chunk, speaker)` with no mapping (filtered out
+  earlier for having too little embeddable signal) is simply skipped — its frames stay 0 in every
+  cluster column.
+- `ComputeSpeakerCount` (~line 641) — reconciles the per-chunk, per-cluster matrices from `ReLabel`
+  onto one global `(num_global_frames, num_clusters)` grid, using the **exact same** `chunk_index ->
+  start_frame` placement as `ComputeSpeakersPerFrame` (Task 4) — but **summing, not averaging**:
+  `count(seq, all).array() += labels[i].array()` (no division by a weight count anywhere in this
+  function). Also applies the same trailing-truncation-to-audio-length rule Task 4's
+  `compute_speakers_per_frame` already ported (lines ~666-676) — see Step 3 for how to reuse that
+  without re-deriving it.
+- `FinalizeLabels` (~line 679) — per global frame `i`: let `k = speakers_per_frame[i]` (Task 4's
+  output); if `k == 0`, every cluster is inactive at that frame; otherwise pick the `k`
+  highest-count cluster columns at that frame active (`TopkIndex`, `math.h` line ~112 — descending
+  by count, via `std::partial_sort`, which does **not** guarantee a specific order among tied
+  values; when porting to Rust, break ties by lower cluster index — this is a deliberate, documented
+  minor divergence from the reference's technically-unspecified tie order, not an attempt to match
+  it bit-for-bit).
+- `ComputeResult` (~line 704) — per cluster column, scan the finalized per-frame activation and find
+  contiguous active runs. Time conversion: `scale = receptive_field_shift / sample_rate`,
+  `scale_offset = 0.5 * receptive_field_size / sample_rate`; `start_time = start_frame * scale +
+  scale_offset`, `end_time = end_frame * scale + scale_offset` (`end_frame` is the first frame where
+  the run stops being active — i.e. a half-open `[start, end)` in frame terms). Then
+  `MergeSegments` (~line 236 of `pyannote-impl.h`, calling `Segment::Merge` —
+  `offline-speaker-diarization-result.cc` line ~34): repeatedly merge adjacent same-cluster segments
+  whose gap is `<= min_duration_off` (`this.end + gap >= other.start`, merged span is
+  `(this.start, other.end)`), until no more merges apply. Finally keep only segments with
+  `Duration() > min_duration_on` (**strict** `>`, matching `result.cc`/`pyannote-impl.h`'s check —
+  not `>=`).
 
-- [ ] **Step 2: Write the failing tests**
+- [ ] **Step 2: Add the missing `DIARIZATION_RECEPTIVE_FIELD_SIZE` constant**
 
-Using small synthetic per-frame cluster-label sequences (not real audio):
-- A short (<0.3s) isolated active segment gets dropped by `min_duration_on`.
-- Two same-cluster segments separated by a gap under 0.5s get merged into one turn by
-  `min_duration_off`.
-- Two same-cluster segments separated by a gap over 0.5s stay as two separate turns.
-- A straightforward multi-speaker sequence with no edge cases produces the expected turn list.
+`config.rs` already has `DIARIZATION_RECEPTIVE_FIELD_SHIFT` but not the model's
+`receptive_field_size` metadata value — confirmed needed by `ComputeResult`'s `scale_offset` above
+(the segmentation model's own ONNX metadata, previously assumed unused, verified in this task to
+actually be load-bearing). Add next to `DIARIZATION_RECEPTIVE_FIELD_SHIFT`:
+```rust
+/// Used only by `ComputeResult`'s time-offset calculation (half a receptive field, so a
+/// detected frame's timestamp lands at the center of what it covers, not its leading edge).
+pub const DIARIZATION_RECEPTIVE_FIELD_SIZE: usize = 991;
+```
 
-- [ ] **Step 3: Implement**
+- [ ] **Step 3: Define the types and reuse Task 4's helpers**
 
 ```rust
+use super::windowing::{chunk_start_frame, ChunkLabels};
+use crate::config::{DIARIZATION_MIN_DURATION_OFF_SEC, DIARIZATION_MIN_DURATION_ON_SEC, DIARIZATION_RECEPTIVE_FIELD_SIZE};
+use std::collections::HashMap;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpeakerTurn {
     pub start_sec: f64,
@@ -1268,34 +1324,82 @@ pub struct SpeakerTurn {
     pub cluster_index: usize,
 }
 
-/// Rewrites the global per-frame local-speaker activity using global cluster ids instead of
-/// per-chunk-local speaker indices, per the exact mapping found in Task 8 Step 1.
-pub fn relabel(
-    global_frames: &super::windowing::GlobalFrameLabels,
-    chunk_speaker_to_cluster: &std::collections::HashMap<(usize, usize), usize>,
-) -> Vec<Option<usize>> {
-    todo!("port the exact ReLabel logic found in Task 8 Step 1")
-}
-
-/// Applies `min_duration_on`/`min_duration_off` smoothing and converts the result into final
-/// speaker turns, per the exact logic found in Task 8 Step 1.
-pub fn finalize_and_compute_result(
-    per_frame_cluster: &[Option<usize>],
-    frame_shift_samples: usize,
-    sample_rate: f64,
-) -> Vec<SpeakerTurn> {
-    todo!("port the exact FinalizeLabels + ComputeResult logic found in Task 8 Step 1")
+/// One chunk's per-frame activation, recolumned from chunk-local speaker slots to global
+/// cluster ids. `frames[j][c]` is true iff cluster `c` is active at this chunk's frame `j`.
+pub struct RelabeledChunk {
+    pub chunk_index: usize,
+    pub frames: Vec<Vec<bool>>, // len == chunk's frame count; each inner Vec has len == num_clusters
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+**Important — do not re-derive the trailing-truncation formula.** Task 4's
+`compute_speakers_per_frame` already produces a correctly-truncated `speakers_per_frame: Vec<usize>`
+whose length is the ground truth for how many global frames actually exist. `compute_speaker_count`
+below must build its grid to *that same length* (pass `speakers_per_frame.len()` in directly as
+`target_num_frames`, dropping any placed frame `>= target_num_frames`) instead of independently
+recomputing `total_samples`-based truncation a second time — this guarantees the two arrays are
+always the same length (required for `finalize_labels` to index them together) without duplicating
+error-prone arithmetic.
 
-- [ ] **Step 5: Register module, verify compile**
+- [ ] **Step 4: Write the failing tests**
 
-- [ ] **Step 6: Commit**
+Using small synthetic `ChunkLabels` + a hand-built `chunk_speaker_to_cluster` map (not real audio):
+- `relabel`: a chunk with one local speaker mapped to cluster 2 (out of e.g. 3 clusters) produces a
+  matrix where only column 2 carries that speaker's frame activity, columns 0/1 stay all-false; a
+  local speaker with no mapping entry contributes nothing (all its frames stay false in every
+  column).
+- `compute_speaker_count`: two overlapping chunks whose relabeled activity both mark the same
+  cluster active at the same global frame sum to `2` at that (frame, cluster) cell, not `1` — this
+  is the key behavioral difference from Task 4's *averaging* reconciliation, worth a test that would
+  fail if someone later "fixes" this to average by mistake.
+- `finalize_labels`: a frame with `speakers_per_frame[i] == 1` and cluster counts `[5, 2, 8]` picks
+  cluster 2 (highest count) active, clusters 0/1 inactive; a frame with `speakers_per_frame[i] == 0`
+  has every cluster inactive regardless of counts; a tie (`[3, 3]`, k=1) picks the lower index
+  deterministically (documenting the accepted tie-break divergence from Step 1).
+- `compute_result`: a short (<0.3s) isolated active run gets dropped; two same-cluster runs
+  separated by a gap `<= min_duration_off` merge into one turn spanning both; a gap strictly greater
+  than `min_duration_off` keeps them separate; a straightforward multi-cluster sequence with no edge
+  cases produces the expected turn list with correctly scaled start/end times.
+
+- [ ] **Step 5: Implement**
+
+Signatures (fill in bodies per Step 1's exact algorithms — this is intentionally not handed to you
+as ready-made code, unlike earlier tasks, because getting here required correcting the plan itself;
+implement from the verified algorithm description above, and if anything is still ambiguous once
+you're looking at the real source yourself, stop and ask rather than guessing):
+
+```rust
+pub fn relabel(
+    chunks: &[ChunkLabels],
+    max_cluster_index: usize,
+    chunk_speaker_to_cluster: &HashMap<(usize, usize), usize>,
+) -> Vec<RelabeledChunk> { ... }
+
+/// Sums (not averages) relabeled per-chunk activity onto a global `(target_num_frames,
+/// num_clusters)` grid, placed via `chunk_start_frame` — the same placement Task 4 uses.
+pub fn compute_speaker_count(
+    relabeled: &[RelabeledChunk],
+    num_clusters: usize,
+    target_num_frames: usize,
+) -> Vec<Vec<usize>> { ... }
+
+pub fn finalize_labels(count: &[Vec<usize>], speakers_per_frame: &[usize]) -> Vec<Vec<bool>> { ... }
+
+pub fn compute_result(
+    final_labels: &[Vec<bool>],
+    frame_shift_samples: usize,
+    sample_rate: f64,
+) -> Vec<SpeakerTurn> { ... }
+```
+
+- [ ] **Step 6: Run tests to verify they pass**
+
+- [ ] **Step 7: Register module, verify compile**
+
+- [ ] **Step 8: Commit**
 
 ```bash
-git add frontend/src-tauri/src/diarization_engine
+git add frontend/src-tauri/src/diarization_engine frontend/src-tauri/src/config.rs
 git commit -m "feat(diarization): relabel + min-duration smoothing + final speaker turns"
 ```
 
@@ -1311,7 +1415,9 @@ git commit -m "feat(diarization): relabel + min-duration smoothing + final speak
 
 Ties Tasks 3-8 together. `num_clusters: Option<usize>` — `None` uses
 `cutree_cdist(_, DIARIZATION_DEFAULT_CLUSTER_THRESHOLD)` (auto), `Some(k)` uses `cutree_k(_, k)`
-(user specified the speaker count).
+(user specified the speaker count). Uses Task 8's corrected 4-function finalize API
+(`relabel` → `compute_speaker_count` → `finalize_labels` → `compute_result`), not the original
+2-function design that turned out not to be implementable — see Task 8's header note for why.
 
 ```rust
 use anyhow::Result;
@@ -1320,7 +1426,7 @@ use std::path::Path;
 
 use super::clustering::{cutree_cdist, cutree_k, hierarchical_cluster};
 use super::embedding::EmbeddingEngine;
-use super::finalize::{finalize_and_compute_result, relabel, SpeakerTurn};
+use super::finalize::{compute_result, compute_speaker_count, finalize_labels, relabel, SpeakerTurn};
 use super::sample_indexes::get_chunk_speaker_sample_indexes;
 use super::segmentation::SegmentationEngine;
 use super::windowing::{compute_speakers_per_frame, run_segmentation_windows};
@@ -1382,18 +1488,24 @@ impl DiarizationEngine {
             Some(k) => cutree_k(&dendrogram, k),
             None => cutree_cdist(&dendrogram, DIARIZATION_DEFAULT_CLUSTER_THRESHOLD),
         };
+        // Cutting always relabels to consecutive 0..k ids (see Task 7's `labels_after_merges`),
+        // so the highest id actually assigned is a safe stand-in for "how many clusters".
+        let max_cluster_index = *labels.iter().max().unwrap_or(&0);
+        let num_clusters_found = max_cluster_index + 1;
 
         let chunk_speaker_to_cluster: HashMap<(usize, usize), usize> = pair_order
             .into_iter()
             .zip(labels)
             .collect();
 
-        let per_frame_cluster = relabel(&global_frames, &chunk_speaker_to_cluster);
-        Ok(finalize_and_compute_result(
-            &per_frame_cluster,
-            DIARIZATION_RECEPTIVE_FIELD_SHIFT,
-            16000.0,
-        ))
+        let relabeled = relabel(&chunks, max_cluster_index, &chunk_speaker_to_cluster);
+        let count = compute_speaker_count(
+            &relabeled,
+            num_clusters_found,
+            global_frames.speakers_per_frame.len(),
+        );
+        let final_labels = finalize_labels(&count, &global_frames.speakers_per_frame);
+        Ok(compute_result(&final_labels, DIARIZATION_RECEPTIVE_FIELD_SHIFT, 16000.0))
     }
 }
 ```
