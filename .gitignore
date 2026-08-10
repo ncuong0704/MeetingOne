@@ -95,3 +95,6 @@ __pycache__/
 .venv/
 venv/
 *.egg-info/
+
+# Superpowers isolated worktrees
+.worktrees/
