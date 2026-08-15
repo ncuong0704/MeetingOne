@@ -25,6 +25,9 @@ pub struct TranscriptSegment {
     /// When true, STT updates must not replace `text` (user corrected this segment).
     #[serde(default)]
     pub user_edited: bool,
+    /// Live hotkey-assigned speaker name (not file-import diarization).
+    #[serde(default)]
+    pub speaker_name: Option<String>,
 }
 
 /// Meeting metadata structure
@@ -195,6 +198,7 @@ impl RecordingSaver {
             let sequence_id = segments[matched[0]].sequence_id;
             let display_time = segments[matched[0]].display_time.clone();
             let confidence = segments[matched[0]].confidence;
+            let speaker_name = segments[matched[0]].speaker_name.clone();
 
             let replacement = TranscriptSegment {
                 id: format!("seg_{}_finalized", sequence_id),
@@ -206,6 +210,7 @@ impl RecordingSaver {
                 confidence,
                 sequence_id,
                 user_edited: false,
+                speaker_name,
             };
 
             segments.retain(|s| !source_ids.contains(&s.sequence_id));
@@ -239,6 +244,7 @@ impl RecordingSaver {
             confidence: 1.0,
             sequence_id: 0,
             user_edited: false,
+            speaker_name: None,
         };
         self.add_transcript_segment(segment);
     }
@@ -637,6 +643,7 @@ mod tests {
             confidence: 0.9,
             sequence_id,
             user_edited: false,
+            speaker_name: None,
         }
     }
 

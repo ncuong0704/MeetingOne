@@ -9,10 +9,12 @@ import { useRecordingState } from '@/contexts/RecordingStateContext';
 import { usePermissionCheck } from '@/hooks/usePermissionCheck';
 import { ModalType } from '@/hooks/useModalState';
 import { useIsLinux } from '@/hooks/usePlatform';
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useState } from 'react';
 import { TOUR_TARGETS } from '@/components/UserGuide/tourTargets';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
+import { SpeakerHotkeyDialog } from '@/components/SpeakerHotkeyDialog';
+import { useLiveSpeakerHotkeys } from '@/hooks/useLiveSpeakerHotkeys';
 
 /**
  * TranscriptPanel Component
@@ -39,6 +41,8 @@ export function TranscriptPanel({
   const { isRecording, isPaused } = useRecordingState();
   const { checkPermissions, isChecking, hasSystemAudio, hasMicrophone, hasMicrophoneAccess } = usePermissionCheck();
   const isLinux = useIsLinux();
+  const { pendingName, pendingColor, reloadHotkeys } = useLiveSpeakerHotkeys(isRecording);
+  const [hotkeyOpen, setHotkeyOpen] = useState(false);
 
   // Convert transcripts to segments for virtualized view
   const segments = useMemo(() =>
@@ -49,6 +53,8 @@ export function TranscriptPanel({
       text: t.text,
       confidence: t.confidence,
       sequenceId: t.sequence_id,
+      speakerName: t.speaker_name,
+      speakerColor: t.speaker_color,
     })),
     [transcripts]
   );
@@ -97,6 +103,15 @@ export function TranscriptPanel({
                     </span>
                   </Button>
                 )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setHotkeyOpen(true)}
+                  title="Cấu hình phím tắt người nói"
+                >
+                  <span className='hidden md:inline'>Người nói 1–9</span>
+                  <span className='md:hidden'>1–9</span>
+                </Button>
               </ButtonGroup>
             </div>
           </div>
@@ -130,9 +145,18 @@ export function TranscriptPanel({
             isStopping={isStopping}
             enableStreaming={isRecording}
             showConfidence={true}
+            pendingSpeakerName={pendingName}
+            pendingSpeakerColor={pendingColor}
           />
         </div>
       </div>
+      <SpeakerHotkeyDialog
+        open={hotkeyOpen}
+        onOpenChange={(open) => {
+          setHotkeyOpen(open);
+          if (!open) reloadHotkeys();
+        }}
+      />
     </div>
   );
 }

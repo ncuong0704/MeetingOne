@@ -13,9 +13,13 @@ export interface Transcript {
   is_partial?: boolean;
   confidence?: number;
   // NEW: Recording-relative timestamps for playback sync
-  audio_start_time?: number; // Seconds from recording start (e.g., 125.3)
-  audio_end_time?: number;   // Seconds from recording start (e.g., 128.6)
+  audio_start_time?: number; // Seconds from recording start
+  audio_end_time?: number;   // Seconds from recording start
   duration?: number;          // Segment duration in seconds (e.g., 3.3)
+  /** Offline diarization (file import) — not legacy mic/system. */
+  speaker_id?: string | null;
+  speaker_name?: string | null;
+  speaker_color?: string | null;
 }
 
 export interface TranscriptUpdate {
@@ -28,8 +32,10 @@ export interface TranscriptUpdate {
   confidence: number;
   // NEW: Recording-relative timestamps for playback sync
   audio_start_time: number; // Seconds from recording start
-  audio_end_time: number;   // Seconds from recording start
+  audio_end_time: number; // Seconds from recording start
   duration: number;          // Segment duration in seconds
+  speaker_name?: string | null;
+  speaker_color?: string | null;
 }
 
 export interface Block {
@@ -109,4 +115,7 @@ export interface TranscriptSegmentData {
   confidence?: number;
   /** Stable id from STT ordering; used for live recording edits (Rust sequence_id). */
   sequenceId?: number;
+  speakerId?: string | null;
+  speakerName?: string | null;
+  speakerColor?: string | null;
 }

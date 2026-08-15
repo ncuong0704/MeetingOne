@@ -37,6 +37,11 @@ pub struct TranscriptUpdate {
     pub audio_start_time: f64, // Seconds from recording start (e.g., 125.3)
     pub audio_end_time: f64,   // Seconds from recording start (e.g., 128.6)
     pub duration: f64,          // Segment duration in seconds (e.g., 3.3)
+    /// Live hotkey-assigned speaker (not file diarization).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speaker_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speaker_color: Option<String>,
 }
 
 /// Emitted by the CAPU background stage (Stage 2) once a batch of raw segments has been
@@ -240,6 +245,20 @@ pub fn start_transcription_task<R: Runtime>(
 
                                         // Emit transcript update with NEW recording-relative timestamps
 
+                                        if !is_partial && super::live_speaker::should_force_endpoint() {
+                                            if let Some(name) = super::live_speaker::apply_pending() {
+                                                super::live_speaker::emit_speaker_committed(
+                                                    &app_clone,
+                                                    &name,
+                                                );
+                                            }
+                                        }
+
+                                        let speaker_name = super::live_speaker::stamp();
+                                        let speaker_color = speaker_name
+                                            .as_deref()
+                                            .map(super::live_speaker::color_for_name);
+
                                         let update = TranscriptUpdate {
                                             text: normalized_text.clone(),
                                             timestamp: format_current_timestamp(), // Wall-clock for reference
@@ -252,6 +271,8 @@ pub fn start_transcription_task<R: Runtime>(
                                             audio_start_time,
                                             audio_end_time,
                                             duration: chunk_duration,
+                                            speaker_name,
+                                            speaker_color,
                                         };
 
                                         if let Err(e) = app_clone.emit("transcript-update", &update)

@@ -523,6 +523,9 @@ pub fn run() {
             audio::recording_commands::load_transcripts_from_folder,
             audio::recording_commands::update_live_transcript_segment,
             audio::recording_commands::get_recording_meeting_name,
+            audio::transcription::live_speaker::get_speaker_hotkeys,
+            audio::transcription::live_speaker::save_speaker_hotkeys,
+            audio::transcription::live_speaker::insert_live_speaker,
             // Device monitoring commands (AirPods/Bluetooth disconnect/reconnect)
             audio::recording_commands::poll_audio_device_events,
             audio::recording_commands::get_reconnection_status,

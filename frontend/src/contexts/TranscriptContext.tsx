@@ -267,6 +267,8 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
                     audio_end_time: incoming.audio_end_time,
                     duration: incoming.duration,
                     chunk_start_time: incoming.chunk_start_time,
+                    speaker_name: incoming.speaker_name,
+                    speaker_color: incoming.speaker_color,
                   }
                 : incoming
             );
@@ -325,6 +327,8 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
           newTranscript.audio_end_time = update.audio_end_time;
           newTranscript.duration = update.duration;
           newTranscript.chunk_start_time = update.chunk_start_time;
+          newTranscript.speaker_name = update.speaker_name ?? newTranscript.speaker_name;
+          newTranscript.speaker_color = update.speaker_color ?? newTranscript.speaker_color;
 
           transcriptBuffer.set(update.sequence_id, newTranscript);
           console.log(`✅ MAIN LISTENER: Buffered transcript with sequence_id ${update.sequence_id}. Buffer size: ${transcriptBuffer.size}, Last processed: ${lastProcessedSequence}`);
@@ -388,6 +392,7 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
             audio_start_time: segment.audio_start_time,
             audio_end_time: segment.audio_end_time,
             duration: segment.duration,
+            speaker_name: segment.speaker_name,
           }));
 
           setTranscripts(formattedTranscripts);
@@ -429,6 +434,8 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
       audio_start_time: update.audio_start_time,
       audio_end_time: update.audio_end_time,
       duration: update.duration,
+      speaker_name: update.speaker_name,
+      speaker_color: update.speaker_color,
     };
 
     setTranscripts(prev => {
@@ -470,7 +477,11 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
     };
 
     const fullTranscript = transcripts
-      .map(t => `${formatTime(t.audio_start_time)} ${t.text}`)
+      .map(t => {
+        const time = formatTime(t.audio_start_time);
+        const speaker = t.speaker_name ? `${t.speaker_name}: ` : '';
+        return `${time} ${speaker}${t.text}`;
+      })
       .join('\n');
     navigator.clipboard.writeText(fullTranscript);
 

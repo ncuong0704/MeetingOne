@@ -2,6 +2,7 @@
 
 import { listen } from '@tauri-apps/api/event';
 import { useCallback, useEffect, useState } from 'react';
+import { SpeakerHotkeyDialog } from '@/components/SpeakerHotkeyDialog';
 import {
   ASR_MODELS,
   AsrAPI,
@@ -54,6 +55,7 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
   });
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [hotkeyOpen, setHotkeyOpen] = useState(false);
 
   const selectedModelInfo = ASR_MODELS.find((m) => m.id === selectedFamily);
   const effectiveVariant = resolveVariantForFamily(selectedFamily, selectedVariant);
@@ -166,6 +168,20 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
       <p className="text-xs text-gray-500 dark:text-gray-400">
         Dấu câu/viết hoa (CAPU) chỉ áp dụng sau khi kết thúc cuộc họp.
       </p>
+      <div>
+        <button
+          type="button"
+          onClick={() => setHotkeyOpen(true)}
+          disabled={disabled}
+          className="px-3 py-1.5 text-xs rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+        >
+          Cấu hình hotkey người nói
+        </button>
+        <p className="mt-1 text-xs text-gray-400">
+          Lúc ghi âm, bấm phím 1–9 (cửa sổ app đang focus) để gán người đang nói.
+        </p>
+      </div>
+      <SpeakerHotkeyDialog open={hotkeyOpen} onOpenChange={setHotkeyOpen} />
 
       <div className="space-y-2">
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">

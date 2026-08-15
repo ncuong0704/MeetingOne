@@ -341,6 +341,7 @@ async fn start_recording_with_meeting_name_inner<R: Runtime>(
     // (IS_RECORDING was already set to true by the caller's atomic claim)
     info!("🔍 Resetting SPEECH_DETECTED_EMITTED for new recording session");
     reset_speech_detected_flag();
+    crate::audio::transcription::live_speaker::reset_session();
 
     // Best-effort CAPU init before live transcription
     if crate::capu_engine::commands::capu_is_model_downloaded(app.clone())
@@ -376,6 +377,7 @@ async fn start_recording_with_meeting_name_inner<R: Runtime>(
                     confidence: update.confidence,
                     sequence_id: update.sequence_id,
                     user_edited: false,
+                    speaker_name: update.speaker_name.clone(),
                 };
 
                 // Save to recording manager
@@ -603,6 +605,7 @@ async fn start_recording_with_devices_and_meeting_inner<R: Runtime>(
     // (IS_RECORDING was already set to true by the caller's atomic claim)
     info!("🔍 Resetting SPEECH_DETECTED_EMITTED for new recording session");
     reset_speech_detected_flag();
+    crate::audio::transcription::live_speaker::reset_session();
 
     // Best-effort CAPU init before live transcription
     if crate::capu_engine::commands::capu_is_model_downloaded(app.clone())
@@ -638,6 +641,7 @@ async fn start_recording_with_devices_and_meeting_inner<R: Runtime>(
                     confidence: update.confidence,
                     sequence_id: update.sequence_id,
                     user_edited: false,
+                    speaker_name: update.speaker_name.clone(),
                 };
 
                 // Save to recording manager
@@ -1096,6 +1100,7 @@ pub async fn stop_recording<R: Runtime>(
     // Set recording flag to false
     info!("🔍 Setting IS_RECORDING to false");
     IS_RECORDING.store(false, Ordering::SeqCst);
+    crate::audio::transcription::live_speaker::reset_session();
 
     // Step 4.5: Prepare metadata for frontend (NO database save)
     // NOTE: We do NOT save to database here. The frontend will save after all transcripts are displayed.

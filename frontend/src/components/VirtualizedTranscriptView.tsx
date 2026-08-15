@@ -49,6 +49,8 @@ export interface VirtualizedTranscriptViewProps {
      * review (matches the reference app's plain-text transcript); on during live
      * recording, where it's useful for tracking progress. */
     showTimestamps?: boolean;
+    pendingSpeakerName?: string | null;
+    pendingSpeakerColor?: string | null;
 }
 
 // Threshold for enabling virtualization (below this, use simple rendering)
@@ -92,6 +94,9 @@ const TranscriptSegment = memo(function TranscriptSegment({
     onEdit,
     isActive,
     onRowClick,
+    speakerName,
+    speakerColor,
+    showSpeakerLabel,
 }: {
     id: string;
     timestamp: number;
@@ -105,6 +110,9 @@ const TranscriptSegment = memo(function TranscriptSegment({
     onEdit?: (segmentId: string, newText: string, sequenceId?: number) => Promise<void>;
     isActive?: boolean;
     onRowClick?: () => void;
+    speakerName?: string | null;
+    speakerColor?: string | null;
+    showSpeakerLabel?: boolean;
 }) {
     const displayText = cleanStopWords(text) || (text.trim() === '' ? '[Im lặng]' : text);
     const [isEditing, setIsEditing] = useState(false);
@@ -194,6 +202,17 @@ const TranscriptSegment = memo(function TranscriptSegment({
 
                 {/* Content */}
                 <div className="flex-1 min-w-0">
+                    {showSpeakerLabel && speakerName && (
+                        <div
+                            className="mb-1 pt-1 border-t border-dashed text-xs font-semibold"
+                            style={{
+                                color: speakerColor || '#2563EB',
+                                borderColor: speakerColor || '#2563EB',
+                            }}
+                        >
+                            {speakerName}
+                        </div>
+                    )}
                     {isEditing ? (
                         // Edit mode
                         <div className="rounded-lg border border-[rgba(22,71,142,0.4)] bg-[rgba(22,71,142,0.05)] ring-2 ring-[rgba(22,71,142,0.2)] overflow-hidden">
@@ -271,6 +290,8 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
     onSegmentClick,
     playbackFollow = false,
     showTimestamps = true,
+    pendingSpeakerName = null,
+    pendingSpeakerColor = null,
 }) => {
     // Create scroll ref first - shared between virtualizer and auto-scroll hook
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -410,6 +431,17 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                             <p className="text-xs mt-1 text-gray-400">
                                 {isPaused ? 'Nhấn tiếp tục để ghi âm lại' : 'Nói để xem bản ghi trực tiếp'}
                             </p>
+                            {pendingSpeakerName && (
+                                <p
+                                    className="text-sm font-semibold mt-4 pt-2 border-t border-dashed inline-block"
+                                    style={{
+                                        color: pendingSpeakerColor || '#2563EB',
+                                        borderColor: pendingSpeakerColor || '#2563EB',
+                                    }}
+                                >
+                                    {pendingSpeakerName}
+                                </p>
+                            )}
                         </>
                     ) : (
                         <>
@@ -460,6 +492,13 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                         onRowClick={
                                             onSegmentClick ? () => onSegmentClick(segment) : undefined
                                         }
+                                        speakerName={segment.speakerName}
+                                        speakerColor={segment.speakerColor}
+                                        showSpeakerLabel={
+                                            !!segment.speakerName &&
+                                            segment.speakerName !==
+                                                segments[virtualRow.index - 1]?.speakerName
+                                        }
                                     />
                                 </div>
                             );
@@ -494,12 +533,23 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                             <span className="text-sm">Đang lắng nghe...</span>
                         </motion.div>
                     )}
+                    {isRecording && pendingSpeakerName && (
+                        <div
+                            className="mt-3 pt-2 border-t border-dashed text-sm font-semibold"
+                            style={{
+                                color: pendingSpeakerColor || '#2563EB',
+                                borderColor: pendingSpeakerColor || '#2563EB',
+                            }}
+                        >
+                            {pendingSpeakerName}
+                        </div>
+                    )}
                 </>
             ) : (
                 // Simple rendering for small lists (better animations)
                 <>
                     <div className="space-y-1">
-                        {segments.map((segment) => {
+                        {segments.map((segment, idx) => {
                             const isStreaming = streamingSegmentId === segment.id;
 
                             return (
@@ -523,6 +573,12 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                         isActive={segment.id === activeSegmentId}
                                         onRowClick={
                                             onSegmentClick ? () => onSegmentClick(segment) : undefined
+                                        }
+                                        speakerName={segment.speakerName}
+                                        speakerColor={segment.speakerColor}
+                                        showSpeakerLabel={
+                                            !!segment.speakerName &&
+                                            segment.speakerName !== segments[idx - 1]?.speakerName
                                         }
                                     />
                                 </motion.div>
@@ -557,6 +613,17 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                             <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
                             <span className="text-sm">Đang lắng nghe...</span>
                         </motion.div>
+                    )}
+                    {isRecording && pendingSpeakerName && (
+                        <div
+                            className="mt-3 pt-2 border-t border-dashed text-sm font-semibold"
+                            style={{
+                                color: pendingSpeakerColor || '#2563EB',
+                                borderColor: pendingSpeakerColor || '#2563EB',
+                            }}
+                        >
+                            {pendingSpeakerName}
+                        </div>
                     )}
                 </>
             )}

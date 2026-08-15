@@ -81,14 +81,21 @@ pub fn start_streaming_task<R: Runtime>(
                     .get_result(&stream)
                     .map(|r| r.text)
                     .unwrap_or_default();
-                let is_endpoint = recognizer.is_endpoint(&stream);
+                let force_speaker = super::live_speaker::should_force_endpoint();
+                let is_endpoint = recognizer.is_endpoint(&stream) || force_speaker;
                 let emits = session.on_hypothesis(&hyp, is_endpoint);
-                if session.take_pending_reset() {
+                let did_reset = session.take_pending_reset();
+                if did_reset {
                     recognizer.reset(&stream);
                 }
                 drop(rec_guard);
 
                 emit_updates(&app, emits);
+                if did_reset {
+                    if let Some(name) = super::live_speaker::apply_pending() {
+                        super::live_speaker::emit_speaker_committed(&app, &name);
+                    }
+                }
             }
 
             let rec_guard = engine.recognizer().read().await;
@@ -102,11 +109,17 @@ pub fn start_streaming_task<R: Runtime>(
                     .map(|r| r.text)
                     .unwrap_or_default();
                 let emits = session.on_hypothesis(&hyp, true);
-                if session.take_pending_reset() {
+                let did_reset = session.take_pending_reset();
+                if did_reset {
                     recognizer.reset(&stream);
                 }
                 drop(rec_guard);
                 emit_updates(&app, emits);
+                if did_reset {
+                    if let Some(name) = super::live_speaker::apply_pending() {
+                        super::live_speaker::emit_speaker_committed(&app, &name);
+                    }
+                }
             }
         }
 
@@ -132,6 +145,10 @@ fn emit_updates<R: Runtime>(
         }
 
         let duration = (emit.audio_end_time - emit.audio_start_time).max(0.0);
+        let speaker_name = super::live_speaker::stamp();
+        let speaker_color = speaker_name
+            .as_deref()
+            .map(super::live_speaker::color_for_name);
         let update = TranscriptUpdate {
             text,
             timestamp: super::worker::format_current_timestamp(),
@@ -143,6 +160,8 @@ fn emit_updates<R: Runtime>(
             audio_start_time: emit.audio_start_time,
             audio_end_time: emit.audio_end_time,
             duration,
+            speaker_name,
+            speaker_color,
         };
 
         if let Err(e) = app.emit("transcript-update", &update) {
