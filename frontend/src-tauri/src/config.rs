@@ -125,25 +125,12 @@ pub const ITN_VERBALIZE_FAR: &str = "verbalize.far";
 /// Bundled default hotwords list (tên riêng / thuật ngữ chuyên ngành)
 pub const HOTWORDS_RESOURCE_FILE: &str = "hotwords.txt";
 
-/// Speaker diarization — Community-1 Pure ORT (matches test ASR `community1_pure_ort`)
-pub const DIARIZATION_SUBDIR: &str = "diarization-community1";
-pub const DIARIZATION_SEG_FILE: &str = "segmentation-community-1.onnx";
-pub const DIARIZATION_SEG_SIZE_BYTES: u64 = 5_916_375;
-pub const DIARIZATION_EMB_ENCODER_FILE: &str = "embedding_encoder.onnx";
-pub const DIARIZATION_EMB_ENCODER_SIZE_BYTES: u64 = 21_306_024;
-pub const DIARIZATION_EMB_WEIGHT_FILE: &str = "resnet_seg_1_weight.npy";
-pub const DIARIZATION_EMB_WEIGHT_SIZE_BYTES: u64 = 5_243_008;
-pub const DIARIZATION_EMB_BIAS_FILE: &str = "resnet_seg_1_bias.npy";
-pub const DIARIZATION_EMB_BIAS_SIZE_BYTES: u64 = 1_152;
-pub const DIARIZATION_PLDA_PREPARED_FILE: &str = "plda/plda_prepared.npz";
-pub const DIARIZATION_PLDA_PREPARED_SIZE_BYTES: u64 = 268_226;
+/// Speaker diarization — Senko CAM++ (matches test ASR `senko_campp_optimized`)
+pub const DIARIZATION_SUBDIR: &str = "diarization-senko-campp";
+pub const DIARIZATION_CAMP_FILE: &str = "campplus_cn_en_common_200k.onnx";
+pub const DIARIZATION_CAMP_SIZE_BYTES: u64 = 28_283_928;
 
 pub const DIARIZATION_SAMPLE_RATE: u32 = 16_000;
-pub const DIARIZATION_CHUNK_DURATION_SEC: f64 = 10.0;
-pub const DIARIZATION_CHUNK_STEP_SEC: f64 = 1.0;
-pub const DIARIZATION_DEFAULT_THRESHOLD: f64 = 0.6;
-pub const DIARIZATION_DEFAULT_FA: f64 = 0.07;
-pub const DIARIZATION_DEFAULT_FB: f64 = 0.8;
 
 /// Microsoft DNSMOS (P.835) — mic quality check before live recording (test ASR)
 pub const DNSMOS_SUBDIR: &str = "dnsmos";

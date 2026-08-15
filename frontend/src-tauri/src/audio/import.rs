@@ -902,31 +902,6 @@ pub(crate) fn attach_diarization_clusters(
         .collect();
 }
 
-// #region agent log
-fn agent_dbg(hypothesis_id: &str, location: &str, message: &str, data: serde_json::Value) {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../debug-2a8170.log");
-    let payload = serde_json::json!({
-        "sessionId": "2a8170",
-        "hypothesisId": hypothesis_id,
-        "location": location,
-        "message": message,
-        "data": data,
-        "timestamp": std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or(0),
-    });
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-    {
-        use std::io::Write;
-        let _ = writeln!(f, "{payload}");
-    }
-}
-// #endregion
-
 /// Fail-open offline diarization for file import when enabled in settings.
 pub(crate) async fn maybe_apply_diarization<R: Runtime>(
     app: &AppHandle<R>,
@@ -945,31 +920,7 @@ pub(crate) async fn maybe_apply_diarization<R: Runtime>(
         ),
         _ => (false, None),
     };
-    // #region agent log
-    agent_dbg(
-        "A",
-        "import.rs:maybe_apply_diarization:entry",
-        "diarization settings at import",
-        serde_json::json!({
-            "enabled": enabled,
-            "num_speakers": num_speakers,
-            "samples_len": audio_samples.len(),
-            "segments_len": segments.len(),
-            "duration_sec": audio_samples.len() as f64 / 16000.0,
-        }),
-    );
-    // #endregion
     if !enabled || segments.is_empty() || audio_samples.is_empty() {
-        // #region agent log
-        agent_dbg(
-            "A",
-            "import.rs:maybe_apply_diarization:early_return",
-            "skipped before engine",
-            serde_json::json!({
-                "reason": if !enabled { "disabled" } else if segments.is_empty() { "no_segments" } else { "no_samples" },
-            }),
-        );
-        // #endregion
         return;
     }
 
@@ -978,14 +929,6 @@ pub(crate) async fn maybe_apply_diarization<R: Runtime>(
         .unwrap_or(false);
     if !ready {
         warn!("Diarization enabled but models not ready — continuing without speakers");
-        // #region agent log
-        agent_dbg(
-            "A",
-            "import.rs:maybe_apply_diarization:not_ready",
-            "models not ready",
-            serde_json::json!({}),
-        );
-        // #endregion
         return;
     }
 
@@ -993,14 +936,6 @@ pub(crate) async fn maybe_apply_diarization<R: Runtime>(
         crate::diarization_engine::commands::diarization_init(app.clone(), num_speakers, None).await
     {
         warn!("diarization_init failed, continuing without speakers: {e}");
-        // #region agent log
-        agent_dbg(
-            "A",
-            "import.rs:maybe_apply_diarization:init_fail",
-            "init failed",
-            serde_json::json!({ "error": e.to_string() }),
-        );
-        // #endregion
         return;
     }
 
@@ -1010,7 +945,6 @@ pub(crate) async fn maybe_apply_diarization<R: Runtime>(
     };
 
     let samples = audio_samples.to_vec();
-    let forced_k = num_speakers.map(|n| n as usize);
     let turns = match tokio::task::spawn_blocking(move || {
         let mut guard = engine
             .lock()
@@ -1019,47 +953,9 @@ pub(crate) async fn maybe_apply_diarization<R: Runtime>(
     })
     .await
     {
-        Ok(Ok(t)) => {
-            // #region agent log
-            let mut uniq: Vec<usize> = t.iter().map(|x| x.cluster_index).collect();
-            uniq.sort_unstable();
-            uniq.dedup();
-            let sample_turns: Vec<_> = t
-                .iter()
-                .take(8)
-                .map(|x| {
-                    serde_json::json!({
-                        "start": x.start_sec,
-                        "end": x.end_sec,
-                        "cluster": x.cluster_index,
-                    })
-                })
-                .collect();
-            agent_dbg(
-                "B",
-                "import.rs:maybe_apply_diarization:after_diarize",
-                "engine turns",
-                serde_json::json!({
-                    "forced_num_speakers": forced_k,
-                    "turns_len": t.len(),
-                    "unique_clusters": uniq,
-                    "unique_count": uniq.len(),
-                    "sample_turns": sample_turns,
-                }),
-            );
-            // #endregion
-            t
-        }
+        Ok(Ok(t)) => t,
         Ok(Err(e)) => {
             warn!("diarization failed, continuing without speakers: {e}");
-            // #region agent log
-            agent_dbg(
-                "D",
-                "import.rs:maybe_apply_diarization:diarize_err",
-                "diarize error",
-                serde_json::json!({ "error": e.to_string() }),
-            );
-            // #endregion
             return;
         }
         Err(e) => {
@@ -1070,36 +966,6 @@ pub(crate) async fn maybe_apply_diarization<R: Runtime>(
 
     attach_diarization_clusters(segments, &turns);
     let labeled = segments.iter().filter(|s| s.speaker_cluster.is_some()).count();
-    // #region agent log
-    let mut seg_clusters: Vec<usize> = segments.iter().filter_map(|s| s.speaker_cluster).collect();
-    seg_clusters.sort_unstable();
-    seg_clusters.dedup();
-    let sample_ranges: Vec<_> = segments
-        .iter()
-        .take(12)
-        .map(|s| {
-            serde_json::json!({
-                "start": s.audio_start_time,
-                "end": s.audio_end_time,
-                "cluster": s.speaker_cluster,
-                "text_len": s.text.len(),
-            })
-        })
-        .collect();
-    agent_dbg(
-        "C",
-        "import.rs:maybe_apply_diarization:after_align",
-        "aligned segment clusters",
-        serde_json::json!({
-            "labeled": labeled,
-            "segments_len": segments.len(),
-            "unique_seg_clusters": seg_clusters,
-            "unique_seg_count": seg_clusters.len(),
-            "sample_ranges": sample_ranges,
-            "runId": "post-fix",
-        }),
-    );
-    // #endregion
     info!(
         "Diarization attached speakers to {}/{} segments ({} turns)",
         labeled,
@@ -1147,20 +1013,6 @@ async fn create_meeting_with_transcripts(
         .collect();
     unique_clusters.sort_unstable();
     unique_clusters.dedup();
-
-    // #region agent log
-    agent_dbg(
-        "E",
-        "import.rs:create_meeting_with_transcripts",
-        "speakers to persist",
-        serde_json::json!({
-            "meeting_id": meeting_id,
-            "unique_clusters": unique_clusters.clone(),
-            "speaker_count": unique_clusters.len(),
-            "segments_len": segments.len(),
-        }),
-    );
-    // #endregion
 
     for cluster_index in &unique_clusters {
         let cluster_index = *cluster_index;

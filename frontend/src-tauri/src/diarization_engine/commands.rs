@@ -1,11 +1,8 @@
-//! Tauri commands for Community-1 diarization model ready / vendor / init.
+//! Tauri commands for Senko CAM++ diarization model ready / vendor / init.
 
 use super::engine::{DiarizationConfig, DiarizationEngine};
-use crate::config::{
-    DIARIZATION_EMB_BIAS_FILE, DIARIZATION_EMB_ENCODER_FILE, DIARIZATION_EMB_WEIGHT_FILE,
-    DIARIZATION_PLDA_PREPARED_FILE, DIARIZATION_SEG_FILE, DIARIZATION_SUBDIR,
-};
-use log::{error, info};
+use crate::config::{DIARIZATION_CAMP_FILE, DIARIZATION_SUBDIR};
+use log::{error, info, warn};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager, Runtime};
@@ -20,18 +17,44 @@ fn resolve_diarization_dir<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
         .map(|d| d.join("models").join(DIARIZATION_SUBDIR))
 }
 
-fn required_files() -> [&'static str; 5] {
-    [
-        DIARIZATION_SEG_FILE,
-        DIARIZATION_EMB_ENCODER_FILE,
-        DIARIZATION_EMB_WEIGHT_FILE,
-        DIARIZATION_EMB_BIAS_FILE,
-        DIARIZATION_PLDA_PREPARED_FILE,
-    ]
+fn files_ready(dir: &Path) -> bool {
+    let p = dir.join(DIARIZATION_CAMP_FILE);
+    p.exists() && p.is_file()
 }
 
-fn files_ready(dir: &Path) -> bool {
-    required_files().iter().all(|name| dir.join(name).exists())
+fn known_campplus_sources() -> Vec<PathBuf> {
+    let mut srcs = Vec::new();
+    if let Ok(p) = std::env::var("MEETINGONE_CAMPPLUS_ONNX") {
+        srcs.push(PathBuf::from(p));
+    }
+    srcs.push(PathBuf::from(
+        r"C:\Users\HP\Desktop\test ASR\models\campp-3dspeaker\campplus_cn_en_common_200k.onnx",
+    ));
+    srcs.push(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("diarization-fixture")
+            .join(DIARIZATION_CAMP_FILE),
+    );
+    srcs
+}
+
+fn copy_campplus_if_needed(dest_dir: &Path) -> Result<(), String> {
+    if files_ready(dest_dir) {
+        return Ok(());
+    }
+    std::fs::create_dir_all(dest_dir).map_err(|e| e.to_string())?;
+    for src in known_campplus_sources() {
+        if src.is_file() {
+            std::fs::copy(&src, dest_dir.join(DIARIZATION_CAMP_FILE)).map_err(|e| e.to_string())?;
+            info!(
+                "Diarization CAM++ copied from {} to {}",
+                src.display(),
+                dest_dir.display()
+            );
+            return Ok(());
+        }
+    }
+    Err("CAM++ ONNX not found — set MEETINGONE_CAMPPLUS_ONNX or vendor campplus_cn_en_common_200k.onnx".to_string())
 }
 
 #[tauri::command]
@@ -47,66 +70,42 @@ pub async fn diarization_get_models_directory<R: Runtime>(
 pub async fn diarization_is_model_ready<R: Runtime>(app: AppHandle<R>) -> Result<bool, String> {
     let dir = resolve_diarization_dir(&app)
         .ok_or_else(|| "Could not resolve app data directory".to_string())?;
-    Ok(files_ready(&dir))
+    if files_ready(&dir) {
+        return Ok(true);
+    }
+    match copy_campplus_if_needed(&dir) {
+        Ok(()) => Ok(true),
+        Err(e) => {
+            warn!("{e}");
+            Ok(false)
+        }
+    }
 }
 
-/// Copy Community-1 assets into app data.
-/// `onnx_source_dir`: folder with seg/encoder/weight/bias (e.g. test ASR `models/pyannote-onnx`)
-/// `plda_source_dir`: folder containing `plda_prepared.npz` (e.g. `.../plda` or community-1 root)
+/// Copy CAM++ ONNX into app data.
+/// `onnx_source_dir`: folder containing `campplus_cn_en_common_200k.onnx`, or the file itself.
+/// `plda_source_dir`: unused (kept so older frontend invoke signatures still compile).
 #[tauri::command]
 pub async fn diarization_vendor_models<R: Runtime>(
     app: AppHandle<R>,
     onnx_source_dir: String,
-    plda_source_dir: Option<String>,
+    _plda_source_dir: Option<String>,
 ) -> Result<(), String> {
     let dest = resolve_diarization_dir(&app)
         .ok_or_else(|| "Could not resolve app data directory".to_string())?;
     std::fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(dest.join("plda")).map_err(|e| e.to_string())?;
 
-    let onnx = PathBuf::from(&onnx_source_dir);
-    for name in [
-        DIARIZATION_SEG_FILE,
-        DIARIZATION_EMB_ENCODER_FILE,
-        DIARIZATION_EMB_WEIGHT_FILE,
-        DIARIZATION_EMB_BIAS_FILE,
-    ] {
-        let src = onnx.join(name);
-        if !src.exists() {
-            return Err(format!("missing {}", src.display()));
-        }
-        std::fs::copy(&src, dest.join(name)).map_err(|e| e.to_string())?;
-    }
-
-    let plda_src = plda_source_dir
-        .map(PathBuf::from)
-        .unwrap_or_else(|| onnx.join("plda"));
-
-    let prepared = if plda_src.join("plda_prepared.npz").exists() {
-        plda_src.join("plda_prepared.npz")
-    } else if plda_src.join("plda").join("plda_prepared.npz").exists() {
-        plda_src.join("plda").join("plda_prepared.npz")
+    let src_dir = PathBuf::from(&onnx_source_dir);
+    let src = if src_dir.is_file() {
+        src_dir
     } else {
-        return Err(format!(
-            "plda_prepared.npz not found under {}",
-            plda_src.display()
-        ));
+        src_dir.join(DIARIZATION_CAMP_FILE)
     };
-    std::fs::copy(&prepared, dest.join(DIARIZATION_PLDA_PREPARED_FILE))
-        .map_err(|e| e.to_string())?;
-
-    for name in ["plda.npz", "xvec_transform.npz"] {
-        let s = if plda_src.join(name).exists() {
-            plda_src.join(name)
-        } else {
-            plda_src.join("plda").join(name)
-        };
-        if s.exists() {
-            let _ = std::fs::copy(&s, dest.join("plda").join(name));
-        }
+    if !src.exists() {
+        return Err(format!("missing {}", src.display()));
     }
-
-    info!("Diarization models vendored to {}", dest.display());
+    std::fs::copy(&src, dest.join(DIARIZATION_CAMP_FILE)).map_err(|e| e.to_string())?;
+    info!("Diarization CAM++ vendored to {}", dest.display());
     Ok(())
 }
 
@@ -118,8 +117,9 @@ pub async fn diarization_init<R: Runtime>(
 ) -> Result<(), String> {
     let dir = resolve_diarization_dir(&app)
         .ok_or_else(|| "Could not resolve app data directory".to_string())?;
+    copy_campplus_if_needed(&dir)?;
     if !files_ready(&dir) {
-        return Err("Diarization models not ready — vendor/copy them first".to_string());
+        return Err("Diarization models not ready — vendor CAM++ ONNX first".to_string());
     }
 
     let cfg = DiarizationConfig {
@@ -137,10 +137,27 @@ pub async fn diarization_init<R: Runtime>(
         .lock()
         .map_err(|_| "diarization engine lock poisoned".to_string())?;
     *slot = Some(Arc::new(Mutex::new(engine)));
-    info!("Diarization engine initialized");
+    info!("Senko CAM++ diarization engine initialized");
     Ok(())
 }
 
 pub fn get_engine_arc() -> Option<Arc<Mutex<DiarizationEngine>>> {
     DIARIZATION_ENGINE.lock().ok().and_then(|g| g.clone())
+}
+
+pub fn init_on_startup<R: Runtime>(app: &AppHandle<R>) {
+    let app_clone = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let Some(dir) = resolve_diarization_dir(&app_clone) else {
+            warn!("Diarization startup: could not resolve app data directory");
+            return;
+        };
+        if files_ready(&dir) {
+            return;
+        }
+        match copy_campplus_if_needed(&dir) {
+            Ok(()) => info!("Diarization CAM++ model ready at {}", dir.display()),
+            Err(e) => warn!("Diarization CAM++ not auto-vendored: {e}"),
+        }
+    });
 }

@@ -403,6 +403,9 @@ pub fn run() {
             // Initialize CAPU punctuation restoration if model already downloaded
             capu_engine::commands::init_on_startup(&_app.handle());
 
+            // Vendor Senko CAM++ ONNX from the local test-ASR copy when missing
+            diarization_engine::commands::init_on_startup(&_app.handle());
+
             // Trigger system audio permission request on startup (similar to microphone permission)
             // #[cfg(target_os = "macos")]
             // {

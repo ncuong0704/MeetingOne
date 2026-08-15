@@ -204,7 +204,7 @@ export default function SharedTranscriptPanel({
               Phân biệt người nói
             </span>
             <span className="block text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-              Chỉ khi nhập file audio. Tắt mặc định; cần model Community-1 đã vendor vào app.
+              Chỉ khi nhập file audio. Dùng Senko CAM++.
             </span>
           </span>
         </label>
