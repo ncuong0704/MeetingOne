@@ -88,7 +88,17 @@ pub const CAPU_DTAGS_SIZE_BYTES: u64 = 100;
 pub const CAPU_MAX_SEQ_LEN: usize = 512;
 pub const CAPU_MAX_ITERATIONS: usize = 3;
 pub const CAPU_TRAILING_CONTEXT_WORDS: usize = 15;
-pub const CAPU_BATCH_WORD_BUDGET: usize = 200;
+/// Matches the reference app's own `chunk_size=56` (tokens, vs. words here — close enough
+/// given ~1 subword/word in Vietnamese). This is a real quality bound, not just a tuning
+/// knob: CAPU is a BERT-style self-attention model, and empirically (real ROVER transcript,
+/// same text/pause-hints, budget varied 200/56/40/30) it gets measurably more
+/// conservative — favoring `$KEEP` over `$APPEND_.` even at genuine >=1s pauses — as the
+/// sequence it's asked to judge in one call gets longer. 200 (chosen purely to minimize
+/// CAPU's fixed per-call overhead) produced 10 periods over 786 words; 56 produced 16 with
+/// no chunk-boundary artifacts. Shrinking further (40/30) pushed periods higher still (21,
+/// 45) but by forcing spurious sentence breaks right at arbitrary chunk-cut points instead
+/// of real pauses — 56 is the sweet spot between the two failure modes.
+pub const CAPU_BATCH_WORD_BUDGET: usize = 56;
 
 /// Vietnamese ITN — bundled FAR resources (no download)
 pub const ITN_RESOURCE_SUBDIR: &str = "itn-vi";
@@ -97,3 +107,23 @@ pub const ITN_VERBALIZE_FAR: &str = "verbalize.far";
 
 /// Bundled default hotwords list (tên riêng / thuật ngữ chuyên ngành)
 pub const HOTWORDS_RESOURCE_FILE: &str = "hotwords.txt";
+
+/// Speaker diarization — Community-1 Pure ORT (matches test ASR `community1_pure_ort`)
+pub const DIARIZATION_SUBDIR: &str = "diarization-community1";
+pub const DIARIZATION_SEG_FILE: &str = "segmentation-community-1.onnx";
+pub const DIARIZATION_SEG_SIZE_BYTES: u64 = 5_916_375;
+pub const DIARIZATION_EMB_ENCODER_FILE: &str = "embedding_encoder.onnx";
+pub const DIARIZATION_EMB_ENCODER_SIZE_BYTES: u64 = 21_306_024;
+pub const DIARIZATION_EMB_WEIGHT_FILE: &str = "resnet_seg_1_weight.npy";
+pub const DIARIZATION_EMB_WEIGHT_SIZE_BYTES: u64 = 5_243_008;
+pub const DIARIZATION_EMB_BIAS_FILE: &str = "resnet_seg_1_bias.npy";
+pub const DIARIZATION_EMB_BIAS_SIZE_BYTES: u64 = 1_152;
+pub const DIARIZATION_PLDA_PREPARED_FILE: &str = "plda/plda_prepared.npz";
+pub const DIARIZATION_PLDA_PREPARED_SIZE_BYTES: u64 = 268_226;
+
+pub const DIARIZATION_SAMPLE_RATE: u32 = 16_000;
+pub const DIARIZATION_CHUNK_DURATION_SEC: f64 = 10.0;
+pub const DIARIZATION_CHUNK_STEP_SEC: f64 = 1.0;
+pub const DIARIZATION_DEFAULT_THRESHOLD: f64 = 0.6;
+pub const DIARIZATION_DEFAULT_FA: f64 = 0.07;
+pub const DIARIZATION_DEFAULT_FB: f64 = 0.8;

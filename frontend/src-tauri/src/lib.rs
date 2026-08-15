@@ -55,6 +55,7 @@ pub mod asr_engine;
 pub mod rnnt_decoder;
 pub mod rover_engine;
 pub mod capu_engine;
+pub mod diarization_engine;
 
 use audio::{list_audio_devices, AudioDevice, trigger_audio_permission};
 use log::{error as log_error, info as log_info};
