@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { appDataDir } from '@tauri-apps/api/path';
 import { useCallback, useEffect, useState, useRef } from 'react';
 import { Play, Pause, Square, Mic, MicOff, AlertCircle, X } from 'lucide-react';
+import { MicQualityDialog } from '@/components/MicQualityDialog';
 import { ProcessRequest, SummaryResponse } from '@/types/summary';
 import { listen } from '@tauri-apps/api/event';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -66,6 +67,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
   const [isValidatingModel, setIsValidatingModel] = useState(false);
   const [speechDetected, setSpeechDetected] = useState(false);
   const [deviceError, setDeviceError] = useState<{ title: string, message: string } | null>(null);
+  const [qualityOpen, setQualityOpen] = useState(false);
 
   const currentTime = 0;
   const duration = 0;
@@ -419,6 +421,24 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                         </Tooltip>
                       )}
 
+                      {hasMicrophoneAccess && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              onClick={() => setQualityOpen(true)}
+                              disabled={isStarting || isProcessing || isValidatingModel}
+                              className="h-8 shrink-0 rounded-md bg-blue-600 px-2.5 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                            >
+                              Đánh giá
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Kiểm tra chất lượng microphone trước khi ghi</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <span className="inline-flex">
@@ -589,12 +609,12 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
           </Alert>
         )}
 
-        {/* {showPlayback && recordingPath && (
-        <div className="text-sm text-gray-600 px-4">
-          Recording saved to: {recordingPath}
-        </div>
-      )} */}
       </div>
+      <MicQualityDialog
+        open={qualityOpen}
+        onOpenChange={setQualityOpen}
+        deviceName={selectedDevices?.micDevice ?? null}
+      />
     </TooltipProvider>
   );
 };

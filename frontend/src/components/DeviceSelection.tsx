@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { RefreshCw, Mic, Speaker } from 'lucide-react';
 import { AudioLevelMeter, CompactAudioLevelMeter } from './AudioLevelMeter';
+import { MicQualityDialog } from '@/components/MicQualityDialog';
 import { AudioBackendSelector } from './AudioBackendSelector';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
@@ -46,6 +47,7 @@ export function DeviceSelection({ selectedDevices, onDeviceChange, disabled = fa
   const [audioLevels, setAudioLevels] = useState<Map<string, AudioLevelData>>(new Map());
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [showLevels, setShowLevels] = useState(false);
+  const [qualityOpen, setQualityOpen] = useState(false);
 
   // Filter devices by type
   const inputDevices = devices.filter(device => device.device_type === 'Input');
@@ -269,26 +271,42 @@ export function DeviceSelection({ selectedDevices, onDeviceChange, disabled = fa
               Micro
             </Label>
           </div>
-          <Select
-            value={selectedDevices.micDevice || 'default'}
-            onValueChange={handleMicDeviceChange}
-            disabled={disabled}
-          >
-            <SelectTrigger id="mic-selection" className="w-full">
-              <SelectValue placeholder="Chọn micro" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="default">Micro mặc định</SelectItem>
-              {inputDevices.map((device) => (
-                <SelectItem
-                  key={device.name}
-                  value={`${device.name} (${device.device_type.toLowerCase()})`}
-                >
-                  {device.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex items-center gap-2">
+            <Select
+              value={selectedDevices.micDevice || 'default'}
+              onValueChange={handleMicDeviceChange}
+              disabled={disabled}
+            >
+              <SelectTrigger id="mic-selection" className="w-full">
+                <SelectValue placeholder="Chọn micro" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default">Micro mặc định</SelectItem>
+                {inputDevices.map((device) => (
+                  <SelectItem
+                    key={device.name}
+                    value={`${device.name} (${device.device_type.toLowerCase()})`}
+                  >
+                    {device.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <button
+              type="button"
+              onClick={() => setQualityOpen(true)}
+              disabled={disabled}
+              className="h-9 shrink-0 rounded-md bg-blue-600 px-3 text-xs font-semibold text-white hover:bg-blue-700 disabled:pointer-events-none disabled:opacity-50"
+              title="Đánh giá chất lượng microphone (10 giây)"
+            >
+              Đánh giá
+            </button>
+          </div>
+          <MicQualityDialog
+            open={qualityOpen}
+            onOpenChange={setQualityOpen}
+            deviceName={selectedDevices.micDevice}
+          />
           {inputDevices.length === 0 && (
             <p className="text-xs text-gray-500">Không tìm thấy micro</p>
           )}
@@ -380,7 +398,7 @@ export function DeviceSelection({ selectedDevices, onDeviceChange, disabled = fa
           <p>• <strong>Mức micro:</strong> Xanh = tốt, Vàng = lớn, Đỏ = quá lớn</p>
         )}
         {!isMonitoring && inputDevices.length > 0 && (
-          <p>• <strong>Mẹo:</strong> Dùng «Thử micro» (khi bật) để kiểm tra micro hoạt động</p>
+          <p>• <strong>Mẹo:</strong> Bấm «Đánh giá» cạnh micro để kiểm tra chất lượng trước khi ghi trực tiếp</p>
         )}
       </div>
     </div>

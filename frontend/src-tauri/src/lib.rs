@@ -526,6 +526,10 @@ pub fn run() {
             audio::transcription::live_speaker::get_speaker_hotkeys,
             audio::transcription::live_speaker::save_speaker_hotkeys,
             audio::transcription::live_speaker::insert_live_speaker,
+            audio::mic_quality::mic_quality_is_model_ready,
+            audio::mic_quality::mic_quality_download_model,
+            audio::mic_quality::mic_quality_analyze,
+            audio::mic_quality::mic_quality_cancel,
             // Device monitoring commands (AirPods/Bluetooth disconnect/reconnect)
             audio::recording_commands::poll_audio_device_events,
             audio::recording_commands::get_reconnection_status,

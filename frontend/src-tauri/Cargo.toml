@@ -117,6 +117,7 @@ rayon = "1.10"
 rubato = "0.15.0"
 ringbuf = "0.4.8"
 tempfile = "3.3.0"
+sha2 = "0.10"
 
 ffmpeg-sidecar = { git = "https://github.com/nathanbabcock/ffmpeg-sidecar", branch = "main" }
 

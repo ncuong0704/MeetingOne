@@ -144,3 +144,13 @@ pub const DIARIZATION_CHUNK_STEP_SEC: f64 = 1.0;
 pub const DIARIZATION_DEFAULT_THRESHOLD: f64 = 0.6;
 pub const DIARIZATION_DEFAULT_FA: f64 = 0.07;
 pub const DIARIZATION_DEFAULT_FB: f64 = 0.8;
+
+/// Microsoft DNSMOS (P.835) — mic quality check before live recording (test ASR)
+pub const DNSMOS_SUBDIR: &str = "dnsmos";
+pub const DNSMOS_MODEL_FILE: &str = "sig_bak_ovr.onnx";
+pub const DNSMOS_URL: &str =
+    "https://github.com/microsoft/DNS-Challenge/raw/master/DNSMOS/DNSMOS/sig_bak_ovr.onnx";
+pub const DNSMOS_SHA256: &str = "269fbebdb513aa23cddfbb593542ecc540284a91849ac50516870e1ac78f6edd";
+pub const DNSMOS_SIZE_BYTES: u64 = 5_000_000;
+pub const DNSMOS_INPUT_SAMPLES: usize = 144_160; // 9.01s @ 16 kHz
+pub const MIC_QUALITY_RECORD_SECS: u32 = 10;

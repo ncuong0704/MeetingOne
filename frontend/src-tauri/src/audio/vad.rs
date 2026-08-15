@@ -96,7 +96,12 @@ impl ContinuousVadProcessor {
 
         config.redemption_time = Duration::from_millis(redemption_time_ms as u64);
         config.pre_speech_pad = Duration::from_millis(300);
-        config.post_speech_pad = Duration::from_millis(400);
+        // silero-rs `get_speech` slices `speech_end + post_speech_pad` with no clamp.
+        // SpeechEnd fires when silence exceeds redemption (~one 30ms frame later).
+        // If pad > redemption the slice is past `session_audio` (e.g. 400ms pad vs
+        // ~330ms silence → 1120 samples OOB). silero's own validate_config rejects
+        // this, but we mutate `VadConfig::default()` and never call it.
+        config.post_speech_pad = clamped_post_speech_pad(redemption_time_ms);
 
         // 150ms minimum allows monosyllabic Vietnamese words ("Có", "Không", "Ừ", "Được")
         // that are typically 80-150ms to pass through to ZipFormer.
@@ -433,6 +438,11 @@ impl ContinuousVadProcessor {
     }
 }
 
+/// Keep silero `post_speech_pad` ≤ redemption so SpeechEnd never indexes past the buffer.
+fn clamped_post_speech_pad(redemption_time_ms: u32) -> Duration {
+    Duration::from_millis(400.min(redemption_time_ms as u64))
+}
+
 /// Legacy function for backward compatibility - now uses the optimized approach
 pub fn extract_speech_16k(samples_mono_16k: &[f32]) -> Result<Vec<f32>> {
     let mut processor = ContinuousVadProcessor::new(16000, 400, LIVE_VAD_THRESHOLDS)?;
@@ -562,6 +572,13 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn post_speech_pad_never_exceeds_redemption() {
+        assert_eq!(clamped_post_speech_pad(300), Duration::from_millis(300));
+        assert_eq!(clamped_post_speech_pad(400), Duration::from_millis(400));
+        assert_eq!(clamped_post_speech_pad(1200), Duration::from_millis(400));
+    }
 
     #[test]
     fn file_batch_vad_thresholds_are_more_permissive_than_live() {
