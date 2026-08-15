@@ -14,7 +14,7 @@ import {
 } from '@/lib/asr';
 import {
   DEFAULT_DECODING,
-  DEFAULT_FAMILY,
+  DEFAULT_LIVE_FAMILY,
   DEFAULT_MAX_SEGMENT_SECONDS,
   DEFAULT_PATHS,
   DEFAULT_VARIANT,
@@ -38,7 +38,7 @@ interface DownloadState {
 }
 
 export default function LiveAsrPanel({ config, disabled = false, onSaved }: LiveAsrPanelProps) {
-  const [selectedFamily, setSelectedFamily] = useState<AsrModelFamily>(DEFAULT_FAMILY);
+  const [selectedFamily, setSelectedFamily] = useState<AsrModelFamily>(DEFAULT_LIVE_FAMILY);
   const [selectedVariant, setSelectedVariant] = useState<ModelVariant>(DEFAULT_VARIANT);
   const [decodingMethod, setDecodingMethod] = useState<DecodingMethod>(DEFAULT_DECODING);
   const [numActivePaths, setNumActivePaths] = useState(DEFAULT_PATHS);

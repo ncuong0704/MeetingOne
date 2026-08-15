@@ -67,6 +67,23 @@ pub const SHERPA_VI_2025_SIZE_BYTES: u64 = 261_000_000;
 pub const SHERPA_VI_2025_BPE: &str = "bpe.model";
 pub const SHERPA_VI_2025_TOKENS: &str = "tokens.txt";
 
+/// Live streaming ZipFormer (chunk-64) — test ASR OnlineRecognizer path
+pub const ZIPFORMER_STREAMING_MODEL_NAME: &str = "zipformer-vi-30m-streaming";
+pub const ZIPFORMER_STREAMING_HF_URL: &str =
+    "https://huggingface.co/hynt/Zipformer-30M-RNNT-Streaming-6000h/resolve/main";
+pub const ZIPFORMER_STREAMING_SUBDIR: &str = "zipformer-vi-streaming";
+pub const ZIPFORMER_STREAMING_ENCODER: &str =
+    "encoder-epoch-31-avg-11-chunk-64-left-128.fp16.onnx";
+pub const ZIPFORMER_STREAMING_DECODER: &str =
+    "decoder-epoch-31-avg-11-chunk-64-left-128.fp16.onnx";
+pub const ZIPFORMER_STREAMING_JOINER: &str =
+    "joiner-epoch-31-avg-11-chunk-64-left-128.fp16.onnx";
+pub const ZIPFORMER_STREAMING_SIZE_BYTES: u64 = 51_000_000;
+pub const ZIPFORMER_STREAMING_BPE: &str = "bpe.model";
+pub const ZIPFORMER_STREAMING_TOKENS: &str = "tokens.txt";
+pub const ZIPFORMER_STREAMING_TOKENS_RESOURCE: &str = "zipformer-streaming-tokens.txt";
+pub const ZIPFORMER_STREAMING_MAX_UTTERANCE_SECS: f64 = 12.0;
+
 /// Application configuration constants — CAPU Vietnamese punctuation restoration
 
 pub const CAPU_MODEL_NAME: &str = "vibert-capu-vi";

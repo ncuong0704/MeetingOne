@@ -66,8 +66,12 @@ impl RecordingManager {
         system_device: Option<Arc<AudioDevice>>,
         auto_save: bool,
         max_segment_seconds: u32,
+        streaming_asr: bool,
     ) -> Result<mpsc::UnboundedReceiver<AudioChunk>> {
-        info!("Starting recording manager (auto_save: {})", auto_save);
+        info!(
+            "Starting recording manager (auto_save: {}, streaming_asr: {})",
+            auto_save, streaming_asr
+        );
 
         // Set up transcription channel
         let (transcription_sender, transcription_receiver) = mpsc::unbounded_channel::<AudioChunk>();
@@ -118,6 +122,7 @@ impl RecordingManager {
             sys_name,
             sys_kind,
             max_segment_seconds,
+            streaming_asr,
         )?;
 
         // Give the pipeline a moment to fully initialize before starting streams
@@ -190,7 +195,7 @@ impl RecordingManager {
                 warn!("No microphone device available - recording with system audio only");
             }
 
-            self.start_recording(microphone_device, system_device, auto_save, max_segment_seconds).await
+            self.start_recording(microphone_device, system_device, auto_save, max_segment_seconds, false).await
         }
 
         #[cfg(not(target_os = "macos"))]
@@ -224,7 +229,7 @@ impl RecordingManager {
                 warn!("No microphone device available - recording with system audio only");
             }
 
-            self.start_recording(microphone_device, system_device, auto_save, max_segment_seconds).await
+            self.start_recording(microphone_device, system_device, auto_save, max_segment_seconds, false).await
         }
     }
 

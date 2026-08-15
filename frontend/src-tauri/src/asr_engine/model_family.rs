@@ -6,6 +6,7 @@ pub enum ModelFamily {
     ZipFormer30M,
     Gipformer65M,
     SherpaZipformerVi2025,
+    ZipFormer30MStreaming,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -21,8 +22,13 @@ impl ModelFamily {
         match s {
             crate::config::GIPFORMER_MODEL_NAME => ModelFamily::Gipformer65M,
             crate::config::SHERPA_VI_2025_MODEL_NAME => ModelFamily::SherpaZipformerVi2025,
+            crate::config::ZIPFORMER_STREAMING_MODEL_NAME => ModelFamily::ZipFormer30MStreaming,
             _ => ModelFamily::ZipFormer30M,
         }
+    }
+
+    pub fn is_online_streaming(self) -> bool {
+        matches!(self, ModelFamily::ZipFormer30MStreaming)
     }
 
     pub fn id(self) -> &'static str {
@@ -30,6 +36,7 @@ impl ModelFamily {
             ModelFamily::ZipFormer30M => crate::config::ZIPFORMER_MODEL_NAME,
             ModelFamily::Gipformer65M => crate::config::GIPFORMER_MODEL_NAME,
             ModelFamily::SherpaZipformerVi2025 => crate::config::SHERPA_VI_2025_MODEL_NAME,
+            ModelFamily::ZipFormer30MStreaming => crate::config::ZIPFORMER_STREAMING_MODEL_NAME,
         }
     }
 
@@ -38,6 +45,7 @@ impl ModelFamily {
             ModelFamily::ZipFormer30M => "ZipFormer 30M",
             ModelFamily::Gipformer65M => "Gipformer 65M",
             ModelFamily::SherpaZipformerVi2025 => "Sherpa-ONNX Zipformer VI (2025)",
+            ModelFamily::ZipFormer30MStreaming => "ZipFormer 30M Streaming",
         }
     }
 
@@ -49,71 +57,76 @@ impl ModelFamily {
             ModelFamily::ZipFormer30M => &[ModelVariant::Int8, ModelVariant::Full],
             ModelFamily::Gipformer65M => &[ModelVariant::Int8, ModelVariant::Full],
             ModelFamily::SherpaZipformerVi2025 => &[ModelVariant::Full],
+            ModelFamily::ZipFormer30MStreaming => &[ModelVariant::Full],
+        }
+    }
+
+    fn reject_missing_int8(self, variant: ModelVariant) {
+        if variant == ModelVariant::Int8 && !self.available_variants().contains(&variant) {
+            unreachable!(
+                "{} has no int8 variant — check available_variants() first",
+                self.id()
+            );
         }
     }
 
     pub fn variant_subdir(self, variant: ModelVariant) -> &'static str {
+        self.reject_missing_int8(variant);
         match (self, variant) {
             (ModelFamily::ZipFormer30M, ModelVariant::Int8) => crate::config::ZIPFORMER_INT8_SUBDIR,
             (ModelFamily::ZipFormer30M, ModelVariant::Full) => crate::config::ZIPFORMER_FULL_SUBDIR,
             (ModelFamily::Gipformer65M, ModelVariant::Int8) => crate::config::GIPFORMER_INT8_SUBDIR,
             (ModelFamily::Gipformer65M, ModelVariant::Full) => crate::config::GIPFORMER_FULL_SUBDIR,
-            (ModelFamily::SherpaZipformerVi2025, ModelVariant::Full) => crate::config::SHERPA_VI_2025_SUBDIR,
-            (ModelFamily::SherpaZipformerVi2025, ModelVariant::Int8) => {
-                unreachable!("SherpaZipformerVi2025 has no int8 variant — check available_variants() first")
-            }
+            (ModelFamily::SherpaZipformerVi2025, _) => crate::config::SHERPA_VI_2025_SUBDIR,
+            (ModelFamily::ZipFormer30MStreaming, _) => crate::config::ZIPFORMER_STREAMING_SUBDIR,
         }
     }
 
     pub fn hf_url(self, variant: ModelVariant) -> &'static str {
+        self.reject_missing_int8(variant);
         match (self, variant) {
             (ModelFamily::ZipFormer30M, ModelVariant::Int8) => crate::config::ZIPFORMER_INT8_HF_URL,
             (ModelFamily::ZipFormer30M, ModelVariant::Full) => crate::config::ZIPFORMER_FULL_HF_URL,
             (ModelFamily::Gipformer65M, ModelVariant::Int8) => crate::config::GIPFORMER_INT8_HF_URL,
             (ModelFamily::Gipformer65M, ModelVariant::Full) => crate::config::GIPFORMER_FULL_HF_URL,
-            (ModelFamily::SherpaZipformerVi2025, ModelVariant::Full) => crate::config::SHERPA_VI_2025_HF_URL,
-            (ModelFamily::SherpaZipformerVi2025, ModelVariant::Int8) => {
-                unreachable!("SherpaZipformerVi2025 has no int8 variant — check available_variants() first")
-            }
+            (ModelFamily::SherpaZipformerVi2025, _) => crate::config::SHERPA_VI_2025_HF_URL,
+            (ModelFamily::ZipFormer30MStreaming, _) => crate::config::ZIPFORMER_STREAMING_HF_URL,
         }
     }
 
     pub fn encoder_file(self, variant: ModelVariant) -> &'static str {
+        self.reject_missing_int8(variant);
         match (self, variant) {
             (ModelFamily::ZipFormer30M, ModelVariant::Int8) => crate::config::ZIPFORMER_INT8_ENCODER,
             (ModelFamily::ZipFormer30M, ModelVariant::Full) => crate::config::ZIPFORMER_FULL_ENCODER,
             (ModelFamily::Gipformer65M, ModelVariant::Int8) => crate::config::GIPFORMER_INT8_ENCODER,
             (ModelFamily::Gipformer65M, ModelVariant::Full) => crate::config::GIPFORMER_FULL_ENCODER,
-            (ModelFamily::SherpaZipformerVi2025, ModelVariant::Full) => crate::config::SHERPA_VI_2025_ENCODER,
-            (ModelFamily::SherpaZipformerVi2025, ModelVariant::Int8) => {
-                unreachable!("SherpaZipformerVi2025 has no int8 variant — check available_variants() first")
-            }
+            (ModelFamily::SherpaZipformerVi2025, _) => crate::config::SHERPA_VI_2025_ENCODER,
+            (ModelFamily::ZipFormer30MStreaming, _) => crate::config::ZIPFORMER_STREAMING_ENCODER,
         }
     }
 
     pub fn decoder_file(self, variant: ModelVariant) -> &'static str {
+        self.reject_missing_int8(variant);
         match (self, variant) {
             (ModelFamily::ZipFormer30M, ModelVariant::Int8) => crate::config::ZIPFORMER_INT8_DECODER,
             (ModelFamily::ZipFormer30M, ModelVariant::Full) => crate::config::ZIPFORMER_FULL_DECODER,
             (ModelFamily::Gipformer65M, ModelVariant::Int8) => crate::config::GIPFORMER_INT8_DECODER,
             (ModelFamily::Gipformer65M, ModelVariant::Full) => crate::config::GIPFORMER_FULL_DECODER,
-            (ModelFamily::SherpaZipformerVi2025, ModelVariant::Full) => crate::config::SHERPA_VI_2025_DECODER,
-            (ModelFamily::SherpaZipformerVi2025, ModelVariant::Int8) => {
-                unreachable!("SherpaZipformerVi2025 has no int8 variant — check available_variants() first")
-            }
+            (ModelFamily::SherpaZipformerVi2025, _) => crate::config::SHERPA_VI_2025_DECODER,
+            (ModelFamily::ZipFormer30MStreaming, _) => crate::config::ZIPFORMER_STREAMING_DECODER,
         }
     }
 
     pub fn joiner_file(self, variant: ModelVariant) -> &'static str {
+        self.reject_missing_int8(variant);
         match (self, variant) {
             (ModelFamily::ZipFormer30M, ModelVariant::Int8) => crate::config::ZIPFORMER_INT8_JOINER,
             (ModelFamily::ZipFormer30M, ModelVariant::Full) => crate::config::ZIPFORMER_FULL_JOINER,
             (ModelFamily::Gipformer65M, ModelVariant::Int8) => crate::config::GIPFORMER_INT8_JOINER,
             (ModelFamily::Gipformer65M, ModelVariant::Full) => crate::config::GIPFORMER_FULL_JOINER,
-            (ModelFamily::SherpaZipformerVi2025, ModelVariant::Full) => crate::config::SHERPA_VI_2025_JOINER,
-            (ModelFamily::SherpaZipformerVi2025, ModelVariant::Int8) => {
-                unreachable!("SherpaZipformerVi2025 has no int8 variant — check available_variants() first")
-            }
+            (ModelFamily::SherpaZipformerVi2025, _) => crate::config::SHERPA_VI_2025_JOINER,
+            (ModelFamily::ZipFormer30MStreaming, _) => crate::config::ZIPFORMER_STREAMING_JOINER,
         }
     }
 
@@ -122,6 +135,7 @@ impl ModelFamily {
             ModelFamily::ZipFormer30M => crate::config::ZIPFORMER_BPE,
             ModelFamily::Gipformer65M => crate::config::GIPFORMER_BPE,
             ModelFamily::SherpaZipformerVi2025 => crate::config::SHERPA_VI_2025_BPE,
+            ModelFamily::ZipFormer30MStreaming => crate::config::ZIPFORMER_STREAMING_BPE,
         }
     }
 
@@ -130,19 +144,19 @@ impl ModelFamily {
             ModelFamily::ZipFormer30M => crate::config::ZIPFORMER_VOCAB,
             ModelFamily::Gipformer65M => crate::config::GIPFORMER_TOKENS,
             ModelFamily::SherpaZipformerVi2025 => crate::config::SHERPA_VI_2025_TOKENS,
+            ModelFamily::ZipFormer30MStreaming => crate::config::ZIPFORMER_STREAMING_TOKENS,
         }
     }
 
     pub fn encoder_size_bytes(self, variant: ModelVariant) -> u64 {
+        self.reject_missing_int8(variant);
         match (self, variant) {
             (ModelFamily::ZipFormer30M, ModelVariant::Int8) => crate::config::ZIPFORMER_INT8_SIZE_BYTES,
             (ModelFamily::ZipFormer30M, ModelVariant::Full) => crate::config::ZIPFORMER_FULL_SIZE_BYTES,
             (ModelFamily::Gipformer65M, ModelVariant::Int8) => crate::config::GIPFORMER_INT8_SIZE_BYTES,
             (ModelFamily::Gipformer65M, ModelVariant::Full) => crate::config::GIPFORMER_FULL_SIZE_BYTES,
-            (ModelFamily::SherpaZipformerVi2025, ModelVariant::Full) => crate::config::SHERPA_VI_2025_SIZE_BYTES,
-            (ModelFamily::SherpaZipformerVi2025, ModelVariant::Int8) => {
-                unreachable!("SherpaZipformerVi2025 has no int8 variant — check available_variants() first")
-            }
+            (ModelFamily::SherpaZipformerVi2025, _) => crate::config::SHERPA_VI_2025_SIZE_BYTES,
+            (ModelFamily::ZipFormer30MStreaming, _) => crate::config::ZIPFORMER_STREAMING_SIZE_BYTES,
         }
     }
 
@@ -257,5 +271,45 @@ mod tests {
             ModelFamily::SherpaZipformerVi2025
         );
         assert_eq!(ModelFamily::SherpaZipformerVi2025.id(), "sherpa-onnx-zipformer-vi-2025-04-20");
+    }
+
+    #[test]
+    fn streaming_family_files_subdir_and_from_id() {
+        let family = ModelFamily::ZipFormer30MStreaming;
+        assert!(family.is_online_streaming());
+        assert!(!ModelFamily::ZipFormer30M.is_online_streaming());
+        assert_eq!(
+            ModelFamily::from_id("zipformer-vi-30m-streaming"),
+            family
+        );
+        assert_eq!(family.id(), "zipformer-vi-30m-streaming");
+        assert_eq!(family.available_variants(), &[ModelVariant::Full]);
+        assert_eq!(
+            family.variant_subdir(ModelVariant::Full),
+            "zipformer-vi-streaming"
+        );
+        let files = family.model_files(ModelVariant::Full);
+        assert_eq!(
+            files[0],
+            "encoder-epoch-31-avg-11-chunk-64-left-128.fp16.onnx"
+        );
+        assert_eq!(
+            files[1],
+            "decoder-epoch-31-avg-11-chunk-64-left-128.fp16.onnx"
+        );
+        assert_eq!(
+            files[2],
+            "joiner-epoch-31-avg-11-chunk-64-left-128.fp16.onnx"
+        );
+        assert_eq!(files[3], "bpe.model");
+        assert_eq!(files[4], "tokens.txt");
+    }
+
+    #[test]
+    fn from_id_does_not_treat_streaming_as_offline_30m() {
+        assert_ne!(
+            ModelFamily::from_id("zipformer-vi-30m-streaming"),
+            ModelFamily::ZipFormer30M
+        );
     }
 }

@@ -154,7 +154,11 @@ impl AsrEngine {
 
         let file_sizes: Vec<u64> = {
             let enc_size = family.encoder_size_bytes(variant);
-            vec![enc_size, 1_310_000, 1_030_000, 268_000, 50_000]
+            if family.is_online_streaming() {
+                vec![enc_size, 2_500_000, 2_000_000, 268_000, 25_000]
+            } else {
+                vec![enc_size, 1_310_000, 1_030_000, 268_000, 50_000]
+            }
         };
 
         let client = reqwest::Client::builder()
@@ -170,6 +174,13 @@ impl AsrEngine {
         for (idx, filename) in files.iter().enumerate() {
             let dest = dir.join(filename);
             let tmp = dir.join(format!("{}.tmp", filename));
+
+            // HF streaming repo has no tokens.txt — copy the bundled vocab after download.
+            if family.is_online_streaming() && *filename == family.token_file() {
+                info!("Skipping HuggingFace download for bundled {}", filename);
+                bytes_downloaded += file_sizes.get(idx).copied().unwrap_or(0);
+                continue;
+            }
 
             if dest.exists() {
                 info!("Skipping already downloaded: {}", filename);
@@ -257,6 +268,10 @@ impl AsrEngine {
         if let Some(ref cb) = progress_callback {
             cb(100);
         }
+        if family.is_online_streaming() {
+            crate::asr_engine::streaming::ensure_bundled_tokens(&dir, None)?;
+        }
+
         info!(
             "All ASR model files downloaded successfully (family: {}, variant: {})",
             family.id(),
@@ -273,6 +288,12 @@ impl AsrEngine {
         num_active_paths: i32,
         num_threads: usize,
     ) -> Result<()> {
+        if family.is_online_streaming() {
+            return Err(anyhow!(
+                "Streaming family must be loaded via OnlineRecognizer, not OfflineRecognizer"
+            ));
+        }
+
         if !family.available_variants().contains(&variant) {
             return Err(anyhow!(
                 "{} does not support variant '{}' (available: {:?})",
@@ -485,5 +506,25 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("does not support variant"));
+    }
+
+    #[tokio::test]
+    async fn test_load_model_rejects_streaming_family() {
+        let engine = AsrEngine::new();
+        let result = engine
+            .load_model(
+                ModelFamily::ZipFormer30MStreaming,
+                ModelVariant::Full,
+                "modified_beam_search".to_string(),
+                8,
+                2,
+            )
+            .await;
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("OnlineRecognizer"));
     }
 }

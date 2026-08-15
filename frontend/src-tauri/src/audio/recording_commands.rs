@@ -34,6 +34,27 @@ use crate::state::AppState;
 // Re-export TranscriptUpdate for backward compatibility
 pub use super::transcription::TranscriptUpdate;
 
+async fn live_streaming_enabled<R: Runtime>(app: &AppHandle<R>) -> bool {
+    let cfg = SettingsRepository::get_path_asr_config(
+        app.state::<AppState>().db_manager.pool(),
+        crate::asr_engine::config::AsrPath::Live,
+    )
+    .await;
+    crate::asr_engine::model_family::ModelFamily::from_id(&cfg.family_id).is_online_streaming()
+}
+
+fn spawn_live_asr_task<R: Runtime>(
+    app: AppHandle<R>,
+    receiver: tokio::sync::mpsc::UnboundedReceiver<crate::audio::AudioChunk>,
+    streaming: bool,
+) -> JoinHandle<()> {
+    if streaming {
+        transcription::start_streaming_task(app, receiver)
+    } else {
+        transcription::start_transcription_task(app, receiver)
+    }
+}
+
 // ============================================================================
 // GLOBAL STATE
 // ============================================================================
@@ -299,9 +320,14 @@ async fn start_recording_with_meeting_name_inner<R: Runtime>(
     .await;
     info!("Using max segment length: {}s for live transcription", max_segment_seconds);
 
+    let streaming_asr = live_streaming_enabled(&app).await;
+    if streaming_asr {
+        info!("Live ASR path: OnlineRecognizer streaming (no VAD)");
+    }
+
     // Start recording with resolved devices (replaces start_recording_with_defaults_and_auto_save call)
     let transcription_receiver = manager
-        .start_recording(microphone_device, system_device, auto_save, max_segment_seconds)
+        .start_recording(microphone_device, system_device, auto_save, max_segment_seconds, streaming_asr)
         .await
         .map_err(|e| format!("Failed to start recording: {}", e))?;
 
@@ -325,7 +351,7 @@ async fn start_recording_with_meeting_name_inner<R: Runtime>(
     }
 
     // Start optimized parallel transcription task and store handle
-    let task_handle = transcription::start_transcription_task(app.clone(), transcription_receiver);
+    let task_handle = spawn_live_asr_task(app.clone(), transcription_receiver, streaming_asr);
     {
         let mut global_task = TRANSCRIPTION_TASK.lock();
         *global_task = Some(task_handle);
@@ -556,9 +582,14 @@ async fn start_recording_with_devices_and_meeting_inner<R: Runtime>(
     .await;
     info!("Using max segment length: {}s for live transcription", max_segment_seconds);
 
+    let streaming_asr = live_streaming_enabled(&app).await;
+    if streaming_asr {
+        info!("Live ASR path: OnlineRecognizer streaming (no VAD)");
+    }
+
     // Start recording with specified devices and auto_save setting
     let transcription_receiver = manager
-        .start_recording(mic_device, system_device, auto_save, max_segment_seconds)
+        .start_recording(mic_device, system_device, auto_save, max_segment_seconds, streaming_asr)
         .await
         .map_err(|e| format!("Failed to start recording: {}", e))?;
 
@@ -582,7 +613,7 @@ async fn start_recording_with_devices_and_meeting_inner<R: Runtime>(
     }
 
     // Start optimized parallel transcription task and store handle
-    let task_handle = transcription::start_transcription_task(app.clone(), transcription_receiver);
+    let task_handle = spawn_live_asr_task(app.clone(), transcription_receiver, streaming_asr);
     {
         let mut global_task = TRANSCRIPTION_TASK.lock();
         *global_task = Some(task_handle);

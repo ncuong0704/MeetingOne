@@ -55,6 +55,9 @@ pub async fn rover_load_model<R: Runtime>(
     let fa = ModelFamily::from_id(&family_a);
     let va = ModelVariant::from_str(&variant_a);
     let fb = ModelFamily::from_id(&family_b);
+    if fa.is_online_streaming() || fb.is_online_streaming() {
+        return Err("Streaming ASR family is live-only and cannot be used with ROVER".to_string());
+    }
     let vb = ModelVariant::from_str(&variant_b);
 
     if !fa.available_variants().contains(&va) {
@@ -165,6 +168,9 @@ pub async fn rover_validate_model_ready<R: Runtime>(app: AppHandle<R>) -> Result
     let fa = ModelFamily::from_id(&file_cfg.family_id);
     let va = file_cfg.variant;
     let fb = ModelFamily::from_id(&family_b);
+    if fa.is_online_streaming() || fb.is_online_streaming() {
+        return Err("Streaming ASR family is live-only and cannot be used with ROVER".to_string());
+    }
     let vb = ModelVariant::from_str(&variant_b);
 
     let base = crate::asr_engine::commands::resolve_models_base_dir(&app)

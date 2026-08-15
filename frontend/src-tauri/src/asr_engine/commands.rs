@@ -121,9 +121,25 @@ pub async fn asr_get_variant_status<R: Runtime>(
     let f = ModelFamily::from_id(&family);
     let v = ModelVariant::from_str(&variant);
     let has_files = engine.are_variant_files_present(&f, &v).await;
-    let current_family = engine.get_current_family().await;
-    let current_variant = engine.get_current_variant().await;
-    let is_loaded = engine.is_model_loaded().await && current_family == f && current_variant == v;
+    let has_files = if f.is_online_streaming() && !has_files {
+        let base = engine.get_models_directory().await;
+        let dir = base.join(f.variant_subdir(v));
+        let resource = app.path().resource_dir().ok();
+        let _ = crate::asr_engine::streaming::ensure_bundled_tokens(&dir, resource.as_deref());
+        engine.are_variant_files_present(&f, &v).await
+    } else {
+        has_files
+    };
+
+    let is_loaded = if f.is_online_streaming() {
+        crate::asr_engine::streaming::get_or_init_streaming_engine()
+            .is_loaded_as(f, v)
+            .await
+    } else {
+        let current_family = engine.get_current_family().await;
+        let current_variant = engine.get_current_variant().await;
+        engine.is_model_loaded().await && current_family == f && current_variant == v
+    };
 
     Ok(serde_json::json!({
         "hasFiles": has_files,
@@ -162,11 +178,30 @@ pub async fn asr_download_model<R: Runtime>(
         match engine_clone.download_model(f, v, Some(cb)).await {
             Ok(()) => {
                 info!("ASR model download complete — loading model");
+                let resource = app_clone.path().resource_dir().ok();
+                if f_for_load.is_online_streaming() {
+                    let dir = engine_clone
+                        .get_models_directory()
+                        .await
+                        .join(f_for_load.variant_subdir(v_for_load));
+                    if let Err(e) = crate::asr_engine::streaming::ensure_bundled_tokens(
+                        &dir,
+                        resource.as_deref(),
+                    ) {
+                        error!("Failed to copy streaming tokens: {}", e);
+                    }
+                }
                 let decoding = engine_clone.get_decoding_method().await;
                 let paths = engine_clone.get_num_active_paths().await;
-                if let Err(e) = engine_clone
-                    .load_model(f_for_load, v_for_load, decoding, paths, live_asr_thread_count())
-                    .await
+                if let Err(e) = load_family(
+                    &engine_clone,
+                    &app_clone,
+                    f_for_load,
+                    v_for_load,
+                    decoding,
+                    paths,
+                )
+                .await
                 {
                     error!("ASR auto-load after download failed: {}", e);
                 }
@@ -197,10 +232,7 @@ pub async fn asr_load_model<R: Runtime>(
     ensure_models_dir(&engine, &app).await;
     let f = ModelFamily::from_id(&family);
     let v = ModelVariant::from_str(&variant);
-    engine
-        .load_model(f, v, decoding_method, num_active_paths, live_asr_thread_count())
-        .await
-        .map_err(|e| e.to_string())
+    load_family(&engine, &app, f, v, decoding_method, num_active_paths).await
 }
 
 #[tauri::command]
@@ -266,17 +298,31 @@ pub async fn asr_validate_model_ready<R: Runtime>(
     };
 
     if !engine.are_variant_files_present(&f, &v).await {
-        return Err(
-            "ASR model not downloaded. Please download it from Settings → Transcription."
-                .to_string(),
-        );
+        if f.is_online_streaming() {
+            let dir = engine.get_models_directory().await.join(f.variant_subdir(v));
+            let resource = app.path().resource_dir().ok();
+            let _ = crate::asr_engine::streaming::ensure_bundled_tokens(&dir, resource.as_deref());
+        }
+        if !engine.are_variant_files_present(&f, &v).await {
+            return Err(
+                "ASR model not downloaded. Please download it from Settings → Transcription."
+                    .to_string(),
+            );
+        }
     }
 
-    let current_family = engine.get_current_family().await;
-    let current_variant = engine.get_current_variant().await;
-    if !engine.is_model_loaded().await || current_family != f || current_variant != v {
-        engine
-            .load_model(f, v, dm, paths, live_asr_thread_count())
+    let current_matches = if f.is_online_streaming() {
+        crate::asr_engine::streaming::get_or_init_streaming_engine()
+            .is_loaded_as(f, v)
+            .await
+    } else {
+        let current_family = engine.get_current_family().await;
+        let current_variant = engine.get_current_variant().await;
+        engine.is_model_loaded().await && current_family == f && current_variant == v
+    };
+
+    if !current_matches {
+        load_family(&engine, &app, f, v, dm, paths)
             .await
             .map_err(|e| e.to_string())?;
     }
@@ -292,7 +338,10 @@ pub async fn asr_validate_model_ready<R: Runtime>(
                 config.hotwords.as_deref(),
                 bundled.as_deref(),
             );
-            engine.set_hotwords(text).await;
+            engine.set_hotwords(text.clone()).await;
+            crate::asr_engine::streaming::get_or_init_streaming_engine()
+                .set_hotwords(text)
+                .await;
         }
     }
 
@@ -315,6 +364,43 @@ pub async fn asr_get_current_config() -> Result<serde_json::Value, String> {
 
 pub fn get_engine_arc() -> Result<Arc<AsrEngine>, String> {
     get_engine()
+}
+
+async fn load_family<R: Runtime>(
+    engine: &AsrEngine,
+    app: &AppHandle<R>,
+    family: ModelFamily,
+    variant: ModelVariant,
+    decoding_method: String,
+    num_active_paths: i32,
+) -> Result<(), String> {
+    let threads = live_asr_thread_count();
+    if family.is_online_streaming() {
+        engine.unload_model().await;
+        let streaming = crate::asr_engine::streaming::get_or_init_streaming_engine();
+        let base = engine.get_models_directory().await;
+        let resource = app.path().resource_dir().ok();
+        streaming
+            .load_model(
+                family,
+                variant,
+                decoding_method,
+                num_active_paths,
+                threads,
+                &base,
+                resource.as_deref(),
+            )
+            .await
+            .map_err(|e| e.to_string())
+    } else {
+        if let Some(streaming) = crate::asr_engine::streaming::streaming_engine_if_init() {
+            streaming.unload().await;
+        }
+        engine
+            .load_model(family, variant, decoding_method, num_active_paths, threads)
+            .await
+            .map_err(|e| e.to_string())
+    }
 }
 
 fn get_engine() -> Result<Arc<AsrEngine>, String> {

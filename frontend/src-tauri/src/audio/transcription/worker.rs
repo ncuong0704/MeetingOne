@@ -533,7 +533,7 @@ async fn transcribe_chunk_with_provider<R: Runtime>(
 }
 
 /// Format current timestamp (wall-clock time)
-fn format_current_timestamp() -> String {
+pub(crate) fn format_current_timestamp() -> String {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();

@@ -58,10 +58,28 @@ pub struct ContinuousVadProcessor {
     // Replaces the previous linear interpolation which distorted Vietnamese tones.
     sinc_resampler: Option<SincFixedIn<f32>>,
     resample_buffer: Vec<f32>,
+    /// Live path: force-emit a segment when held speech exceeds this many 16 kHz samples,
+    /// even without VAD SpeechEnd. `None` = never force-flush (file batch).
+    max_speech_samples: Option<usize>,
+    /// Samples already force-emitted since the current SpeechStart (for SpeechEnd tail).
+    force_flushed_samples: usize,
 }
 
 impl ContinuousVadProcessor {
-    pub fn new(input_sample_rate: u32, redemption_time_ms: u32, thresholds: VadThresholds) -> Result<Self> {
+    pub fn new(
+        input_sample_rate: u32,
+        redemption_time_ms: u32,
+        thresholds: VadThresholds,
+    ) -> Result<Self> {
+        Self::new_with_max_speech(input_sample_rate, redemption_time_ms, thresholds, None)
+    }
+
+    pub fn new_with_max_speech(
+        input_sample_rate: u32,
+        redemption_time_ms: u32,
+        thresholds: VadThresholds,
+        max_speech_seconds: Option<u32>,
+    ) -> Result<Self> {
         // Silero VAD MUST use 16kHz - this is hardcoded requirement
         const VAD_SAMPLE_RATE: u32 = 16000;
 
@@ -122,8 +140,8 @@ impl ContinuousVadProcessor {
             None
         };
 
-        info!("VAD processor created: input={}Hz, vad={}Hz, chunk_size={} samples",
-              input_sample_rate, VAD_SAMPLE_RATE, vad_chunk_size);
+        info!("VAD processor created: input={}Hz, vad={}Hz, chunk_size={} samples, max_speech_sec={:?}",
+              input_sample_rate, VAD_SAMPLE_RATE, vad_chunk_size, max_speech_seconds);
 
         Ok(Self {
             session,
@@ -138,6 +156,8 @@ impl ContinuousVadProcessor {
             last_logged_state: false,
             sinc_resampler,
             resample_buffer: Vec::with_capacity(SINC_CHUNK_SIZE * 2),
+            max_speech_samples: max_speech_seconds.map(|s| s as usize * 16000),
+            force_flushed_samples: 0,
         })
     }
 
@@ -329,6 +349,7 @@ impl ContinuousVadProcessor {
                     // Use 16000 (VAD processing rate) since processed_samples counts 16kHz samples
                     self.speech_start_sample = self.processed_samples + (timestamp_ms * 16000 / 1000);
                     self.current_speech.clear();
+                    self.force_flushed_samples = 0;
                 }
                 VadTransition::SpeechEnd { start_timestamp_ms, end_timestamp_ms, samples } => {
                     // Only log if we were previously in speech state
@@ -338,23 +359,36 @@ impl ContinuousVadProcessor {
                     }
                     self.in_speech = false;
 
-                    // Use samples from VAD transition if available, otherwise use accumulated samples
-                    let speech_samples = if !samples.is_empty() {
-                        samples
-                    } else {
-                        self.current_speech.clone()
-                    };
+                    // Use samples from VAD transition if available, otherwise use accumulated samples.
+                    // If we already force-flushed mid-utterance, only emit the remaining tail from
+                    // our buffer — silero's SpeechEnd samples would re-send already-emitted audio.
+                    let (speech_samples, start_ts_ms, end_ts_ms) =
+                        if self.force_flushed_samples > 0 {
+                            let rem = self.current_speech.clone();
+                            let start_ms = (self.speech_start_sample as f64 / 16000.0) * 1000.0;
+                            let end_ms = start_ms + (rem.len() as f64 / 16000.0) * 1000.0;
+                            (rem, start_ms, end_ms)
+                        } else if !samples.is_empty() {
+                            (samples, start_timestamp_ms as f64, end_timestamp_ms as f64)
+                        } else {
+                            (
+                                self.current_speech.clone(),
+                                start_timestamp_ms as f64,
+                                end_timestamp_ms as f64,
+                            )
+                        };
+                    self.force_flushed_samples = 0;
 
                     if !speech_samples.is_empty() {
                         let segment = SpeechSegment {
                             samples: speech_samples,
-                            start_timestamp_ms: start_timestamp_ms as f64,
-                            end_timestamp_ms: end_timestamp_ms as f64,
+                            start_timestamp_ms: start_ts_ms,
+                            end_timestamp_ms: end_ts_ms,
                             confidence: 0.9, // VAD confidence
                         };
 
                         info!("VAD: Completed speech segment: {:.1}ms duration, {} samples",
-                              end_timestamp_ms - start_timestamp_ms, segment.samples.len());
+                              end_ts_ms - start_ts_ms, segment.samples.len());
 
                         self.speech_segments.push_back(segment);
                     }
@@ -367,6 +401,31 @@ impl ContinuousVadProcessor {
         // Accumulate speech if we're currently in a speech state
         if self.in_speech {
             self.current_speech.extend_from_slice(chunk);
+
+            // Live force-flush: emit completed chunks while still in speech so UI does not
+            // wait for redemption silence on long continuous utterances.
+            if let Some(max_samples) = self.max_speech_samples {
+                while self.current_speech.len() >= max_samples {
+                    let chunk_samples: Vec<f32> =
+                        self.current_speech.drain(..max_samples).collect();
+                    let start_ms = (self.speech_start_sample as f64 / 16000.0) * 1000.0;
+                    let end_ms = start_ms + (chunk_samples.len() as f64 / 16000.0) * 1000.0;
+                    info!(
+                        "VAD: Force-flush mid-speech segment: {:.1}ms, {} samples (max={})",
+                        end_ms - start_ms,
+                        chunk_samples.len(),
+                        max_samples
+                    );
+                    self.speech_segments.push_back(SpeechSegment {
+                        samples: chunk_samples,
+                        start_timestamp_ms: start_ms,
+                        end_timestamp_ms: end_ms,
+                        confidence: 0.9,
+                    });
+                    self.force_flushed_samples += max_samples;
+                    self.speech_start_sample += max_samples;
+                }
+            }
         }
 
         self.processed_samples += chunk.len();

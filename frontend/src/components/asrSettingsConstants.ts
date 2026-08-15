@@ -1,6 +1,7 @@
 import { ASR_MODELS, AsrModelFamily, ModelVariant } from '@/lib/asr';
 
 export const DEFAULT_FAMILY: AsrModelFamily = 'zipformer-vi-30m';
+export const DEFAULT_LIVE_FAMILY: AsrModelFamily = 'zipformer-vi-30m-streaming';
 export const DEFAULT_VARIANT: ModelVariant = 'int8';
 export const DEFAULT_DECODING = 'modified_beam_search' as const;
 export const DEFAULT_PATHS = 15;
@@ -30,7 +31,8 @@ export function parseAsrFamily(id: string | undefined | null): AsrModelFamily {
   if (
     id === 'zipformer-vi-30m' ||
     id === 'gipformer-65m-rnnt' ||
-    id === 'sherpa-onnx-zipformer-vi-2025-04-20'
+    id === 'sherpa-onnx-zipformer-vi-2025-04-20' ||
+    id === 'zipformer-vi-30m-streaming'
   ) {
     return id;
   }

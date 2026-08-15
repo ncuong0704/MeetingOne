@@ -9,7 +9,8 @@ export type ModelStatus =
 export type AsrModelFamily =
   | 'zipformer-vi-30m'
   | 'gipformer-65m-rnnt'
-  | 'sherpa-onnx-zipformer-vi-2025-04-20';
+  | 'sherpa-onnx-zipformer-vi-2025-04-20'
+  | 'zipformer-vi-30m-streaming';
 export type ModelVariant = 'int8' | 'full';
 export type DecodingMethod = 'greedy_search' | 'modified_beam_search';
 
@@ -23,6 +24,8 @@ export interface AsrModelInfo {
   liveDescription?: string;
   /** Which variants this family actually ships. Must match Rust `ModelFamily::available_variants()`. */
   availableVariants: ModelVariant[];
+  /** Hide from file-import / ROVER pickers — OnlineRecognizer live path only. */
+  liveOnly?: boolean;
 }
 
 export interface LiveAsrConfig {
@@ -49,6 +52,8 @@ export interface SharedTranscriptConfig {
   capuCpuThreads?: number | null;
   capuPunctuationLevel: number;
   capuCaseLevel: number;
+  diarizationEnabled?: boolean;
+  diarizationNumSpeakers?: number | null;
 }
 
 export interface TranscriptConfigBundle {
@@ -58,6 +63,18 @@ export interface TranscriptConfigBundle {
 }
 
 export const ASR_MODELS: AsrModelInfo[] = [
+  {
+    id: 'zipformer-vi-30m-streaming',
+    label: 'ZipFormer 30M Streaming',
+    hfRepo: 'hynt/Zipformer-30M-RNNT-Streaming-6000h',
+    int8Size: 'Không có',
+    fullSize: '~51 MB',
+    description: 'Transcript từng phần ngay khi nói — chỉ dùng khi ghi âm trực tiếp',
+    liveDescription:
+      'Khuyến nghị cho ghi âm trực tiếp: hiện chữ gần như tức thì (partial), không chờ im lặng.',
+    availableVariants: ['full'],
+    liveOnly: true,
+  },
   {
     id: 'zipformer-vi-30m',
     label: 'ZipFormer 30M',
@@ -166,9 +183,19 @@ export const TranscriptConfigAPI = {
       capuCpuThreads: config.capuCpuThreads ?? null,
       capuPunctuationLevel: config.capuPunctuationLevel,
       capuCaseLevel: config.capuCaseLevel,
+      diarizationEnabled: config.diarizationEnabled ?? false,
+      diarizationNumSpeakers: config.diarizationNumSpeakers ?? null,
     }),
 };
 
 export const CapuAPI = {
   getCpuTopology: (): Promise<CpuTopology> => invoke('capu_get_cpu_topology'),
+};
+
+export const DiarizationAPI = {
+  renameSpeaker: (speakerId: string, displayName: string): Promise<void> =>
+    invoke('rename_meeting_speaker', { speakerId, displayName }),
+  mergeWithPrevious: (transcriptId: string): Promise<void> =>
+    invoke('merge_speaker_segment', { transcriptId }),
+  isModelReady: (): Promise<boolean> => invoke('diarization_is_model_ready'),
 };

@@ -245,27 +245,34 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
 
       if (allNewTranscripts.length > 0) {
         setTranscripts(prev => {
-          // Create a set of existing sequence_ids for deduplication
-          const existingSequenceIds = new Set(prev.map(t => t.sequence_id).filter(id => id !== undefined));
-
-          // Filter out any new transcripts that already exist
-          const uniqueNewTranscripts = allNewTranscripts.filter(transcript =>
-            transcript.sequence_id !== undefined && !existingSequenceIds.has(transcript.sequence_id)
-          );
-
-          // Only combine if we have unique new transcripts
-          if (uniqueNewTranscripts.length === 0) {
-            console.log('No unique transcripts to add - all were duplicates');
-            return prev; // No new unique transcripts to add
+          const bySeq = new Map<number, Transcript>();
+          for (const t of prev) {
+            if (t.sequence_id !== undefined) {
+              bySeq.set(t.sequence_id, t);
+            }
+          }
+          for (const incoming of allNewTranscripts) {
+            if (incoming.sequence_id === undefined) continue;
+            const existing = bySeq.get(incoming.sequence_id);
+            bySeq.set(
+              incoming.sequence_id,
+              existing
+                ? {
+                    ...existing,
+                    text: incoming.text,
+                    timestamp: incoming.timestamp,
+                    is_partial: incoming.is_partial,
+                    confidence: incoming.confidence,
+                    audio_start_time: incoming.audio_start_time,
+                    audio_end_time: incoming.audio_end_time,
+                    duration: incoming.duration,
+                    chunk_start_time: incoming.chunk_start_time,
+                  }
+                : incoming
+            );
           }
 
-          console.log(`Adding ${uniqueNewTranscripts.length} unique transcripts out of ${allNewTranscripts.length} received`);
-
-          // Merge with existing transcripts, maintaining chronological order
-          const combined = [...prev, ...uniqueNewTranscripts];
-
-          // Sort by chunk_start_time first, then by sequence_id
-          return combined.sort((a, b) => {
+          return [...bySeq.values()].sort((a, b) => {
             const chunkTimeDiff = (a.chunk_start_time || 0) - (b.chunk_start_time || 0);
             if (chunkTimeDiff !== 0) return chunkTimeDiff;
             return (a.sequence_id || 0) - (b.sequence_id || 0);
@@ -297,14 +304,7 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
             buffer_size_before: transcriptBuffer.size
           });
 
-          // Check for duplicate sequence_id before processing
-          if (transcriptBuffer.has(update.sequence_id)) {
-            console.log('🚫 MAIN LISTENER: Duplicate sequence_id, skipping buffer:', update.sequence_id);
-            return;
-          }
-
-          // Create transcript for buffer with NEW timestamp fields
-          const newTranscript: Transcript = {
+          const newTranscript: Transcript = transcriptBuffer.get(update.sequence_id) ?? {
             id: `${Date.now()}-${transcriptCounter++}`,
             text: update.text,
             timestamp: update.timestamp,
@@ -312,28 +312,32 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
             chunk_start_time: update.chunk_start_time,
             is_partial: update.is_partial,
             confidence: update.confidence,
-            // NEW: Recording-relative timestamps for playback sync
             audio_start_time: update.audio_start_time,
             audio_end_time: update.audio_end_time,
             duration: update.duration,
           };
 
-          // Add to buffer
+          newTranscript.text = update.text;
+          newTranscript.timestamp = update.timestamp;
+          newTranscript.is_partial = update.is_partial;
+          newTranscript.confidence = update.confidence;
+          newTranscript.audio_start_time = update.audio_start_time;
+          newTranscript.audio_end_time = update.audio_end_time;
+          newTranscript.duration = update.duration;
+          newTranscript.chunk_start_time = update.chunk_start_time;
+
           transcriptBuffer.set(update.sequence_id, newTranscript);
           console.log(`✅ MAIN LISTENER: Buffered transcript with sequence_id ${update.sequence_id}. Buffer size: ${transcriptBuffer.size}, Last processed: ${lastProcessedSequence}`);
 
-          // Save to IndexedDB (non-blocking)
           if (currentMeetingId) {
             indexedDBService.saveTranscript(currentMeetingId, update)
               .catch(err => console.warn('IndexedDB save failed:', err));
           }
 
-          // Clear any existing timer and set a new one
           if (processingTimer) {
             clearTimeout(processingTimer);
           }
 
-          // Process buffer with minimal delay for immediate UI updates (serial workers = sequential order)
           processingTimer = setTimeout(processBufferedTranscripts, 10);
         });
         console.log('✅ MAIN transcript listener setup complete');

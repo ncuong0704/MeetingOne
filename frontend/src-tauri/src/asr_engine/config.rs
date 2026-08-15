@@ -105,6 +105,11 @@ impl PathAsrConfig {
             .or_else(|| row.rover_variant_b.clone());
 
         let family = ModelFamily::from_id(&family_id);
+        let family = if family.is_online_streaming() {
+            ModelFamily::ZipFormer30M
+        } else {
+            family
+        };
         let requested = ModelVariant::from_str(&variant_str);
         let variant = if family.available_variants().contains(&requested) {
             requested
@@ -158,6 +163,8 @@ mod tests {
             file_rover_enabled: Some(true),
             file_rover_family_b: Some("sherpa-onnx-zipformer-vi-2025-04-20".to_string()),
             file_rover_variant_b: Some("full".to_string()),
+            diarization_enabled: false,
+            diarization_num_speakers: None,
         }
     }
 
@@ -178,5 +185,23 @@ mod tests {
         assert_eq!(cfg.family_id, "gipformer-65m-rnnt");
         assert_eq!(cfg.decoding_method, "greedy_search");
         assert_eq!(cfg.max_segment_seconds, 30);
+    }
+
+    #[test]
+    fn file_config_rejects_streaming_family() {
+        let mut row = sample_row();
+        row.file_model = Some("zipformer-vi-30m-streaming".to_string());
+        let cfg = PathAsrConfig::from_transcript_setting(&row, AsrPath::File);
+        assert_eq!(cfg.family_id, "zipformer-vi-30m");
+    }
+
+    #[test]
+    fn live_config_keeps_streaming_family() {
+        let mut row = sample_row();
+        row.live_model = Some("zipformer-vi-30m-streaming".to_string());
+        row.live_asr_variant = Some("full".to_string());
+        let cfg = PathAsrConfig::from_transcript_setting(&row, AsrPath::Live);
+        assert_eq!(cfg.family_id, "zipformer-vi-30m-streaming");
+        assert_eq!(cfg.variant, ModelVariant::Full);
     }
 }
