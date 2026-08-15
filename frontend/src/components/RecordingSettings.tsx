@@ -6,6 +6,14 @@ import { DeviceSelection, SelectedDevices } from '@/components/DeviceSelection';
 import Analytics from '@/lib/analytics';
 import { toast } from 'sonner';
 import { TOUR_TARGETS } from '@/components/UserGuide/tourTargets';
+import {
+  AUDIO_CAPTURE_SOURCE_OPTIONS,
+  AudioCaptureSource,
+  parseAudioCaptureSource,
+} from '@/lib/audioCaptureSource';
+import { useConfig } from '@/contexts/ConfigContext';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 
 export interface RecordingPreferences {
   save_folder: string;
@@ -13,6 +21,7 @@ export interface RecordingPreferences {
   file_format: string;
   preferred_mic_device: string | null;
   preferred_system_device: string | null;
+  audio_source?: AudioCaptureSource;
 }
 
 interface RecordingSettingsProps {
@@ -20,12 +29,14 @@ interface RecordingSettingsProps {
 }
 
 export function RecordingSettings({ onSave }: RecordingSettingsProps) {
+  const { setSelectedDevices, setAudioCaptureSource } = useConfig();
   const [preferences, setPreferences] = useState<RecordingPreferences>({
     save_folder: '',
     auto_save: true,
     file_format: 'mp4',
     preferred_mic_device: null,
-    preferred_system_device: null
+    preferred_system_device: null,
+    audio_source: 'both',
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -35,7 +46,10 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
     const loadPreferences = async () => {
       try {
         const prefs = await invoke<RecordingPreferences>('get_recording_preferences');
-        setPreferences(prefs);
+        setPreferences({
+          ...prefs,
+          audio_source: parseAudioCaptureSource(prefs.audio_source),
+        });
       } catch (error) {
         console.error('Failed to load recording preferences:', error);
         try {
@@ -83,6 +97,7 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
       preferred_system_device: devices.systemDevice
     };
     setPreferences(newPreferences);
+    setSelectedDevices(devices);
     await savePreferences(newPreferences, 'Đã lưu thiết bị âm thanh', {
       description: `Micro: ${devices.micDevice || 'Mặc định'}, Âm thanh hệ thống: ${devices.systemDevice || 'Mặc định'}`
     });
@@ -90,6 +105,15 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
     await Analytics.track('default_devices_changed', {
       has_preferred_microphone: (!!devices.micDevice).toString(),
       has_preferred_system_audio: (!!devices.systemDevice).toString()
+    });
+  };
+
+  const handleAudioSourceChange = async (source: AudioCaptureSource) => {
+    const newPreferences = { ...preferences, audio_source: source };
+    setPreferences(newPreferences);
+    setAudioCaptureSource(source);
+    await savePreferences(newPreferences, 'Đã lưu nguồn ghi âm', {
+      description: AUDIO_CAPTURE_SOURCE_OPTIONS.find((option) => option.value === source)?.label,
     });
   };
 
@@ -290,7 +314,29 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
             Micro và âm thanh hệ thống ưu tiên — được chọn sẵn khi bắt đầu ghi mới.
           </p>
         </div>
-        <div className="px-5 py-4">
+        <div className="px-5 py-4 space-y-4">
+          <div className="space-y-2">
+            <Label className="text-sm font-medium text-gray-700">Nguồn ghi âm</Label>
+            <Select
+              value={parseAudioCaptureSource(preferences.audio_source)}
+              onValueChange={(value) => handleAudioSourceChange(value as AudioCaptureSource)}
+              disabled={saving}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Chọn nguồn ghi âm" />
+              </SelectTrigger>
+              <SelectContent>
+                {AUDIO_CAPTURE_SOURCE_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-gray-500">
+              Chỉ thu micro, chỉ âm thanh hệ thống, hoặc cả hai. Áp dụng cho lần bấm Ghi kế tiếp.
+            </p>
+          </div>
           <DeviceSelection
             selectedDevices={{
               micDevice: preferences.preferred_mic_device,
@@ -298,6 +344,7 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
             }}
             onDeviceChange={handleDeviceChange}
             disabled={saving}
+            audioSource={parseAudioCaptureSource(preferences.audio_source)}
           />
         </div>
       </div>

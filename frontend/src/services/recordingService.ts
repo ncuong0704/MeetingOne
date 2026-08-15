@@ -7,6 +7,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
+import { AudioCaptureSource } from '@/lib/audioCaptureSource';
 
 export interface RecordingState {
   is_recording: boolean;
@@ -70,13 +71,13 @@ export class RecordingService {
     micDeviceName: string | null,
     systemDeviceName: string | null,
     meetingName: string,
-    micEnabled: boolean = true
+    audioSource: AudioCaptureSource = 'both'
   ): Promise<void> {
     return invoke('start_recording_with_devices_and_meeting', {
       micDeviceName,
       systemDeviceName,
       meetingName,
-      micEnabled,
+      audioSource,
     });
   }
 

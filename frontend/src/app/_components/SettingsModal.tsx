@@ -46,6 +46,7 @@ export function SettingsModals({
     modelOptions,
     selectedDevices,
     setSelectedDevices,
+    audioCaptureSource,
     selectedLanguage,
     setSelectedLanguage,
     transcriptModelConfig,
@@ -156,6 +157,7 @@ export function SettingsModals({
             selectedDevices={selectedDevices}
             onDeviceChange={setSelectedDevices}
             disabled={isRecording}
+            audioSource={audioCaptureSource}
           />
 
           <div className="mt-6 flex justify-end">

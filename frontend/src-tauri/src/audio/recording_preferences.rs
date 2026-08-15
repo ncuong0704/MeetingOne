@@ -11,6 +11,33 @@ use log::error;
 #[cfg(target_os = "macos")]
 use crate::audio::capture::AudioCaptureBackend;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AudioCaptureSource {
+    Microphone,
+    System,
+    #[default]
+    Both,
+}
+
+impl AudioCaptureSource {
+    pub fn wants_microphone(self) -> bool {
+        matches!(self, Self::Microphone | Self::Both)
+    }
+
+    pub fn wants_system(self) -> bool {
+        matches!(self, Self::System | Self::Both)
+    }
+
+    /// Commands that still send `mic_enabled` without `audio_source`.
+    pub fn from_legacy_mic_enabled(mic_enabled: Option<bool>) -> Self {
+        match mic_enabled {
+            Some(false) => Self::System,
+            _ => Self::Both,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RecordingPreferences {
     pub save_folder: PathBuf,
@@ -20,6 +47,8 @@ pub struct RecordingPreferences {
     pub preferred_mic_device: Option<String>,
     #[serde(default)]
     pub preferred_system_device: Option<String>,
+    #[serde(default)]
+    pub audio_source: AudioCaptureSource,
     #[cfg(target_os = "macos")]
     #[serde(default)]
     pub system_audio_backend: Option<String>,
@@ -33,6 +62,7 @@ impl Default for RecordingPreferences {
             file_format: "mp4".to_string(),
             preferred_mic_device: None,
             preferred_system_device: None,
+            audio_source: AudioCaptureSource::Both,
             #[cfg(target_os = "macos")]
             system_audio_backend: Some("coreaudio".to_string()),
         }
@@ -399,6 +429,57 @@ pub async fn get_audio_backend_info() -> Result<Vec<BackendInfo>, String> {
             name: "ScreenCaptureKit".to_string(),
             description: "Default system audio capture".to_string(),
         }])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_flags_match_three_options() {
+        assert!(AudioCaptureSource::Microphone.wants_microphone());
+        assert!(!AudioCaptureSource::Microphone.wants_system());
+        assert!(!AudioCaptureSource::System.wants_microphone());
+        assert!(AudioCaptureSource::System.wants_system());
+        assert!(AudioCaptureSource::Both.wants_microphone());
+        assert!(AudioCaptureSource::Both.wants_system());
+    }
+
+    #[test]
+    fn missing_audio_source_deserializes_to_both() {
+        let json = r#"{
+            "save_folder": "/tmp",
+            "auto_save": true,
+            "file_format": "mp4"
+        }"#;
+        let prefs: RecordingPreferences = serde_json::from_str(json).expect("prefs");
+        assert_eq!(prefs.audio_source, AudioCaptureSource::Both);
+    }
+
+    #[test]
+    fn audio_source_roundtrips_lowercase() {
+        let src = AudioCaptureSource::Microphone;
+        let s = serde_json::to_string(&src).unwrap();
+        assert_eq!(s, "\"microphone\"");
+        let back: AudioCaptureSource = serde_json::from_str(&s).unwrap();
+        assert_eq!(back, AudioCaptureSource::Microphone);
+    }
+
+    #[test]
+    fn legacy_mic_enabled_false_is_system_only() {
+        assert_eq!(
+            AudioCaptureSource::from_legacy_mic_enabled(Some(false)),
+            AudioCaptureSource::System
+        );
+        assert_eq!(
+            AudioCaptureSource::from_legacy_mic_enabled(Some(true)),
+            AudioCaptureSource::Both
+        );
+        assert_eq!(
+            AudioCaptureSource::from_legacy_mic_enabled(None),
+            AudioCaptureSource::Both
+        );
     }
 }
 

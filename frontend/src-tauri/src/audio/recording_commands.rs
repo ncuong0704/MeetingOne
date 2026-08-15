@@ -28,6 +28,7 @@ use super::transcription::{
     self,
     reset_speech_detected_flag,
 };
+use super::recording_preferences::AudioCaptureSource;
 use crate::database::repositories::setting::SettingsRepository;
 use crate::state::AppState;
 
@@ -107,17 +108,106 @@ pub struct TranscriptionStatus {
 // RECORDING COMMANDS
 // ============================================================================
 
+fn resolve_microphone(preferred: Option<String>) -> Option<Arc<super::AudioDevice>> {
+    if let Some(pref_name) = preferred {
+        match parse_audio_device(&pref_name) {
+            Ok(device) => {
+                info!("✅ Using microphone: '{}'", device.name);
+                return Some(Arc::new(device));
+            }
+            Err(e) => {
+                warn!(
+                    "⚠️ Preferred microphone '{}' not available: {}",
+                    pref_name, e
+                );
+            }
+        }
+    }
+    match default_input_device() {
+        Ok(device) => {
+            info!("✅ Using default microphone: '{}'", device.name);
+            Some(Arc::new(device))
+        }
+        Err(e) => {
+            warn!("⚠️ No microphone available: {}", e);
+            None
+        }
+    }
+}
+
+fn resolve_system_audio(preferred: Option<String>) -> Option<Arc<super::AudioDevice>> {
+    if let Some(pref_name) = preferred {
+        match parse_audio_device(&pref_name) {
+            Ok(device) => {
+                info!("✅ Using system audio: '{}'", device.name);
+                return Some(Arc::new(device));
+            }
+            Err(e) => {
+                warn!(
+                    "⚠️ Preferred system audio '{}' not available: {}",
+                    pref_name, e
+                );
+            }
+        }
+    }
+    match default_output_device() {
+        Ok(device) => {
+            info!("✅ Using default system audio: '{}'", device.name);
+            Some(Arc::new(device))
+        }
+        Err(e) => {
+            warn!("⚠️ No system audio available: {}", e);
+            None
+        }
+    }
+}
+
+pub(crate) fn resolve_capture_devices(
+    source: AudioCaptureSource,
+    mic_name: Option<String>,
+    system_name: Option<String>,
+) -> Result<(Option<Arc<super::AudioDevice>>, Option<Arc<super::AudioDevice>>), String> {
+    let mic = if source.wants_microphone() {
+        resolve_microphone(mic_name)
+    } else {
+        info!("🎤 Audio source {:?} — skipping microphone", source);
+        None
+    };
+    let system = if source.wants_system() {
+        resolve_system_audio(system_name)
+    } else {
+        info!("🔊 Audio source {:?} — skipping system audio", source);
+        None
+    };
+
+    match source {
+        AudioCaptureSource::Microphone if mic.is_none() => Err(
+            "Không mở được microphone. Kiểm tra thiết bị và quyền truy cập.".into(),
+        ),
+        AudioCaptureSource::System if system.is_none() => {
+            Err("Không mở được âm thanh hệ thống. Chọn thiết bị khác trong Cài đặt.".into())
+        }
+        _ if mic.is_none() && system.is_none() => {
+            Err("Không có nguồn âm thanh nào khả dụng.".into())
+        }
+        _ => Ok((mic, system)),
+    }
+}
+
 /// Start recording with default devices
 pub async fn start_recording<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
-    start_recording_with_meeting_name(app, None, true).await
+    let source = match super::recording_preferences::load_recording_preferences(&app).await {
+        Ok(prefs) => prefs.audio_source,
+        Err(_) => AudioCaptureSource::Both,
+    };
+    start_recording_with_meeting_name(app, None, source).await
 }
 
 /// Start recording with default devices and optional meeting name
-/// `mic_enabled`: when false, microphone is skipped entirely (system audio only)
 pub async fn start_recording_with_meeting_name<R: Runtime>(
     app: AppHandle<R>,
     meeting_name: Option<String>,
-    mic_enabled: bool,
+    audio_source: AudioCaptureSource,
 ) -> Result<(), String> {
     // Atomically claim the "starting" state: only one caller can transition
     // IS_RECORDING from false to true here. Any concurrent caller sees the
@@ -134,7 +224,7 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
     }
     START_IN_PROGRESS.store(true, Ordering::SeqCst);
 
-    let result = start_recording_with_meeting_name_inner(app, meeting_name, mic_enabled).await;
+    let result = start_recording_with_meeting_name_inner(app, meeting_name, audio_source).await;
 
     START_IN_PROGRESS.store(false, Ordering::SeqCst);
 
@@ -150,11 +240,11 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
 async fn start_recording_with_meeting_name_inner<R: Runtime>(
     app: AppHandle<R>,
     meeting_name: Option<String>,
-    mic_enabled: bool,
+    audio_source: AudioCaptureSource,
 ) -> Result<(), String> {
     info!(
-        "Starting recording with default devices, meeting: {:?}, mic_enabled: {}",
-        meeting_name, mic_enabled
+        "Starting recording with default devices, meeting: {:?}, audio_source: {:?}",
+        meeting_name, audio_source
     );
 
     // Validate that transcription models are available before starting recording
@@ -184,8 +274,8 @@ async fn start_recording_with_meeting_name_inner<R: Runtime>(
     let (auto_save, preferred_mic_name, preferred_system_name, save_folder) =
         match super::recording_preferences::load_recording_preferences(&app).await {
             Ok(prefs) => {
-                info!("📋 Loaded recording preferences: auto_save={}, save_folder={:?}, preferred_mic={:?}, preferred_system={:?}",
-                      prefs.auto_save, prefs.save_folder, prefs.preferred_mic_device, prefs.preferred_system_device);
+                info!("📋 Loaded recording preferences: auto_save={}, save_folder={:?}, preferred_mic={:?}, preferred_system={:?}, audio_source={:?}",
+                      prefs.auto_save, prefs.save_folder, prefs.preferred_mic_device, prefs.preferred_system_device, prefs.audio_source);
                 (
                     prefs.auto_save,
                     prefs.preferred_mic_device,
@@ -205,99 +295,8 @@ async fn start_recording_with_meeting_name_inner<R: Runtime>(
         };
     manager.set_save_folder(save_folder);
 
-    // ============================================================================
-    // MICROPHONE DEVICE RESOLUTION: Preference → Default → None (optional)
-    // Skipped entirely when mic_enabled = false (system-audio-only mode)
-    // ============================================================================
-    let microphone_device = if !mic_enabled {
-        info!("🎤 Microphone disabled by user — skipping mic device resolution");
-        None
-    } else {
-        match preferred_mic_name {
-            Some(pref_name) => {
-                info!("🎤 Attempting to use preferred microphone: '{}'", pref_name);
-                match parse_audio_device(&pref_name) {
-                    Ok(device) => {
-                        info!("✅ Using preferred microphone: '{}'", device.name);
-                        Some(Arc::new(device))
-                    }
-                    Err(e) => {
-                        warn!("⚠️ Preferred microphone '{}' not available: {}", pref_name, e);
-                        warn!("   Falling back to system default microphone...");
-                        match default_input_device() {
-                            Ok(device) => {
-                                info!("✅ Using default microphone: '{}'", device.name);
-                                Some(Arc::new(device))
-                            }
-                            Err(default_err) => {
-                                warn!("⚠️ No microphone available — recording with system audio only: {}", default_err);
-                                None
-                            }
-                        }
-                    }
-                }
-            }
-            None => {
-                info!("🎤 No microphone preference set, using system default");
-                match default_input_device() {
-                    Ok(device) => {
-                        info!("✅ Using default microphone: '{}'", device.name);
-                        Some(Arc::new(device))
-                    }
-                    Err(e) => {
-                        warn!("⚠️ No default microphone available — recording with system audio only: {}", e);
-                        None
-                    }
-                }
-            }
-        }
-    };
-
-    // ============================================================================
-    // SYSTEM AUDIO DEVICE RESOLUTION: Preference → Default → None (optional)
-    // ============================================================================
-    let system_device = match preferred_system_name {
-        Some(pref_name) => {
-            info!("🔊 Attempting to use preferred system audio: '{}'", pref_name);
-            match parse_audio_device(&pref_name) {
-                Ok(device) => {
-                    info!("✅ Using preferred system audio: '{}'", device.name);
-                    Some(Arc::new(device))
-                }
-                Err(e) => {
-                    warn!("⚠️ Preferred system audio '{}' not available: {}", pref_name, e);
-                    warn!("   Falling back to system default...");
-                    match default_output_device() {
-                        Ok(device) => {
-                            info!("✅ Using default system audio: '{}'", device.name);
-                            Some(Arc::new(device))
-                        }
-                        Err(default_err) => {
-                            warn!("⚠️ No system audio available (preferred and default both failed): {}", default_err);
-                            warn!("   Recording will continue with microphone only");
-                            None // System audio is optional
-                        }
-                    }
-                }
-            }
-        }
-        None => {
-            info!("🔊 No system audio preference set, using system default");
-            match default_output_device() {
-                Ok(device) => {
-                    info!("✅ Using default system audio: '{}'", device.name);
-                    Some(Arc::new(device))
-                }
-                Err(e) => {
-                    warn!("⚠️ No default system audio available: {}", e);
-                    warn!("   Recording will continue with microphone only");
-                    None // System audio is optional
-                }
-            }
-        }
-    };
-
-    // Always ensure a meeting name is set so incremental saver initializes
+    let (microphone_device, system_device) =
+        resolve_capture_devices(audio_source, preferred_mic_name, preferred_system_name)?;
     let effective_meeting_name = meeting_name.clone().unwrap_or_else(|| {
         // Example: Meeting 2025-10-03_08-25-23
         let now = chrono::Local::now();
@@ -444,7 +443,14 @@ pub async fn start_recording_with_devices<R: Runtime>(
     mic_device_name: Option<String>,
     system_device_name: Option<String>,
 ) -> Result<(), String> {
-    start_recording_with_devices_and_meeting(app, mic_device_name, system_device_name, None).await
+    start_recording_with_devices_and_meeting(
+        app,
+        mic_device_name,
+        system_device_name,
+        None,
+        AudioCaptureSource::Both,
+    )
+    .await
 }
 
 /// Start recording with specific devices and optional meeting name
@@ -453,6 +459,7 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
     mic_device_name: Option<String>,
     system_device_name: Option<String>,
     meeting_name: Option<String>,
+    audio_source: AudioCaptureSource,
 ) -> Result<(), String> {
     // Atomically claim the "starting" state: only one caller can transition
     // IS_RECORDING from false to true here. Any concurrent caller sees the
@@ -474,6 +481,7 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
         mic_device_name,
         system_device_name,
         meeting_name,
+        audio_source,
     )
     .await;
 
@@ -493,10 +501,11 @@ async fn start_recording_with_devices_and_meeting_inner<R: Runtime>(
     mic_device_name: Option<String>,
     system_device_name: Option<String>,
     meeting_name: Option<String>,
+    audio_source: AudioCaptureSource,
 ) -> Result<(), String> {
     info!(
-        "Starting recording with specific devices: mic={:?}, system={:?}, meeting={:?}",
-        mic_device_name, system_device_name, meeting_name
+        "Starting recording with specific devices: mic={:?}, system={:?}, meeting={:?}, audio_source={:?}",
+        mic_device_name, system_device_name, meeting_name, audio_source
     );
 
     // Validate that transcription models are available before starting recording
@@ -516,38 +525,26 @@ async fn start_recording_with_devices_and_meeting_inner<R: Runtime>(
     }
     info!("✅ Transcription model validation passed");
 
-    // Parse devices
-    let mic_device = if let Some(ref name) = mic_device_name {
-        Some(Arc::new(parse_audio_device(name).map_err(|e| {
-            format!("Invalid microphone device '{}': {}", name, e)
-        })?))
-    } else {
-        None
-    };
-
-    let system_device = if let Some(ref name) = system_device_name {
-        Some(Arc::new(parse_audio_device(name).map_err(|e| {
-            format!("Invalid system device '{}': {}", name, e)
-        })?))
-    } else {
-        None
-    };
-
     // Async-first approach for custom devices - no more blocking operations!
     info!("🚀 Starting async recording initialization with custom devices");
 
     // Create new recording manager
     let mut manager = RecordingManager::new();
 
-    // Load recording preferences to check auto_save setting
-    let (auto_save, save_folder) =
+    // Load recording preferences to check auto_save setting and fill missing device names
+    let (auto_save, save_folder, pref_mic, pref_sys) =
         match super::recording_preferences::load_recording_preferences(&app).await {
             Ok(prefs) => {
                 info!(
-                    "📋 Loaded recording preferences: auto_save={}, save_folder={:?}",
-                    prefs.auto_save, prefs.save_folder
+                    "📋 Loaded recording preferences: auto_save={}, save_folder={:?}, audio_source={:?}",
+                    prefs.auto_save, prefs.save_folder, prefs.audio_source
                 );
-                (prefs.auto_save, prefs.save_folder)
+                (
+                    prefs.auto_save,
+                    prefs.save_folder,
+                    prefs.preferred_mic_device,
+                    prefs.preferred_system_device,
+                )
             }
             Err(e) => {
                 warn!(
@@ -557,10 +554,17 @@ async fn start_recording_with_devices_and_meeting_inner<R: Runtime>(
                 (
                     true,
                     super::recording_preferences::get_default_recordings_folder(),
+                    None,
+                    None,
                 )
             }
         };
     manager.set_save_folder(save_folder);
+
+    let mic_name = mic_device_name.or(pref_mic);
+    let system_name = system_device_name.or(pref_sys);
+    let (mic_device, system_device) =
+        resolve_capture_devices(audio_source, mic_name, system_name)?;
 
     // Always ensure a meeting name is set so incremental saver initializes
     let effective_meeting_name = meeting_name.clone().unwrap_or_else(|| {
@@ -588,6 +592,15 @@ async fn start_recording_with_devices_and_meeting_inner<R: Runtime>(
     if streaming_asr {
         info!("Live ASR path: OnlineRecognizer streaming (no VAD)");
     }
+
+    let mic_label = mic_device
+        .as_ref()
+        .map(|d| d.name.clone())
+        .unwrap_or_else(|| "No Microphone".to_string());
+    let system_label = system_device
+        .as_ref()
+        .map(|d| d.name.clone())
+        .unwrap_or_else(|| "No System Audio".to_string());
 
     // Start recording with specified devices and auto_save setting
     let transcription_receiver = manager
@@ -684,10 +697,7 @@ async fn start_recording_with_devices_and_meeting_inner<R: Runtime>(
     // start_recording_with_meeting_name_inner above.
     if let Err(e) = app.emit("recording-started", serde_json::json!({
         "message": "Recording started with custom devices and parallel processing",
-        "devices": [
-            mic_device_name.unwrap_or_else(|| "Default Microphone".to_string()),
-            system_device_name.unwrap_or_else(|| "Default System Audio".to_string())
-        ],
+        "devices": [mic_label, system_label],
         "workers": 3
     })) {
         warn!("Failed to emit recording-started event (recording itself started fine): {}", e);
@@ -1528,6 +1538,33 @@ pub async fn attempt_device_reconnect(
         Err(e) => {
             error!("Manual reconnection error: {}", e);
             Err(e.to_string())
+        }
+    }
+}
+
+#[cfg(test)]
+mod resolve_capture_source_tests {
+    use super::*;
+
+    #[test]
+    fn system_source_never_opens_microphone() {
+        match resolve_capture_devices(AudioCaptureSource::System, None, None) {
+            Ok((mic, _)) => assert!(
+                mic.is_none(),
+                "system-only capture must skip the microphone"
+            ),
+            Err(_) => {}
+        }
+    }
+
+    #[test]
+    fn microphone_source_never_opens_system_audio() {
+        match resolve_capture_devices(AudioCaptureSource::Microphone, None, None) {
+            Ok((_, system)) => assert!(
+                system.is_none(),
+                "microphone-only capture must skip system audio"
+            ),
+            Err(_) => {}
         }
     }
 }

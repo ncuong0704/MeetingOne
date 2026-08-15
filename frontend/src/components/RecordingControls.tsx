@@ -3,7 +3,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { appDataDir } from '@tauri-apps/api/path';
 import { useCallback, useEffect, useState, useRef } from 'react';
-import { Play, Pause, Square, Mic, MicOff, AlertCircle, X } from 'lucide-react';
+import { Play, Pause, Square, AlertCircle, X } from 'lucide-react';
 import { MicQualityDialog } from '@/components/MicQualityDialog';
 import { ProcessRequest, SummaryResponse } from '@/types/summary';
 import { listen } from '@tauri-apps/api/event';
@@ -11,6 +11,11 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import Analytics from '@/lib/analytics';
 import { useRecordingState } from '@/contexts/RecordingStateContext';
+import {
+  AUDIO_CAPTURE_SOURCE_OPTIONS,
+  AudioCaptureSource,
+  wantsMicrophone,
+} from '@/lib/audioCaptureSource';
 
 interface RecordingControlsProps {
   isRecording: boolean;
@@ -29,8 +34,8 @@ interface RecordingControlsProps {
   };
   meetingName?: string;
   hasMicrophoneAccess?: boolean;
-  micEnabled?: boolean;
-  onMicToggle?: () => void;
+  audioCaptureSource?: AudioCaptureSource;
+  onAudioSourceChange?: (source: AudioCaptureSource) => void;
 }
 
 export const RecordingControls: React.FC<RecordingControlsProps> = ({
@@ -47,8 +52,8 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
   selectedDevices,
   meetingName,
   hasMicrophoneAccess = false,
-  micEnabled = true,
-  onMicToggle,
+  audioCaptureSource = 'both',
+  onAudioSourceChange,
 }) => {
   // Use global recording state context for pause state (syncs with tray operations)
   const recordingState = useRecordingState();
@@ -398,30 +403,26 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
               ) : (
                 <>
                   {!isRecording ? (
-                    // Start recording button + mic toggle
+                    // Start recording: source select + record button
                     <div className="flex items-center space-x-2">
-                      {hasMicrophoneAccess && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              onClick={() => onMicToggle?.()}
-                              className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors border-2 ${
-                                micEnabled
-                                  ? 'bg-blue-50 border-blue-300 text-blue-600 hover:bg-blue-100'
-                                  : 'bg-gray-100 border-gray-300 text-gray-400 hover:bg-gray-200'
-                              }`}
-                              aria-label={micEnabled ? 'Tắt microphone' : 'Bật microphone'}
-                            >
-                              {micEnabled ? <Mic size={14} /> : <MicOff size={14} />}
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>{micEnabled ? 'Tắt microphone (chỉ thu System Audio)' : 'Bật microphone (thu cả Mic + System)'}</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      )}
+                      <select
+                        value={audioCaptureSource}
+                        disabled={isStarting || isProcessing || isValidatingModel}
+                        onChange={(event) =>
+                          onAudioSourceChange?.(event.target.value as AudioCaptureSource)
+                        }
+                        className="h-8 max-w-[11.5rem] shrink-0 rounded-md border border-gray-300 bg-white px-2 text-[11px] font-medium text-gray-700 disabled:opacity-50"
+                        aria-label="Nguồn ghi âm"
+                        title="Chọn nguồn ghi âm"
+                      >
+                        {AUDIO_CAPTURE_SOURCE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.shortLabel}
+                          </option>
+                        ))}
+                      </select>
 
-                      {hasMicrophoneAccess && (
+                      {hasMicrophoneAccess && wantsMicrophone(audioCaptureSource) && (
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <button
@@ -478,29 +479,18 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                   ) : (
                     // Recording controls (pause/resume + stop)
                     <>
-                      {hasMicrophoneAccess && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                onMicToggle?.();
-                              }}
-                              className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors border-2 ${
-                                micEnabled
-                                  ? 'bg-blue-50 border-blue-300 text-blue-600 hover:bg-blue-100'
-                                  : 'bg-gray-100 border-gray-300 text-gray-400 hover:bg-gray-200'
-                              }`}
-                              aria-label={micEnabled ? 'Tắt microphone' : 'Bật microphone'}
-                            >
-                              {micEnabled ? <Mic size={14} /> : <MicOff size={14} />}
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>{micEnabled ? 'Tắt microphone' : 'Bật microphone'}</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      )}
+                      <select
+                        value={audioCaptureSource}
+                        disabled
+                        className="h-8 max-w-[11.5rem] shrink-0 rounded-md border border-gray-300 bg-gray-50 px-2 text-[11px] font-medium text-gray-500"
+                        aria-label="Nguồn ghi âm"
+                      >
+                        {AUDIO_CAPTURE_SOURCE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.shortLabel}
+                          </option>
+                        ))}
+                      </select>
 
                       <Tooltip>
                         <TooltipTrigger asChild>

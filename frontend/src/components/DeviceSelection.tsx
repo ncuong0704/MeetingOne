@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import Analytics from '@/lib/analytics';
 import { TOUR_TARGETS } from '@/components/UserGuide/tourTargets';
+import { AudioCaptureSource, wantsMicrophone, wantsSystem } from '@/lib/audioCaptureSource';
 
 export interface AudioDevice {
   name: string;
@@ -37,9 +38,15 @@ interface DeviceSelectionProps {
   selectedDevices: SelectedDevices;
   onDeviceChange: (devices: SelectedDevices) => void;
   disabled?: boolean;
+  audioSource?: AudioCaptureSource;
 }
 
-export function DeviceSelection({ selectedDevices, onDeviceChange, disabled = false }: DeviceSelectionProps) {
+export function DeviceSelection({
+  selectedDevices,
+  onDeviceChange,
+  disabled = false,
+  audioSource = 'both',
+}: DeviceSelectionProps) {
   const [devices, setDevices] = useState<AudioDevice[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -275,7 +282,7 @@ export function DeviceSelection({ selectedDevices, onDeviceChange, disabled = fa
             <Select
               value={selectedDevices.micDevice || 'default'}
               onValueChange={handleMicDeviceChange}
-              disabled={disabled}
+              disabled={disabled || !wantsMicrophone(audioSource)}
             >
               <SelectTrigger id="mic-selection" className="w-full">
                 <SelectValue placeholder="Chọn micro" />
@@ -295,7 +302,7 @@ export function DeviceSelection({ selectedDevices, onDeviceChange, disabled = fa
             <button
               type="button"
               onClick={() => setQualityOpen(true)}
-              disabled={disabled}
+              disabled={disabled || !wantsMicrophone(audioSource)}
               className="h-9 shrink-0 rounded-md bg-blue-600 px-3 text-xs font-semibold text-white hover:bg-blue-700 disabled:pointer-events-none disabled:opacity-50"
               title="Đánh giá chất lượng microphone (10 giây)"
             >
@@ -359,7 +366,7 @@ export function DeviceSelection({ selectedDevices, onDeviceChange, disabled = fa
           <Select
             value={selectedDevices.systemDevice || 'default'}
             onValueChange={handleSystemDeviceChange}
-            disabled={disabled}
+            disabled={disabled || !wantsSystem(audioSource)}
           >
             <SelectTrigger id="system-selection" className="w-full">
               <SelectValue placeholder="Chọn âm thanh hệ thống" />

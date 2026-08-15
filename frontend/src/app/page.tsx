@@ -22,7 +22,6 @@ import { indexedDBService } from '@/services/indexedDBService';
 import { TOUR_TARGETS } from '@/components/UserGuide/tourTargets';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
-import { invoke } from '@tauri-apps/api/core';
 
 export default function Home() {
   // Local page state (not moved to contexts)
@@ -32,12 +31,8 @@ export default function Home() {
 
   // Use contexts for state management
   const { meetingTitle } = useTranscripts();
-  const { transcriptModelConfig, selectedDevices, micEnabled, setMicEnabled } = useConfig();
+  const { transcriptModelConfig, selectedDevices, audioCaptureSource, setAudioCaptureSource } = useConfig();
   const recordingState = useRecordingState();
-
-  // Live mic UI during recording only — must NOT overwrite Config `micEnabled`, otherwise the next
-  // session calls start_recording with mic_enabled: false (system-audio-only) after an in-session mute.
-  const [sessionLiveMicEnabled, setSessionLiveMicEnabled] = useState<boolean | null>(null);
 
   // Extract status from global state
   const { status, isStopping, isProcessing, isSaving } = recordingState;
@@ -48,19 +43,6 @@ export default function Home() {
   const { modals, messages, showModal, hideModal } = useModalState(transcriptModelConfig);
   const { isRecordingDisabled, setIsRecordingDisabled } = useRecordingStateSync(isRecording, setIsRecordingState, setIsMeetingActive);
   const { handleRecordingStart } = useRecordingStart(isRecording, setIsRecordingState, showModal, hasMicrophoneAccess);
-
-  useEffect(() => {
-    if (!recordingState.isRecording) {
-      setSessionLiveMicEnabled(null);
-    }
-  }, [recordingState.isRecording]);
-
-  // No mic device/permission — use system-audio-only mode automatically
-  useEffect(() => {
-    if (!hasMicrophoneAccess && micEnabled) {
-      setMicEnabled(false);
-    }
-  }, [hasMicrophoneAccess, micEnabled, setMicEnabled]);
 
   // Get handleRecordingStop function and setIsStopping (state comes from global context)
   const { handleRecordingStop, setIsStopping } = useRecordingStop(
@@ -268,27 +250,9 @@ export default function Home() {
                       isParentProcessing={isProcessingStop}
                       selectedDevices={selectedDevices}
                       meetingName={meetingTitle}
-                      hasMicrophoneAccess={hasMicrophoneAccess} //quyền micro
-                      micEnabled={sessionLiveMicEnabled ?? micEnabled}
-                      onMicToggle={async () => {
-                        const micDisplay = sessionLiveMicEnabled ?? micEnabled;
-                        const nextMicEnabled = !micDisplay;
-                        if (recordingState.isRecording) {
-                          try {
-                            const muted = await invoke<boolean>('set_recording_microphone_muted', {
-                              muted: !nextMicEnabled,
-                            });
-                            setSessionLiveMicEnabled(!muted);
-                          } catch (error) {
-                            toast.error('Không thể đổi trạng thái micro khi đang ghi âm', {
-                              description: error instanceof Error ? error.message : String(error),
-                            });
-                          }
-                          return;
-                        }
-
-                        setMicEnabled(nextMicEnabled);
-                      }}
+                      hasMicrophoneAccess={hasMicrophoneAccess}
+                      audioCaptureSource={audioCaptureSource}
+                      onAudioSourceChange={setAudioCaptureSource}
                     />
                   </div>
                 </div>

@@ -6,6 +6,10 @@ import { createDefaultTranscriptModelConfig } from '@/constants/modelDefaults';
 import { SelectedDevices } from '@/components/DeviceSelection';
 import { configService, ModelConfig } from '@/services/configService';
 import { invoke } from '@tauri-apps/api/core';
+import {
+  AudioCaptureSource,
+  parseAudioCaptureSource,
+} from '@/lib/audioCaptureSource';
 import { createDefaultSummaryModelConfig, DEFAULT_CUSTOM_OPENAI_ENDPOINT, DEFAULT_CUSTOM_OPENAI_MODEL, ZIPFORMER_MODEL_ID } from '@/constants/modelDefaults';
 
 export interface StorageLocations {
@@ -48,9 +52,8 @@ interface ConfigContextType {
   selectedDevices: SelectedDevices;
   setSelectedDevices: (devices: SelectedDevices) => void;
 
-  // Microphone toggle (enabled by default when permission available)
-  micEnabled: boolean;
-  setMicEnabled: (enabled: boolean) => void;
+  audioCaptureSource: AudioCaptureSource;
+  setAudioCaptureSource: (source: AudioCaptureSource) => void;
 
   // Language preference
   selectedLanguage: string;
@@ -113,7 +116,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   });
 
   // Microphone toggle state
-  const [micEnabled, setMicEnabled] = useState<boolean>(true);
+  const [audioCaptureSource, setAudioCaptureSourceState] = useState<AudioCaptureSource>('both');
 
   // Language preference state
   const [selectedLanguage, setSelectedLanguage] = useState<string>(() => {
@@ -320,11 +323,12 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     const loadDevicePreferences = async () => {
       try {
         const prefs = await configService.getRecordingPreferences();
-        if (prefs && (prefs.preferred_mic_device || prefs.preferred_system_device)) {
+        if (prefs) {
           setSelectedDevices({
             micDevice: prefs.preferred_mic_device,
             systemDevice: prefs.preferred_system_device
           });
+          setAudioCaptureSourceState(parseAudioCaptureSource(prefs.audio_source));
           console.log('Loaded device preferences:', prefs);
         }
       } catch (error) {
@@ -352,12 +356,33 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     window.dispatchEvent(new CustomEvent('confidenceIndicatorChanged', { detail: checked }));
   }, []);
 
+  const setAudioCaptureSource = useCallback((source: AudioCaptureSource) => {
+    setAudioCaptureSourceState(source);
+    void (async () => {
+      try {
+        const prefs = await invoke<{
+          save_folder: string;
+          auto_save: boolean;
+          file_format: string;
+          preferred_mic_device: string | null;
+          preferred_system_device: string | null;
+          audio_source?: string;
+        }>('get_recording_preferences');
+        await invoke('set_recording_preferences', {
+          preferences: { ...prefs, audio_source: source },
+        });
+      } catch (error) {
+        console.error('[ConfigContext] Failed to save audio_source:', error);
+      }
+    })();
+  }, []);
+
   const toggleIsAutoSummary = useCallback((checked: boolean) => {
     setisAutoSummary(checked);
     if (typeof window !== 'undefined') {
       localStorage.setItem('isAutoSummary', checked.toString());
     }
-  }, [])
+  }, []);
 
   // Update individual provider API key
   const updateProviderApiKey = useCallback((provider: string, apiKey: string | null) => {
@@ -444,8 +469,8 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     setTranscriptModelConfig,
     selectedDevices,
     setSelectedDevices,
-    micEnabled,
-    setMicEnabled,
+    audioCaptureSource,
+    setAudioCaptureSource,
     selectedLanguage,
     setSelectedLanguage: handleSetSelectedLanguage,
     showConfidenceIndicator,
@@ -464,7 +489,8 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     updateProviderApiKey,
     transcriptModelConfig,
     selectedDevices,
-    micEnabled,
+    audioCaptureSource,
+    setAudioCaptureSource,
     selectedLanguage,
     handleSetSelectedLanguage,
     showConfidenceIndicator,

@@ -97,12 +97,18 @@ async fn start_recording<R: Runtime>(
         return Err("Recording already in progress".to_string());
     }
 
+    let source = audio::recording_preferences::load_recording_preferences(&app)
+        .await
+        .map(|prefs| prefs.audio_source)
+        .unwrap_or_default();
+
     // Call the actual audio recording system with meeting name
     match audio::recording_commands::start_recording_with_devices_and_meeting(
         app.clone(),
         mic_device_name,
         system_device_name,
         meeting_name.clone(),
+        source,
     )
     .await
     {
@@ -276,7 +282,15 @@ async fn start_recording_with_devices<R: Runtime>(
     mic_device_name: Option<String>,
     system_device_name: Option<String>,
 ) -> Result<(), String> {
-    start_recording_with_devices_and_meeting(app, mic_device_name, system_device_name, None, None).await
+    start_recording_with_devices_and_meeting(
+        app,
+        mic_device_name,
+        system_device_name,
+        None,
+        None,
+        None,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -286,40 +300,25 @@ async fn start_recording_with_devices_and_meeting<R: Runtime>(
     system_device_name: Option<String>,
     meeting_name: Option<String>,
     mic_enabled: Option<bool>,
+    audio_source: Option<audio::recording_preferences::AudioCaptureSource>,
 ) -> Result<(), String> {
-    let use_mic = mic_enabled.unwrap_or(true);
-    log_info!("🚀 CALLED start_recording_with_devices_and_meeting - Mic: {:?}, System: {:?}, Meeting: {:?}, mic_enabled: {}",
-             mic_device_name, system_device_name, meeting_name, use_mic);
+    let source = audio_source.unwrap_or_else(|| {
+        audio::recording_preferences::AudioCaptureSource::from_legacy_mic_enabled(mic_enabled)
+    });
+    log_info!("🚀 CALLED start_recording_with_devices_and_meeting - Mic: {:?}, System: {:?}, Meeting: {:?}, audio_source: {:?}",
+             mic_device_name, system_device_name, meeting_name, source);
 
     // Clone meeting_name for notification use later
     let meeting_name_for_notification = meeting_name.clone();
 
-    // Call the recording module functions that support meeting names
-    let recording_result = match (mic_device_name.clone(), system_device_name.clone()) {
-        (None, None) => {
-            log_info!(
-                "No devices specified, starting with defaults and meeting: {:?}, mic_enabled: {}",
-                meeting_name, use_mic
-            );
-            audio::recording_commands::start_recording_with_meeting_name(app.clone(), meeting_name, use_mic)
-                .await
-        }
-        _ => {
-            log_info!(
-                "Starting with specified devices: mic={:?}, system={:?}, meeting={:?}",
-                mic_device_name,
-                system_device_name,
-                meeting_name
-            );
-            audio::recording_commands::start_recording_with_devices_and_meeting(
-                app.clone(),
-                mic_device_name,
-                system_device_name,
-                meeting_name,
-            )
-            .await
-        }
-    };
+    let recording_result = audio::recording_commands::start_recording_with_devices_and_meeting(
+        app.clone(),
+        mic_device_name,
+        system_device_name,
+        meeting_name,
+        source,
+    )
+    .await;
 
     match recording_result {
         Ok(_) => {
