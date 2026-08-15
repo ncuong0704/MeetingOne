@@ -1,6 +1,7 @@
 //! Offline speaker diarization — Community-1 Pure ORT (file import).
 
 pub mod align;
+pub mod embedding;
 pub mod plda;
 pub mod segmentation;
 
