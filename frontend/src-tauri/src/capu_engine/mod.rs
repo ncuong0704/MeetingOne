@@ -6,5 +6,6 @@ pub mod capu_engine;
 pub mod commands;
 pub mod batch;
 pub mod live_finalize;
+pub mod post_process;
 
 pub use capu_engine::CapuEngine;

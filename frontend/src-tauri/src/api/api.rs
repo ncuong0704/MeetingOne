@@ -8,7 +8,7 @@ use crate::{
         models::MeetingModel,
         repositories::{
             meeting::MeetingsRepository, setting::SettingsRepository,
-            transcript::TranscriptsRepository,
+            speaker::SpeakersRepository, transcript::TranscriptsRepository,
         },
     },
     report_export,
@@ -107,6 +107,10 @@ pub struct SharedTranscriptConfigDto {
     pub capu_punctuation_level: i32,
     #[serde(rename = "capuCaseLevel")]
     pub capu_case_level: i32,
+    #[serde(rename = "diarizationEnabled", default)]
+    pub diarization_enabled: bool,
+    #[serde(rename = "diarizationNumSpeakers", default)]
+    pub diarization_num_speakers: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -179,6 +183,12 @@ pub struct MeetingTranscript {
     pub audio_end_time: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speaker_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speaker_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speaker_color: Option<String>,
 }
 
 /// Meeting metadata without transcripts (for pagination)
@@ -230,6 +240,12 @@ pub struct TranscriptSegment {
     pub audio_end_time: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration: Option<f64>,
+    /// Offline diarization cluster index (file import). Not the legacy mic/system `speaker` column.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub speaker_cluster: Option<usize>,
+    /// Live hotkey speaker name (persisted as meeting_speakers.display_name).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub speaker_name: Option<String>,
 }
 
 // API Commands for Tauri
@@ -471,6 +487,8 @@ pub async fn api_get_transcript_config<R: Runtime>(
                     capu_cpu_threads: config.capu_cpu_threads,
                     capu_punctuation_level: config.capu_punctuation_level,
                     capu_case_level: config.capu_case_level,
+                    diarization_enabled: config.diarization_enabled,
+                    diarization_num_speakers: config.diarization_num_speakers,
                 },
             })
         }
@@ -499,6 +517,8 @@ pub async fn api_get_transcript_config<R: Runtime>(
                     capu_cpu_threads: None,
                     capu_punctuation_level: 7,
                     capu_case_level: 3,
+                    diarization_enabled: false,
+                    diarization_num_speakers: None,
                 },
             })
         }
@@ -808,12 +828,17 @@ pub async fn api_save_shared_transcript_config<R: Runtime>(
     capu_cpu_threads: Option<i32>,
     capu_punctuation_level: Option<i32>,
     capu_case_level: Option<i32>,
+    diarization_enabled: Option<bool>,
+    diarization_num_speakers: Option<i32>,
     _auth_token: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let pool = state.db_manager.pool();
     let capu_threads_resolved = capu_cpu_threads.filter(|&t| t > 0);
     let capu_punct_resolved = capu_punctuation_level.unwrap_or(7).clamp(1, 10);
     let capu_case_resolved = capu_case_level.unwrap_or(3).clamp(1, 10);
+    let diarization_enabled_resolved = diarization_enabled.unwrap_or(false);
+    let diarization_num_resolved = diarization_num_speakers
+        .filter(|&n| (1..=20).contains(&n));
 
     if let Err(e) = SettingsRepository::save_shared_transcript_config(
         pool,
@@ -821,6 +846,8 @@ pub async fn api_save_shared_transcript_config<R: Runtime>(
         capu_threads_resolved,
         capu_punct_resolved,
         capu_case_resolved,
+        diarization_enabled_resolved,
+        diarization_num_resolved,
     )
     .await
     {
@@ -1030,6 +1057,9 @@ pub async fn api_get_meeting_transcripts<R: Runtime>(
                     audio_start_time: t.audio_start_time,
                     audio_end_time: t.audio_end_time,
                     duration: t.duration,
+                    speaker_id: t.speaker_id,
+                    speaker_name: t.speaker_name,
+                    speaker_color: t.speaker_color,
                 })
                 .collect::<Vec<_>>();
 
@@ -1045,6 +1075,35 @@ pub async fn api_get_meeting_transcripts<R: Runtime>(
             log_error!("Error retrieving transcripts for meeting {}: {}", meeting_id, e);
             Err(format!("Failed to retrieve transcripts: {}", e))
         }
+    }
+}
+
+#[tauri::command]
+pub async fn rename_meeting_speaker(
+    state: tauri::State<'_, AppState>,
+    speaker_id: String,
+    display_name: String,
+) -> Result<(), String> {
+    match SpeakersRepository::rename_speaker(state.db_manager.pool(), &speaker_id, &display_name)
+        .await
+    {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(format!("Speaker not found: {}", speaker_id)),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub async fn merge_speaker_segment(
+    state: tauri::State<'_, AppState>,
+    transcript_id: String,
+) -> Result<(), String> {
+    match SpeakersRepository::merge_with_previous(state.db_manager.pool(), &transcript_id).await {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(
+            "Không thể gộp: không có đoạn trước hoặc đoạn trước chưa có người nói".to_string(),
+        ),
+        Err(e) => Err(e.to_string()),
     }
 }
 

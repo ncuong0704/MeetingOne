@@ -1,8 +1,27 @@
 use crate::api::{TranscriptSearchResult, TranscriptSegment};
+use crate::audio::transcription::live_speaker::color_for_name;
 use chrono::Utc;
 use sqlx::{Connection, Error as SqlxError, SqlitePool};
+use std::collections::HashMap;
 use tracing::{error, info};
 use uuid::Uuid;
+
+/// First-seen unique live speaker names (empty/whitespace skipped).
+pub(crate) fn unique_speaker_names<'a, I>(names: I) -> Vec<String>
+where
+    I: IntoIterator<Item = Option<&'a str>>,
+{
+    let mut out = Vec::new();
+    for name in names {
+        let Some(trimmed) = name.map(str::trim).filter(|n| !n.is_empty()) else {
+            continue;
+        };
+        if !out.iter().any(|n| n == trimmed) {
+            out.push(trimmed.to_string());
+        }
+    }
+    out
+}
 
 pub struct TranscriptsRepository;
 
@@ -43,12 +62,52 @@ impl TranscriptsRepository {
 
         info!("Successfully created meeting with id: {}", meeting_id);
 
+        let speaker_names = unique_speaker_names(
+            transcripts
+                .iter()
+                .map(|s| s.speaker_name.as_deref()),
+        );
+        let mut name_to_id: HashMap<String, String> = HashMap::new();
+        for (cluster_index, name) in speaker_names.iter().enumerate() {
+            let speaker_id = format!("speaker-{}", Uuid::new_v4());
+            let color = color_for_name(name);
+            let result = sqlx::query(
+                "INSERT INTO meeting_speakers (id, meeting_id, cluster_index, display_name, color)
+                 VALUES (?, ?, ?, ?, ?)",
+            )
+            .bind(&speaker_id)
+            .bind(&meeting_id)
+            .bind(cluster_index as i32)
+            .bind(name)
+            .bind(&color)
+            .execute(&mut *transaction)
+            .await;
+
+            if let Err(e) = result {
+                error!(
+                    "Failed to insert live speaker '{}' for meeting {}: {}",
+                    name, meeting_id, e
+                );
+                transaction.rollback().await?;
+                return Err(e);
+            }
+            name_to_id.insert(name.clone(), speaker_id);
+        }
+
         // 2. Save each transcript segment with audio timing fields
         for segment in transcripts {
             let transcript_id = format!("transcript-{}", Uuid::new_v4());
+            let speaker_id = segment.speaker_name.as_deref().and_then(|n| {
+                let trimmed = n.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    name_to_id.get(trimmed).cloned()
+                }
+            });
             let result = sqlx::query(
-                "INSERT INTO transcripts (id, meeting_id, transcript, timestamp, audio_start_time, audio_end_time, duration)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)"
+                "INSERT INTO transcripts (id, meeting_id, transcript, timestamp, audio_start_time, audio_end_time, duration, speaker_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
             )
             .bind(&transcript_id)
             .bind(&meeting_id)
@@ -57,6 +116,7 @@ impl TranscriptsRepository {
             .bind(segment.audio_start_time)
             .bind(segment.audio_end_time)
             .bind(segment.duration)
+            .bind(speaker_id)
             .execute(&mut *transaction)
             .await;
 
@@ -156,5 +216,32 @@ impl TranscriptsRepository {
             }
             None => transcript.chars().take(200).collect(), // Fallback to the start of the transcript
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unique_speaker_names_skips_empty_and_dedupes_in_order() {
+        let names = [
+            None,
+            Some("  "),
+            Some("Lan"),
+            Some(" Minh "),
+            Some("Lan"),
+            Some(""),
+            Some("Minh"),
+        ];
+        assert_eq!(
+            unique_speaker_names(names),
+            vec!["Lan".to_string(), "Minh".to_string()]
+        );
+    }
+
+    #[test]
+    fn unique_speaker_names_all_blank_is_empty() {
+        assert!(unique_speaker_names([None, Some(""), Some("  ")]).is_empty());
     }
 }

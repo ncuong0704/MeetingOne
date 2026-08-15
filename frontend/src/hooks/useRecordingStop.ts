@@ -267,7 +267,20 @@ export function useRecordingStop(
           try {
             const fromDisk = await transcriptService.loadTranscriptsFromFolder(folderPath);
             if (fromDisk.length > 0) {
-              freshTranscripts = fromDisk;
+              const memBySeq = new Map(
+                transcriptsRef.current
+                  .filter((t) => t.sequence_id !== undefined)
+                  .map((t) => [t.sequence_id as number, t])
+              );
+              freshTranscripts = fromDisk.map((seg) => {
+                const mem =
+                  seg.sequence_id !== undefined ? memBySeq.get(seg.sequence_id) : undefined;
+                return {
+                  ...seg,
+                  speaker_name: seg.speaker_name || mem?.speaker_name || null,
+                  speaker_color: seg.speaker_color || mem?.speaker_color || null,
+                };
+              });
               console.log('Loaded finalized transcripts from disk:', fromDisk.length);
             }
           } catch (loadErr) {

@@ -2,8 +2,8 @@
 //
 // Shared batch-transcription pipeline for the file-based paths (`import.rs`,
 // `retranscription.rs`): parallelizes ASR across 2 workers when there's enough work
-// and enough CPU, then runs CAPU once per ~200-word batch via `CapuBatcher` instead of
-// once per tiny VAD segment. See
+// and enough CPU, then runs CAPU once per `CAPU_BATCH_WORD_BUDGET`-word batch via
+// `CapuBatcher` instead of once per tiny VAD segment. See
 // docs/superpowers/specs/2026-08-04-asr-pipeline-performance-design.md, section B.
 
 use crate::api::TranscriptSegment;
@@ -137,6 +137,8 @@ fn raw_timed_results_to_segments(raw_results: Vec<(String, f64, f64)>) -> Vec<Tr
                 audio_start_time: Some(start_sec),
                 audio_end_time: Some(end_sec),
                 duration: Some(end_sec - start_sec),
+                speaker_cluster: None,
+                speaker_name: None,
             }
         })
         .collect()
@@ -203,6 +205,8 @@ fn flush_into(batcher: &mut CapuBatcher, out: &mut Vec<TranscriptSegment>) {
             audio_start_time: Some(finalized.audio_start_time),
             audio_end_time: Some(finalized.audio_end_time),
             duration: Some(finalized.audio_end_time - finalized.audio_start_time),
+            speaker_cluster: None,
+            speaker_name: None,
         });
     }
 }
@@ -628,9 +632,9 @@ async fn transcribe_parallel<R: Runtime>(
 /// parallelizing across 2 workers when there's enough work and CPU (see
 /// `should_parallelize`), then stitches any overlap-split boundaries
 /// (`leading_context_samples`, from `audio::common::expand_segments_with_overlap`) and
-/// batches the result through CAPU once per ~200-word group instead of once per tiny
-/// segment. Returns finished, punctuated `TranscriptSegment`s ready to save to the
-/// database.
+/// batches the result through CAPU once per `CAPU_BATCH_WORD_BUDGET`-word group instead of
+/// once per tiny segment. Returns finished, punctuated `TranscriptSegment`s ready to save
+/// to the database.
 ///
 /// `leading_context_samples` must be index-aligned with `segments` (same length); pass
 /// an all-zero `Vec` (or reuse `audio::common::expand_segments_at_silence`'s plain
@@ -851,7 +855,7 @@ mod tests {
 
     #[test]
     fn finalize_with_capu_splits_into_multiple_batches_when_word_budget_exceeded() {
-        // 50 segments x 7 words = 350 words, well over CAPU_BATCH_WORD_BUDGET (200) — must
+        // 50 segments x 7 words = 350 words, well over CAPU_BATCH_WORD_BUDGET — must
         // produce more than one TranscriptSegment.
         let mut raw = Vec::new();
         for i in 0..50 {
@@ -864,7 +868,7 @@ mod tests {
         let segments = finalize_with_capu(raw);
         assert!(
             segments.len() > 1,
-            "350 words over a 200-word budget must split into multiple batches, got {}",
+            "350 words over the CAPU word budget must split into multiple batches, got {}",
             segments.len()
         );
         // Segments must be in chronological order with non-overlapping, increasing time spans.

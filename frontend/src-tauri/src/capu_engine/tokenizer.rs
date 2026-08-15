@@ -3,13 +3,23 @@ use std::path::Path;
 use tokenizers::models::wordpiece::WordPiece;
 use tokenizers::normalizers::bert::BertNormalizer;
 use tokenizers::pre_tokenizers::bert::BertPreTokenizer;
-use tokenizers::processors::bert::BertProcessing;
-use tokenizers::{Model, Tokenizer};
+use tokenizers::{AddedToken, Model, Tokenizer};
+
+/// The reference GECToR model was exported with a dedicated `$START` embedding appended
+/// after the base WordPiece vocab (`config.json`: `bert_vocab_size: 38168` for a
+/// 38167-line `vocab.txt` — one extra row), and its input pipeline uses
+/// `add_special_tokens=False`: no `[CLS]`/`[SEP]`, just `$START` prepended to the word
+/// list. Feeding this model `[CLS]`/`[SEP]` instead — plausible-looking since they're
+/// also BERT special tokens, but never trained for this role here — means the model's
+/// very first hidden state comes from an embedding it never learned to use that way, and
+/// every real word's self-attention sees a foreign trailing `[SEP]` it was never trained
+/// to expect. `encode_words` below reproduces the reference scheme exactly instead.
+const START_TOKEN: &str = "$START";
 
 /// Encoded representation ready to feed to the ONNX session: `input_offsets` here is
-/// the *raw* offsets list (length == words.len() + 2, includes the CLS/SEP sentinel
-/// positions) — callers are responsible for skipping the first/last entry when they
-/// read per-word predictions back out (see capu_engine.rs).
+/// the *raw* offsets list (length == words.len() + 1 — one for the prepended `$START`,
+/// one per real word, no CLS/SEP) — callers skip only the first entry when reading
+/// per-word predictions back out (see capu_engine.rs).
 pub struct CapuEncoding {
     pub input_ids: Vec<i64>,
     pub attention_mask: Vec<i64>,
@@ -35,17 +45,11 @@ impl CapuTokenizer {
             .build()
             .map_err(|e| anyhow!("Failed to build WordPiece from {:?}: {}", vocab_path, e))?;
 
-        let cls_id = wordpiece
-            .token_to_id("[CLS]")
-            .ok_or_else(|| anyhow!("[CLS] not found in vocab {:?}", vocab_path))?;
-        let sep_id = wordpiece
-            .token_to_id("[SEP]")
-            .ok_or_else(|| anyhow!("[SEP] not found in vocab {:?}", vocab_path))?;
-        // Not used directly below, but `WordPieceBuilder::build()` does not validate that
+        // Not used directly, but `WordPieceBuilder::build()` does not validate that
         // `unk_token` exists in the vocab — it only surfaces as `MissingUnkToken` later,
         // inside `encode`, the first time a word actually needs UNK fallback. Since
-        // `vocab.txt` is downloaded over HTTP (Task 7) and a truncated/corrupted download
-        // is a real failure mode, validate `[UNK]` eagerly here too, matching CLS/SEP.
+        // `vocab.txt` is downloaded over HTTP and a truncated/corrupted download is a
+        // real failure mode, validate `[UNK]` eagerly here.
         wordpiece
             .token_to_id("[UNK]")
             .ok_or_else(|| anyhow!("[UNK] not found in vocab {:?}", vocab_path))?;
@@ -55,17 +59,26 @@ impl CapuTokenizer {
             .with_normalizer(Some(BertNormalizer::new(true, true, Some(false), false)))
             .map_err(|e| anyhow!("Failed to set normalizer for {:?}: {}", vocab_path, e))?;
         tokenizer.with_pre_tokenizer(Some(BertPreTokenizer));
-        tokenizer.with_post_processor(Some(BertProcessing::new(
-            ("[SEP]".to_string(), sep_id),
-            ("[CLS]".to_string(), cls_id),
-        )));
+        // No post-processor: the reference model's input is exactly `$START` + words,
+        // nothing else added around it.
+
+        // Registers `$START` as an added (non-normalized, atomic) token. The tokenizers
+        // crate assigns the next free id after the base vocab to the first added token
+        // (verified against this crate version's `add_tokens` — `next_id` starts at
+        // `model.get_vocab_size()`), landing it at exactly index 38167 for this vocab —
+        // matching `bert_vocab_size: 38168` (ids 0..=38167) in the model's own config.
+        tokenizer
+            .add_special_tokens([AddedToken::from(START_TOKEN, true)])
+            .map_err(|e| anyhow!("Failed to register {} token: {}", START_TOKEN, e))?;
 
         Ok(Self { tokenizer })
     }
 
-    /// Encodes a list of whitespace-delimited words into model inputs, computing
-    /// `input_offsets` by replicating the reference `gec_model.py` logic: append the
-    /// token index every time `word_ids()` changes value versus the previous token.
+    /// Encodes a list of real (whitespace-delimited) words into model inputs. Internally
+    /// prepends `$START` — see the module doc comment for why this replaces the more
+    /// obvious-looking `[CLS]`/`[SEP]` scheme — and computes `input_offsets` by
+    /// replicating the reference `gec_model.py` logic: append the token index every time
+    /// `word_ids()` changes value versus the previous token.
     ///
     /// Words must be passed as a pretokenized sequence (`is_split_into_words=True` in the
     /// reference) — joining and re-tokenizing would re-split on whitespace/punctuation and
@@ -75,10 +88,13 @@ impl CapuTokenizer {
             return Err(anyhow!("Cannot encode empty word list"));
         }
 
-        let word_refs: Vec<&str> = words.iter().map(|s| s.as_str()).collect();
+        let mut word_refs: Vec<&str> = Vec::with_capacity(words.len() + 1);
+        word_refs.push(START_TOKEN);
+        word_refs.extend(words.iter().map(|s| s.as_str()));
+
         let encoding = self
             .tokenizer
-            .encode(word_refs.as_slice(), true)
+            .encode(word_refs.as_slice(), false)
             .map_err(|e| anyhow!("Tokenization failed: {}", e))?;
 
         let word_ids = encoding.get_word_ids();
@@ -89,7 +105,7 @@ impl CapuTokenizer {
             }
         }
 
-        let expected_len = words.len() + 2;
+        let expected_len = words.len() + 1;
         if input_offsets.len() != expected_len {
             return Err(anyhow!(
                 "Offset alignment mismatch: got {} offsets for {} words (expected {})",
@@ -131,6 +147,16 @@ mod tests {
     }
 
     #[test]
+    fn start_token_is_registered_right_after_the_base_vocab() {
+        // Base vocab here has 9 lines (indices 0..8) -> $START must land at 9, matching
+        // how the reference model's own embedding table appends exactly one extra row
+        // after its base vocab (config.json: bert_vocab_size = vocab.txt lines + 1).
+        let vocab = write_test_vocab();
+        let tok = CapuTokenizer::from_vocab_file(vocab.path()).unwrap();
+        assert_eq!(tok.tokenizer.token_to_id(START_TOKEN), Some(9));
+    }
+
+    #[test]
     fn offsets_align_one_per_word_including_multi_subword_word() {
         let vocab = write_test_vocab();
         let tok = CapuTokenizer::from_vocab_file(vocab.path()).unwrap();
@@ -138,10 +164,11 @@ mod tests {
         let words = vec!["xin".to_string(), "chào".to_string(), "vietnam".to_string()];
         let encoding = tok.encode_words(&words).unwrap();
 
-        // [CLS] xin chào viet ##nam [SEP] -> word_ids [None,0,1,2,2,None]
-        // offsets computed by "append on word_id change": [0, 1, 2, 3, 5]
-        assert_eq!(encoding.input_offsets, vec![0, 1, 2, 3, 5]);
-        assert_eq!(encoding.input_offsets.len(), words.len() + 2);
+        // $START xin chào viet ##nam -> word_ids [0,1,2,3,3], no CLS/SEP at all.
+        // offsets computed by "append on word_id change": [0, 1, 2, 3]
+        assert_eq!(encoding.input_offsets, vec![0, 1, 2, 3]);
+        assert_eq!(encoding.input_offsets.len(), words.len() + 1);
+        assert_eq!(encoding.input_ids[0], 9, "first token must be $START, not [CLS]");
         assert_eq!(encoding.attention_mask.len(), encoding.input_ids.len());
         assert_eq!(encoding.token_type_ids, vec![0; encoding.input_ids.len()]);
     }
@@ -154,7 +181,7 @@ mod tests {
         let words = vec!["xin".to_string(), "gibberishword".to_string()];
         let encoding = tok.encode_words(&words).unwrap();
 
-        assert_eq!(encoding.input_offsets.len(), words.len() + 2);
+        assert_eq!(encoding.input_offsets.len(), words.len() + 1);
     }
 
     #[test]

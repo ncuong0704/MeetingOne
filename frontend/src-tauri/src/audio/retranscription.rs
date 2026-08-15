@@ -291,7 +291,7 @@ async fn run_retranscription<R: Runtime>(
 
     let app_for_progress = app.clone();
     let meeting_id_for_progress = meeting_id.clone();
-    let segments = crate::audio::batch_transcribe::batch_transcribe(
+    let mut segments = crate::audio::batch_transcribe::batch_transcribe(
         &app,
         processable_segments,
         leading_context_samples,
@@ -316,6 +316,20 @@ async fn run_retranscription<R: Runtime>(
         return Err(anyhow!("Retranscription cancelled"));
     }
 
+    // Fail-open diarization (same settings as file import)
+    {
+        let app_state = app
+            .try_state::<AppState>()
+            .ok_or_else(|| anyhow!("App state not available"))?;
+        crate::audio::import::maybe_apply_diarization(
+            &app,
+            app_state.db_manager.pool(),
+            &audio_samples,
+            &mut segments,
+        )
+        .await;
+    }
+
     emit_progress(&app, &meeting_id, "saving", 80, "Saving transcripts...");
 
     let app_state = app
@@ -334,10 +348,47 @@ async fn run_retranscription<R: Runtime>(
         .await
         .map_err(|e| anyhow!("Failed to delete existing transcripts: {}", e))?;
 
-    for segment in &segments {
+    sqlx::query("DELETE FROM meeting_speakers WHERE meeting_id = ?")
+        .bind(&meeting_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| anyhow!("Failed to delete existing speakers: {}", e))?;
+
+    let mut cluster_to_speaker_id: std::collections::HashMap<usize, String> =
+        std::collections::HashMap::new();
+    let mut unique_clusters: Vec<usize> = segments
+        .iter()
+        .filter_map(|s| s.speaker_cluster)
+        .collect();
+    unique_clusters.sort_unstable();
+    unique_clusters.dedup();
+
+    for cluster_index in unique_clusters {
+        let speaker_id = format!("speaker-{}", uuid::Uuid::new_v4());
+        let display_name = format!("Người nói {}", cluster_index + 1);
+        let color = crate::diarization_engine::speaker_color_for_index(cluster_index).to_string();
         sqlx::query(
-            "INSERT INTO transcripts (id, meeting_id, transcript, timestamp, audio_start_time, audio_end_time, duration)
-             VALUES (?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO meeting_speakers (id, meeting_id, cluster_index, display_name, color)
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(&speaker_id)
+        .bind(&meeting_id)
+        .bind(cluster_index as i32)
+        .bind(&display_name)
+        .bind(&color)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| anyhow!("Failed to insert meeting_speaker: {}", e))?;
+        cluster_to_speaker_id.insert(cluster_index, speaker_id);
+    }
+
+    for segment in &segments {
+        let speaker_id = segment
+            .speaker_cluster
+            .and_then(|c| cluster_to_speaker_id.get(&c).cloned());
+        sqlx::query(
+            "INSERT INTO transcripts (id, meeting_id, transcript, timestamp, audio_start_time, audio_end_time, duration, speaker_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
         )
         .bind(&segment.id)
         .bind(&meeting_id)
@@ -346,6 +397,7 @@ async fn run_retranscription<R: Runtime>(
         .bind(segment.audio_start_time)
         .bind(segment.audio_end_time)
         .bind(segment.duration)
+        .bind(speaker_id)
         .execute(&mut *tx)
         .await
         .map_err(|e| anyhow!("Failed to insert transcript: {}", e))?;

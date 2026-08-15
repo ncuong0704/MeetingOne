@@ -63,6 +63,9 @@ export function TranscriptPanel({
       text: t.text,
       confidence: t.confidence,
       sequenceId: t.sequence_id,
+      speakerId: t.speaker_id,
+      speakerName: t.speaker_name,
+      speakerColor: t.speaker_color,
     }));
   }, [transcripts, usePagination, segments]);
 
@@ -188,6 +191,7 @@ export function TranscriptPanel({
           activeSegmentId={activeSegmentId}
           onSegmentClick={meetingFolderPath ? onSegmentClick : undefined}
           playbackFollow={showAudioPlayer && !!meetingFolderPath}
+          onSpeakersChanged={onRefetchTranscripts}
         />
       </div>
     </div>

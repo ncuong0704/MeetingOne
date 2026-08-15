@@ -1,8 +1,34 @@
 use crate::api::{MeetingDetails, MeetingTranscript};
-use crate::database::models::{MeetingModel, Transcript};
+use crate::database::models::{MeetingModel, TranscriptWithSpeaker};
 use chrono::Utc;
 use sqlx::{Connection, Error as SqlxError, SqliteConnection, SqlitePool};
 use tracing::{error, info};
+
+const TRANSCRIPT_WITH_SPEAKER_SQL: &str = r#"
+    SELECT
+        t.id, t.meeting_id, t.transcript, t.timestamp,
+        t.summary, t.action_items, t.key_points,
+        t.audio_start_time, t.audio_end_time, t.duration,
+        t.speaker_id,
+        s.display_name AS speaker_name,
+        s.color AS speaker_color
+    FROM transcripts t
+    LEFT JOIN meeting_speakers s ON t.speaker_id = s.id
+"#;
+
+fn to_meeting_transcript(t: TranscriptWithSpeaker) -> MeetingTranscript {
+    MeetingTranscript {
+        id: t.id,
+        text: t.transcript,
+        timestamp: t.timestamp,
+        audio_start_time: t.audio_start_time,
+        audio_end_time: t.audio_end_time,
+        duration: t.duration,
+        speaker_id: t.speaker_id,
+        speaker_name: t.speaker_name,
+        speaker_color: t.speaker_color,
+    }
+}
 
 pub struct MeetingsRepository;
 
@@ -73,26 +99,19 @@ impl MeetingsRepository {
         }
 
         if let Some(meeting) = meeting {
-            // Get all transcripts for this meeting
-            let transcripts =
-                sqlx::query_as::<_, Transcript>("SELECT * FROM transcripts WHERE meeting_id = ?")
-                    .bind(meeting_id)
-                    .fetch_all(&mut *transaction)
-                    .await?;
+            // Get all transcripts for this meeting (with optional speaker labels)
+            let transcripts = sqlx::query_as::<_, TranscriptWithSpeaker>(&format!(
+                "{TRANSCRIPT_WITH_SPEAKER_SQL} WHERE t.meeting_id = ? ORDER BY t.audio_start_time ASC"
+            ))
+            .bind(meeting_id)
+            .fetch_all(&mut *transaction)
+            .await?;
 
             transaction.commit().await?;
 
-            // Convert Transcript to MeetingTranscript
             let meeting_transcripts = transcripts
                 .into_iter()
-                .map(|t| MeetingTranscript {
-                    id: t.id,
-                    text: t.transcript,
-                    timestamp: t.timestamp,
-                    audio_start_time: t.audio_start_time,
-                    audio_end_time: t.audio_end_time,
-                    duration: t.duration,
-                })
+                .map(to_meeting_transcript)
                 .collect::<Vec<_>>();
 
             Ok(Some(MeetingDetails {
@@ -134,7 +153,7 @@ impl MeetingsRepository {
         meeting_id: &str,
         limit: i64,
         offset: i64,
-    ) -> Result<(Vec<Transcript>, i64), SqlxError> {
+    ) -> Result<(Vec<TranscriptWithSpeaker>, i64), SqlxError> {
         if meeting_id.trim().is_empty() {
             return Err(SqlxError::Protocol(
                 "meeting_id cannot be empty".to_string(),
@@ -149,13 +168,12 @@ impl MeetingsRepository {
         .fetch_one(pool)
         .await?;
 
-        // Get paginated transcripts ordered by audio_start_time
-        let transcripts = sqlx::query_as::<_, Transcript>(
-            "SELECT * FROM transcripts
-             WHERE meeting_id = ?
-             ORDER BY audio_start_time ASC
+        let transcripts = sqlx::query_as::<_, TranscriptWithSpeaker>(&format!(
+            "{TRANSCRIPT_WITH_SPEAKER_SQL}
+             WHERE t.meeting_id = ?
+             ORDER BY t.audio_start_time ASC
              LIMIT ? OFFSET ?"
-        )
+        ))
         .bind(meeting_id)
         .bind(limit)
         .bind(offset)

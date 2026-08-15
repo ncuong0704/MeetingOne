@@ -736,7 +736,7 @@ async fn run_import<R: Runtime>(
     };
 
     let app_for_progress = app.clone();
-    let segments = match crate::audio::batch_transcribe::batch_transcribe(
+    let mut segments = match crate::audio::batch_transcribe::batch_transcribe(
         &app,
         processable_segments,
         leading_context_samples,
@@ -771,6 +771,22 @@ async fn run_import<R: Runtime>(
     if IMPORT_CANCELLED.load(Ordering::SeqCst) {
         let _ = std::fs::remove_dir_all(&meeting_folder);
         return Err(anyhow!("Import cancelled"));
+    }
+
+    // Offline diarization (fail-open): align speaker turns onto transcript segments.
+    {
+        let app_state = app
+            .try_state::<AppState>()
+            .ok_or_else(|| anyhow!("App state not available"))?;
+        emit_progress(&app, "diarizing", 82, "Đang phân biệt người nói...");
+        maybe_apply_diarization(
+            &app,
+            app_state.db_manager.pool(),
+            &audio_samples,
+            &mut segments,
+        )
+        .await;
+        bench.mark("diarize");
     }
 
     emit_progress(&app, "saving", 85, "Creating meeting...");
@@ -850,6 +866,248 @@ fn emit_progress<R: Runtime>(app: &AppHandle<R>, stage: &str, progress: u32, mes
 }
 
 
+/// Attach diarization by splitting CAPU segments on turn boundaries (keeps minority speakers).
+pub(crate) fn attach_diarization_clusters(
+    segments: &mut Vec<TranscriptSegment>,
+    turns: &[crate::diarization_engine::SpeakerTurn],
+) {
+    if turns.is_empty() {
+        return;
+    }
+    let input: Vec<(String, f64, f64)> = segments
+        .iter()
+        .map(|s| {
+            let start = s.audio_start_time.unwrap_or(0.0);
+            let end = s.audio_end_time.unwrap_or(start);
+            (s.text.clone(), start, end)
+        })
+        .collect();
+    let stamp = segments
+        .first()
+        .map(|s| s.timestamp.clone())
+        .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+    let pieces = crate::diarization_engine::resegment_by_speaker_turns(&input, turns);
+    *segments = pieces
+        .into_iter()
+        .map(|p| TranscriptSegment {
+            id: format!("transcript-{}", Uuid::new_v4()),
+            text: p.text,
+            timestamp: stamp.clone(),
+            audio_start_time: Some(p.start_sec),
+            audio_end_time: Some(p.end_sec),
+            duration: Some((p.end_sec - p.start_sec).max(0.0)),
+            speaker_cluster: p.cluster_index,
+            speaker_name: None,
+        })
+        .collect();
+}
+
+// #region agent log
+fn agent_dbg(hypothesis_id: &str, location: &str, message: &str, data: serde_json::Value) {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../debug-2a8170.log");
+    let payload = serde_json::json!({
+        "sessionId": "2a8170",
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0),
+    });
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        use std::io::Write;
+        let _ = writeln!(f, "{payload}");
+    }
+}
+// #endregion
+
+/// Fail-open offline diarization for file import when enabled in settings.
+pub(crate) async fn maybe_apply_diarization<R: Runtime>(
+    app: &AppHandle<R>,
+    pool: &sqlx::SqlitePool,
+    audio_samples: &[f32],
+    segments: &mut Vec<TranscriptSegment>,
+) {
+    use crate::database::repositories::setting::SettingsRepository;
+
+    let (enabled, num_speakers) = match SettingsRepository::get_transcript_config(pool).await {
+        Ok(Some(cfg)) => (
+            cfg.diarization_enabled,
+            cfg.diarization_num_speakers
+                .filter(|&n| (1..=20).contains(&n))
+                .map(|n| n as u32),
+        ),
+        _ => (false, None),
+    };
+    // #region agent log
+    agent_dbg(
+        "A",
+        "import.rs:maybe_apply_diarization:entry",
+        "diarization settings at import",
+        serde_json::json!({
+            "enabled": enabled,
+            "num_speakers": num_speakers,
+            "samples_len": audio_samples.len(),
+            "segments_len": segments.len(),
+            "duration_sec": audio_samples.len() as f64 / 16000.0,
+        }),
+    );
+    // #endregion
+    if !enabled || segments.is_empty() || audio_samples.is_empty() {
+        // #region agent log
+        agent_dbg(
+            "A",
+            "import.rs:maybe_apply_diarization:early_return",
+            "skipped before engine",
+            serde_json::json!({
+                "reason": if !enabled { "disabled" } else if segments.is_empty() { "no_segments" } else { "no_samples" },
+            }),
+        );
+        // #endregion
+        return;
+    }
+
+    let ready = crate::diarization_engine::commands::diarization_is_model_ready(app.clone())
+        .await
+        .unwrap_or(false);
+    if !ready {
+        warn!("Diarization enabled but models not ready — continuing without speakers");
+        // #region agent log
+        agent_dbg(
+            "A",
+            "import.rs:maybe_apply_diarization:not_ready",
+            "models not ready",
+            serde_json::json!({}),
+        );
+        // #endregion
+        return;
+    }
+
+    if let Err(e) =
+        crate::diarization_engine::commands::diarization_init(app.clone(), num_speakers, None).await
+    {
+        warn!("diarization_init failed, continuing without speakers: {e}");
+        // #region agent log
+        agent_dbg(
+            "A",
+            "import.rs:maybe_apply_diarization:init_fail",
+            "init failed",
+            serde_json::json!({ "error": e.to_string() }),
+        );
+        // #endregion
+        return;
+    }
+
+    let Some(engine) = crate::diarization_engine::commands::get_engine_arc() else {
+        warn!("Diarization engine unavailable after init");
+        return;
+    };
+
+    let samples = audio_samples.to_vec();
+    let forced_k = num_speakers.map(|n| n as usize);
+    let turns = match tokio::task::spawn_blocking(move || {
+        let mut guard = engine
+            .lock()
+            .map_err(|_| anyhow!("diarization engine lock poisoned"))?;
+        guard.diarize(&samples)
+    })
+    .await
+    {
+        Ok(Ok(t)) => {
+            // #region agent log
+            let mut uniq: Vec<usize> = t.iter().map(|x| x.cluster_index).collect();
+            uniq.sort_unstable();
+            uniq.dedup();
+            let sample_turns: Vec<_> = t
+                .iter()
+                .take(8)
+                .map(|x| {
+                    serde_json::json!({
+                        "start": x.start_sec,
+                        "end": x.end_sec,
+                        "cluster": x.cluster_index,
+                    })
+                })
+                .collect();
+            agent_dbg(
+                "B",
+                "import.rs:maybe_apply_diarization:after_diarize",
+                "engine turns",
+                serde_json::json!({
+                    "forced_num_speakers": forced_k,
+                    "turns_len": t.len(),
+                    "unique_clusters": uniq,
+                    "unique_count": uniq.len(),
+                    "sample_turns": sample_turns,
+                }),
+            );
+            // #endregion
+            t
+        }
+        Ok(Err(e)) => {
+            warn!("diarization failed, continuing without speakers: {e}");
+            // #region agent log
+            agent_dbg(
+                "D",
+                "import.rs:maybe_apply_diarization:diarize_err",
+                "diarize error",
+                serde_json::json!({ "error": e.to_string() }),
+            );
+            // #endregion
+            return;
+        }
+        Err(e) => {
+            warn!("diarization task join failed: {e}");
+            return;
+        }
+    };
+
+    attach_diarization_clusters(segments, &turns);
+    let labeled = segments.iter().filter(|s| s.speaker_cluster.is_some()).count();
+    // #region agent log
+    let mut seg_clusters: Vec<usize> = segments.iter().filter_map(|s| s.speaker_cluster).collect();
+    seg_clusters.sort_unstable();
+    seg_clusters.dedup();
+    let sample_ranges: Vec<_> = segments
+        .iter()
+        .take(12)
+        .map(|s| {
+            serde_json::json!({
+                "start": s.audio_start_time,
+                "end": s.audio_end_time,
+                "cluster": s.speaker_cluster,
+                "text_len": s.text.len(),
+            })
+        })
+        .collect();
+    agent_dbg(
+        "C",
+        "import.rs:maybe_apply_diarization:after_align",
+        "aligned segment clusters",
+        serde_json::json!({
+            "labeled": labeled,
+            "segments_len": segments.len(),
+            "unique_seg_clusters": seg_clusters,
+            "unique_seg_count": seg_clusters.len(),
+            "sample_ranges": sample_ranges,
+            "runId": "post-fix",
+        }),
+    );
+    // #endregion
+    info!(
+        "Diarization attached speakers to {}/{} segments ({} turns)",
+        labeled,
+        segments.len(),
+        turns.len()
+    );
+}
+
 /// Create a new meeting with transcripts in the database
 async fn create_meeting_with_transcripts(
     pool: &sqlx::SqlitePool,
@@ -880,11 +1138,58 @@ async fn create_meeting_with_transcripts(
     .await
     .map_err(|e| anyhow!("Failed to create meeting: {}", e))?;
 
-    // Insert transcripts
-    for segment in segments {
+    // Upsert meeting_speakers for distinct clusters, map cluster_index -> speaker id
+    let mut cluster_to_speaker_id: std::collections::HashMap<usize, String> =
+        std::collections::HashMap::new();
+    let mut unique_clusters: Vec<usize> = segments
+        .iter()
+        .filter_map(|s| s.speaker_cluster)
+        .collect();
+    unique_clusters.sort_unstable();
+    unique_clusters.dedup();
+
+    // #region agent log
+    agent_dbg(
+        "E",
+        "import.rs:create_meeting_with_transcripts",
+        "speakers to persist",
+        serde_json::json!({
+            "meeting_id": meeting_id,
+            "unique_clusters": unique_clusters.clone(),
+            "speaker_count": unique_clusters.len(),
+            "segments_len": segments.len(),
+        }),
+    );
+    // #endregion
+
+    for cluster_index in &unique_clusters {
+        let cluster_index = *cluster_index;
+        let speaker_id = format!("speaker-{}", Uuid::new_v4());
+        let display_name = format!("Người nói {}", cluster_index + 1);
+        let color = crate::diarization_engine::speaker_color_for_index(cluster_index).to_string();
         sqlx::query(
-            "INSERT INTO transcripts (id, meeting_id, transcript, timestamp, audio_start_time, audio_end_time, duration)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO meeting_speakers (id, meeting_id, cluster_index, display_name, color)
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(&speaker_id)
+        .bind(&meeting_id)
+        .bind(cluster_index as i32)
+        .bind(&display_name)
+        .bind(&color)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| anyhow!("Failed to insert meeting_speaker: {}", e))?;
+        cluster_to_speaker_id.insert(cluster_index, speaker_id);
+    }
+
+    // Insert transcripts (with optional speaker_id from diarization)
+    for segment in segments {
+        let speaker_id = segment
+            .speaker_cluster
+            .and_then(|c| cluster_to_speaker_id.get(&c).cloned());
+        sqlx::query(
+            "INSERT INTO transcripts (id, meeting_id, transcript, timestamp, audio_start_time, audio_end_time, duration, speaker_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&segment.id)
         .bind(&meeting_id)
@@ -893,6 +1198,7 @@ async fn create_meeting_with_transcripts(
         .bind(segment.audio_start_time)
         .bind(segment.audio_end_time)
         .bind(segment.duration)
+        .bind(speaker_id)
         .execute(&mut *tx)
         .await
         .map_err(|e| anyhow!("Failed to insert transcript: {}", e))?;
@@ -903,9 +1209,10 @@ async fn create_meeting_with_transcripts(
         .map_err(|e| anyhow!("Failed to commit transaction: {}", e))?;
 
     info!(
-        "Created meeting '{}' with {} transcripts",
+        "Created meeting '{}' with {} transcripts ({} speakers)",
         meeting_id,
-        segments.len()
+        segments.len(),
+        cluster_to_speaker_id.len()
     );
 
     Ok(meeting_id)
@@ -1219,6 +1526,8 @@ mod tests {
                 audio_start_time: Some(0.0),
                 audio_end_time: Some(1.5),
                 duration: Some(1.5),
+                speaker_cluster: None,
+                speaker_name: None,
             },
             TranscriptSegment {
                 id: "t-2".to_string(),
@@ -1227,6 +1536,8 @@ mod tests {
                 audio_start_time: Some(2.0),
                 audio_end_time: Some(3.5),
                 duration: Some(1.5),
+                speaker_cluster: Some(0),
+                speaker_name: None,
             },
         ];
 
@@ -1248,6 +1559,40 @@ mod tests {
 
         // Verify temp file was cleaned up
         assert!(!dir.path().join(".transcripts.json.tmp").exists());
+    }
+
+    #[test]
+    fn attach_diarization_clusters_by_max_overlap() {
+        let mut segments = vec![
+            TranscriptSegment {
+                id: "a".into(),
+                text: "one two three four five six".into(),
+                timestamp: "t".into(),
+                audio_start_time: Some(0.0),
+                audio_end_time: Some(10.0),
+                duration: Some(10.0),
+                speaker_cluster: None,
+                speaker_name: None,
+            },
+        ];
+        let turns = vec![
+            crate::diarization_engine::SpeakerTurn {
+                start_sec: 0.0,
+                end_sec: 5.0,
+                cluster_index: 0,
+            },
+            crate::diarization_engine::SpeakerTurn {
+                start_sec: 5.0,
+                end_sec: 10.0,
+                cluster_index: 1,
+            },
+        ];
+        attach_diarization_clusters(&mut segments, &turns);
+        let mut clusters: Vec<_> = segments.iter().filter_map(|s| s.speaker_cluster).collect();
+        clusters.sort_unstable();
+        clusters.dedup();
+        assert_eq!(clusters, vec![0, 1]);
+        assert!(segments.len() >= 2);
     }
 
     #[test]

@@ -31,13 +31,17 @@ interface UsePaginatedTranscriptsReturn {
  * Convert Transcript array to TranscriptSegmentData for virtualized display
  */
 function convertTranscriptsToSegments(transcripts: Transcript[]): TranscriptSegmentData[] {
-    return transcripts.map(t => ({
+    const segments = transcripts.map(t => ({
         id: t.id,
         timestamp: t.audio_start_time ?? 0,
         endTime: t.audio_end_time,
         text: t.text,
         confidence: t.confidence,
+        speakerId: t.speaker_id,
+        speakerName: t.speaker_name,
+        speakerColor: t.speaker_color,
     }));
+    return segments;
 }
 
 export function usePaginatedTranscripts({

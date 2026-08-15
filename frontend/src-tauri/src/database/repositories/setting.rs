@@ -260,6 +260,8 @@ impl SettingsRepository {
             file_rover_enabled: None,
             file_rover_family_b: None,
             file_rover_variant_b: None,
+            diarization_enabled: false,
+            diarization_num_speakers: None,
         }
     }
 
@@ -351,6 +353,8 @@ impl SettingsRepository {
         capu_cpu_threads: Option<i32>,
         capu_punctuation_level: i32,
         capu_case_level: i32,
+        diarization_enabled: bool,
+        diarization_num_speakers: Option<i32>,
     ) -> std::result::Result<(), sqlx::Error> {
         Self::ensure_transcript_settings_row(pool).await?;
         sqlx::query(
@@ -359,7 +363,9 @@ impl SettingsRepository {
                 hotwords = $1,
                 capuCpuThreads = $2,
                 capuPunctuationLevel = $3,
-                capuCaseLevel = $4
+                capuCaseLevel = $4,
+                diarizationEnabled = $5,
+                diarizationNumSpeakers = $6
             WHERE id = '1'
             "#,
         )
@@ -367,6 +373,8 @@ impl SettingsRepository {
         .bind(capu_cpu_threads)
         .bind(capu_punctuation_level)
         .bind(capu_case_level)
+        .bind(diarization_enabled)
+        .bind(diarization_num_speakers)
         .execute(pool)
         .await?;
         Ok(())

@@ -1,9 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TranscriptSegmentData } from '@/types';
 import { Popover, PopoverAnchor, PopoverContent } from './ui/popover';
 import { usePlaybackFollowScroll } from '@/hooks/usePlaybackFollowScroll';
+import { DiarizationAPI } from '@/lib/asr';
 
 export interface FlowingTranscriptViewProps {
     segments: TranscriptSegmentData[];
@@ -16,6 +17,7 @@ export interface FlowingTranscriptViewProps {
     totalCount?: number;
     loadedCount?: number;
     onLoadMore?: () => void;
+    onSpeakersChanged?: () => void | Promise<void>;
 }
 
 // Remove filler words and repetitions (same rule as VirtualizedTranscriptView).
@@ -33,6 +35,34 @@ function cleanStopWords(text: string): string {
 // starts the next segment on a new line — mirrors normal paragraph flow.
 function endsSentence(text: string): boolean {
     return /[.?!][)"'”]?\s*$/.test(text.trim());
+}
+
+type SpeakerBlock = {
+    key: string;
+    speakerId: string | null;
+    speakerName: string | null;
+    speakerColor: string | null;
+    segments: TranscriptSegmentData[];
+};
+
+function groupBySpeaker(segments: TranscriptSegmentData[]): SpeakerBlock[] {
+    const blocks: SpeakerBlock[] = [];
+    for (const segment of segments) {
+        const sid = segment.speakerId ?? null;
+        const last = blocks[blocks.length - 1];
+        if (last && last.speakerId === sid && sid !== null) {
+            last.segments.push(segment);
+        } else {
+            blocks.push({
+                key: `${sid ?? 'none'}-${segment.id}`,
+                speakerId: sid,
+                speakerName: segment.speakerName ?? null,
+                speakerColor: segment.speakerColor ?? null,
+                segments: [segment],
+            });
+        }
+    }
+    return blocks;
 }
 
 function FlowingSegment({
@@ -94,8 +124,6 @@ function FlowingSegment({
         if (e.key === 'Escape') handleCancel();
     };
 
-    // Single click seeks audio; double click edits. The single-click handler is
-    // delayed so a second click within the window cancels it instead of both firing.
     const handleClick = () => {
         if (!onSeek) return;
         if (clickTimerRef.current) clearTimeout(clickTimerRef.current);
@@ -165,6 +193,117 @@ function FlowingSegment({
     );
 }
 
+function SpeakerLabel({
+    speakerId,
+    name,
+    color,
+    showMerge,
+    firstSegmentId,
+    onRenamed,
+    onMerged,
+}: {
+    speakerId: string;
+    name: string;
+    color: string;
+    showMerge: boolean;
+    firstSegmentId: string;
+    onRenamed?: () => void | Promise<void>;
+    onMerged?: () => void | Promise<void>;
+}) {
+    const [open, setOpen] = useState(false);
+    const [value, setValue] = useState(name);
+    const [busy, setBusy] = useState(false);
+
+    useEffect(() => {
+        setValue(name);
+    }, [name]);
+
+    const saveRename = async () => {
+        const trimmed = value.trim();
+        if (!trimmed || trimmed === name) {
+            setOpen(false);
+            return;
+        }
+        setBusy(true);
+        try {
+            await DiarizationAPI.renameSpeaker(speakerId, trimmed);
+            setOpen(false);
+            await onRenamed?.();
+        } catch {
+            // keep popover open
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const merge = async () => {
+        setBusy(true);
+        try {
+            await DiarizationAPI.mergeWithPrevious(firstSegmentId);
+            await onMerged?.();
+        } catch {
+            // ignore — toast optional later
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    return (
+        <div className="group mb-1 flex items-center gap-2">
+            <Popover open={open} onOpenChange={setOpen}>
+                <PopoverAnchor asChild>
+                    <button
+                        type="button"
+                        onClick={() => setOpen(true)}
+                        className="inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs font-semibold hover:bg-gray-100"
+                        style={{ color }}
+                    >
+                        <span
+                            className="inline-block h-2 w-2 rounded-full"
+                            style={{ backgroundColor: color }}
+                            aria-hidden
+                        />
+                        {name}
+                    </button>
+                </PopoverAnchor>
+                <PopoverContent className="w-56 p-2">
+                    <input
+                        value={value}
+                        onChange={(e) => setValue(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                e.preventDefault();
+                                void saveRename();
+                            }
+                        }}
+                        className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                        disabled={busy}
+                    />
+                    <button
+                        type="button"
+                        onClick={() => void saveRename()}
+                        disabled={busy}
+                        className="mt-2 w-full rounded bg-[#16478e] px-2 py-1 text-xs text-white disabled:opacity-50"
+                    >
+                        Đổi tên
+                    </button>
+                </PopoverContent>
+            </Popover>
+            {showMerge && (
+                <button
+                    type="button"
+                    onClick={() => void merge()}
+                    disabled={busy}
+                    className="text-[10px] text-gray-400 opacity-0 transition-opacity group-hover:opacity-100 hover:text-gray-700 disabled:opacity-40"
+                    title="Gộp với người nói trước"
+                >
+                    Gộp với trước
+                </button>
+            )}
+        </div>
+    );
+}
+
 /** Flowing, continuous-paragraph transcript rendering for post-hoc meeting/file-import
  * review — segments join inline (space-separated, no per-segment box/border/margin), with
  * a line break only after a segment that ends a sentence. Matches the reference app's
@@ -184,9 +323,12 @@ export function FlowingTranscriptView({
     totalCount = 0,
     loadedCount = 0,
     onLoadMore,
+    onSpeakersChanged,
 }: FlowingTranscriptViewProps) {
     const scrollRef = useRef<HTMLDivElement>(null);
     const loadMoreTriggerRef = useRef<HTMLDivElement>(null);
+    const blocks = useMemo(() => groupBySpeaker(segments), [segments]);
+    const hasAnySpeaker = blocks.some((b) => b.speakerId);
 
     usePlaybackFollowScroll({
         enabled: playbackFollow,
@@ -196,7 +338,6 @@ export function FlowingTranscriptView({
         useVirtualization: false,
     });
 
-    // Infinite scroll: load more segments as the user scrolls near the bottom.
     useEffect(() => {
         if (!onLoadMore || !hasMore || isLoadingMore || segments.length === 0) return;
         const triggerElement = loadMoreTriggerRef.current;
@@ -222,18 +363,57 @@ export function FlowingTranscriptView({
 
     return (
         <div ref={scrollRef} className="h-full overflow-y-auto px-4 py-3">
-            <p className="text-base leading-relaxed text-gray-800">
-                {segments.map((segment, i) => (
-                    <FlowingSegment
-                        key={segment.id}
-                        segment={segment}
-                        isActive={segment.id === activeSegmentId}
-                        isLastInParagraph={i < segments.length - 1 && endsSentence(segment.text)}
-                        onEdit={onSegmentEdit}
-                        onSeek={onSegmentClick ? () => onSegmentClick(segment) : undefined}
-                    />
-                ))}
-            </p>
+            {hasAnySpeaker ? (
+                <div className="space-y-4">
+                    {blocks.map((block, blockIdx) => (
+                        <div key={block.key}>
+                            {block.speakerId && (
+                                <SpeakerLabel
+                                    speakerId={block.speakerId}
+                                    name={block.speakerName || 'Người nói'}
+                                    color={block.speakerColor || '#2563EB'}
+                                    showMerge={blockIdx > 0}
+                                    firstSegmentId={block.segments[0].id}
+                                    onRenamed={onSpeakersChanged}
+                                    onMerged={onSpeakersChanged}
+                                />
+                            )}
+                            <p className="text-base leading-relaxed text-gray-800">
+                                {block.segments.map((segment, i) => (
+                                    <FlowingSegment
+                                        key={segment.id}
+                                        segment={segment}
+                                        isActive={segment.id === activeSegmentId}
+                                        isLastInParagraph={
+                                            i < block.segments.length - 1 &&
+                                            endsSentence(segment.text)
+                                        }
+                                        onEdit={onSegmentEdit}
+                                        onSeek={
+                                            onSegmentClick
+                                                ? () => onSegmentClick(segment)
+                                                : undefined
+                                        }
+                                    />
+                                ))}
+                            </p>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <p className="text-base leading-relaxed text-gray-800">
+                    {segments.map((segment, i) => (
+                        <FlowingSegment
+                            key={segment.id}
+                            segment={segment}
+                            isActive={segment.id === activeSegmentId}
+                            isLastInParagraph={i < segments.length - 1 && endsSentence(segment.text)}
+                            onEdit={onSegmentEdit}
+                            onSeek={onSegmentClick ? () => onSegmentClick(segment) : undefined}
+                        />
+                    ))}
+                </p>
+            )}
 
             {(hasMore || isLoadingMore) && (
                 <div ref={loadMoreTriggerRef} className="flex items-center justify-center py-4">

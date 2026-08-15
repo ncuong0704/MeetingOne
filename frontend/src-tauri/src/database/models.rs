@@ -45,6 +45,35 @@ pub struct Transcript {
     pub audio_start_time: Option<f64>,
     pub audio_end_time: Option<f64>,
     pub duration: Option<f64>,
+    /// Offline diarization speaker row (meeting_speakers.id). Not legacy mic/system.
+    pub speaker_id: Option<String>,
+}
+
+/// Transcript row joined with meeting_speakers for UI labels.
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct TranscriptWithSpeaker {
+    pub id: String,
+    pub meeting_id: String,
+    pub transcript: String,
+    pub timestamp: String,
+    pub summary: Option<String>,
+    pub action_items: Option<String>,
+    pub key_points: Option<String>,
+    pub audio_start_time: Option<f64>,
+    pub audio_end_time: Option<f64>,
+    pub duration: Option<f64>,
+    pub speaker_id: Option<String>,
+    pub speaker_name: Option<String>,
+    pub speaker_color: Option<String>,
+}
+
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct MeetingSpeaker {
+    pub id: String,
+    pub meeting_id: String,
+    pub cluster_index: i32,
+    pub display_name: String,
+    pub color: String,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
@@ -192,4 +221,10 @@ pub struct TranscriptSetting {
     #[sqlx(rename = "fileRoverVariantB")]
     #[serde(rename = "fileRoverVariantB")]
     pub file_rover_variant_b: Option<String>,
+    #[sqlx(rename = "diarizationEnabled")]
+    #[serde(rename = "diarizationEnabled")]
+    pub diarization_enabled: bool,
+    #[sqlx(rename = "diarizationNumSpeakers")]
+    #[serde(rename = "diarizationNumSpeakers")]
+    pub diarization_num_speakers: Option<i32>,
 }

@@ -52,6 +52,7 @@ export class TranscriptService {
         audio_end_time?: number;
         duration?: number;
         confidence?: number;
+        speaker_name?: string | null;
       }>
     >('load_transcripts_from_folder', { folderPath });
     return segments.map((seg) => ({
@@ -63,6 +64,7 @@ export class TranscriptService {
       audio_end_time: seg.audio_end_time,
       duration: seg.duration,
       confidence: seg.confidence,
+      speaker_name: seg.speaker_name ?? null,
     }));
   }
 

@@ -256,9 +256,10 @@ impl CapuEngine {
             ));
         }
 
-        // Real words are offsets[1..num_offsets-1] — skip CLS (index 0) and SEP (last).
+        // Real words are offsets[1..num_offsets] — skip $START (index 0). No SEP to skip
+        // at the end; the reference model's input has none (see tokenizer.rs).
         let mut actions = Vec::with_capacity(words.len());
-        for (word_idx, row) in (1..(num_offsets - 1)).enumerate() {
+        for (word_idx, row) in (1..num_offsets).enumerate() {
             let row_start = row * num_classes;
             let row_logits = &logits_data[row_start..row_start + num_classes];
             let pause_gap = pause_hints.and_then(|hints| hints.get(word_idx).copied());
@@ -395,7 +396,7 @@ impl CapuEngine {
         // which breaks whenever a merge shrinks the new region's own word count instead
         // of the context region's.
         let take_from = final_boundary_index.map_or(0, |idx| idx + 1);
-        let result_text = restored[take_from..].join(" ");
+        let result_text = super::post_process::post_process(&restored[take_from..].join(" "));
 
         let context_start = new_words.len().saturating_sub(CAPU_TRAILING_CONTEXT_WORDS);
         let next_context = new_words[context_start..].to_vec();

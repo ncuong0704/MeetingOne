@@ -1,7 +1,49 @@
-use sqlx::{migrate::MigrateDatabase, Result, Sqlite, SqlitePool, Transaction};
+use sqlx::{
+    migrate::{MigrateError, Migrator},
+    migrate::MigrateDatabase,
+    Result, Sqlite, SqlitePool, Transaction,
+};
 use std::fs;
 use std::path::Path;
 use tauri::Manager;
+
+static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
+
+fn is_migration_repairable(err: &MigrateError) -> bool {
+    let msg = err.to_string();
+    msg.contains("has been modified")
+        || msg.contains("missing in the resolved migrations")
+        || msg.contains("was previously applied but")
+}
+
+async fn sync_migration_checksums(pool: &SqlitePool) -> Result<()> {
+    for migration in MIGRATOR.iter() {
+        sqlx::query(
+            "UPDATE _sqlx_migrations SET checksum = ?1, description = ?2 WHERE version = ?3",
+        )
+        .bind(&migration.checksum[..])
+        .bind(&migration.description)
+        .bind(migration.version)
+        .execute(pool)
+        .await?;
+    }
+    Ok(())
+}
+
+async fn run_migrations(pool: &SqlitePool) -> Result<()> {
+    match MIGRATOR.run(pool).await {
+        Ok(()) => Ok(()),
+        Err(e) if is_migration_repairable(&e) => {
+            log::warn!(
+                "Migration mismatch ({}), syncing checksums from current migration files...",
+                e
+            );
+            sync_migration_checksums(pool).await?;
+            MIGRATOR.run(pool).await.map_err(Into::into)
+        }
+        Err(e) => Err(e.into()),
+    }
+}
 
 #[derive(Clone)]
 pub struct DatabaseManager {
@@ -32,7 +74,7 @@ impl DatabaseManager {
 
         let pool = SqlitePool::connect(tauri_db_path).await?;
 
-        sqlx::migrate!("./migrations").run(&pool).await?;
+        run_migrations(&pool).await?;
 
         Ok(DatabaseManager { pool })
     }
