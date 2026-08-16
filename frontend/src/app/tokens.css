@@ -66,6 +66,11 @@
   --z-tooltip: 600;
   --shadow-whisper: 0 1px 2px oklch(22% 0.02 262 / 0.06);
   --shadow-modal: 0 8px 28px oklch(22% 0.02 262 / 0.18);
+
+  /* Overlay pill scrollbar: 10px gutter, ~4px visible thumb via transparent inset. */
+  --scrollbar-size: 0.625rem;
+  --scrollbar-thumb: oklch(22% 0.024 262 / 0.18);
+  --scrollbar-thumb-hover: oklch(22% 0.024 262 / 0.34);
 }
 
 .dark {
@@ -87,4 +92,7 @@
   --color-danger-ink: oklch(16% 0.02 29);
   --shadow-whisper: 0 1px 2px oklch(10% 0.02 262 / 0.4);
   --shadow-modal: 0 8px 28px oklch(8% 0.02 262 / 0.45);
+
+  --scrollbar-thumb: oklch(94% 0.010 262 / 0.22);
+  --scrollbar-thumb-hover: oklch(94% 0.010 262 / 0.40);
 }
