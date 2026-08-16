@@ -8,19 +8,9 @@ export const DEFAULT_PATHS = 15;
 export const DEFAULT_MAX_SEGMENT_SECONDS = 25;
 export const MIN_MAX_SEGMENT_SECONDS = 5;
 export const MAX_MAX_SEGMENT_SECONDS = 30;
-export const DEFAULT_CAPU_PUNCTUATION_LEVEL = 7;
-export const DEFAULT_CAPU_CASE_LEVEL = 3;
-export const FALLBACK_PHYSICAL_CORES = 4;
-
-export const LEVEL_LABELS: Record<number, string> = {
-  1: 'Rất ít',
-  3: 'Ít',
-  5: 'Vừa',
-  7: 'Nhiều',
-  10: 'Rất nhiều',
-};
-
-export const levelLabel = (v: number) => LEVEL_LABELS[v] ?? String(v);
+export const DEFAULT_CAPU_PUNCTUATION_LEVEL = 5;
+export const DEFAULT_CAPU_CASE_LEVEL = 5;
+export const FIXED_CAPU_CPU_THREADS = 4;
 
 export const VARIANT_OPTIONS: { id: ModelVariant; label: string }[] = [
   { id: 'int8', label: 'int8 (quantized)' },

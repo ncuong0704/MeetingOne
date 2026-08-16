@@ -25,6 +25,7 @@ import { useImportAudio, ImportResult } from '@/hooks/useImportAudio';
 import { useRouter } from 'next/navigation';
 import { useSidebar } from '../Sidebar/SidebarProvider';
 import { useTranscriptionModels, ModelOption } from '@/hooks/useTranscriptionModels';
+import { TranscriptConfigAPI } from '@/lib/asr';
 
 
 interface ImportAudioDialogProps {
@@ -52,6 +53,14 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
+function parseNumSpeakers(raw: string): number | null {
+  const parsed = raw.trim() ? Number(raw.trim()) : null;
+  if (parsed !== null && Number.isFinite(parsed) && parsed >= 1 && parsed <= 20) {
+    return Math.floor(parsed);
+  }
+  return null;
+}
+
 export function ImportAudioDialog({
   open,
   onOpenChange,
@@ -64,6 +73,8 @@ export function ImportAudioDialog({
 
   const [title, setTitle] = useState('');
   const [titleModifiedByUser, setTitleModifiedByUser] = useState(false);
+  const [diarizationEnabled, setDiarizationEnabled] = useState(false);
+  const [diarizationNumSpeakers, setDiarizationNumSpeakers] = useState('');
 
   // Always start as false — represents "dialog has not yet been opened".
   // Do NOT initialize from the `open` prop: if the component mounts with open=true
@@ -121,6 +132,18 @@ export function ImportAudioDialog({
       resetSelection();
       setTitle('');
       setTitleModifiedByUser(false);
+      setDiarizationEnabled(false);
+      setDiarizationNumSpeakers('');
+      TranscriptConfigAPI.get()
+        .then((bundle) => {
+          setDiarizationEnabled(Boolean(bundle.shared?.diarizationEnabled));
+          setDiarizationNumSpeakers(
+            typeof bundle.shared?.diarizationNumSpeakers === 'number'
+              ? String(bundle.shared.diarizationNumSpeakers)
+              : '',
+          );
+        })
+        .catch(() => undefined);
 
       // Validate preselected file if provided
       if (preselectedFile) {
@@ -167,7 +190,9 @@ export function ImportAudioDialog({
       title || fileInfo.filename,
       null,
       selectedModel?.name || null,
-      selectedModel?.provider || null
+      selectedModel?.provider || null,
+      diarizationEnabled,
+      diarizationEnabled ? parseNumSpeakers(diarizationNumSpeakers) : null
     );
   };
 
@@ -300,6 +325,42 @@ export function ImportAudioDialog({
                   <p className="text-sm text-gray-500 mt-2">MP4, WAV, MP3, FLAC, OGG, MKV, WebM, WMA</p>
                 </div>
               )}
+
+              <div className="space-y-3 pt-1">
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={diarizationEnabled}
+                    onChange={(e) => setDiarizationEnabled(e.target.checked)}
+                    className="mt-1 accent-blue-600"
+                  />
+                  <span>
+                    <span className="block text-sm font-medium text-gray-700">
+                      Phân biệt người nói
+                    </span>
+                    <span className="block text-xs text-gray-500 mt-0.5">
+                      Dùng Senko CAM++. Chỉ áp dụng cho file này.
+                    </span>
+                  </span>
+                </label>
+                {diarizationEnabled && (
+                  <div className="space-y-1 pl-6">
+                    <label className="block text-sm font-medium text-gray-700">
+                      Số người nói (tuỳ chọn)
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={diarizationNumSpeakers}
+                      onChange={(e) => setDiarizationNumSpeakers(e.target.value)}
+                      placeholder="Tự đoán"
+                      className="w-28 px-3 py-1.5 text-sm rounded-md border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <p className="text-xs text-gray-500">Để trống để tự đoán (1–20).</p>
+                  </div>
+                )}
+              </div>
             </>
           )}
 

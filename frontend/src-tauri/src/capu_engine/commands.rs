@@ -127,35 +127,13 @@ async fn download_capu_files<R: Runtime>(dir: &PathBuf, app: &AppHandle<R>) -> a
     Ok(())
 }
 
-/// Resolves `(threads, punctuation_level, case_level)` for the CAPU engine: reads the saved
-/// `TranscriptSetting` row if the app's DB state is already available (`app.try_state` —
-/// this may run before database setup completes at startup, matching the same best-effort
-/// pattern `asr_load_model` already uses to read hotwords), falling back to physical-core
-/// count / level 7 / level 3 otherwise. `capu_cpu_threads` is clamped to this machine's
-/// physical core count — never trust a stored value blindly, hardware can differ across
-/// runs (e.g. a DB copied from a different machine).
-async fn resolve_capu_settings<R: Runtime>(app: &AppHandle<R>) -> (usize, u8, u8) {
+/// Resolves `(threads, punctuation_level, case_level)` for the CAPU engine.
+/// These are app-fixed (4 threads / punctuation "vừa" / case "vừa"); stored DB
+/// values are ignored so older customizations cannot leak back in. Thread count
+/// is still clamped to this machine's physical cores.
+async fn resolve_capu_settings<R: Runtime>(_app: &AppHandle<R>) -> (usize, u8, u8) {
     let (physical_cores, _) = crate::capu_engine::cpu_topology::detect_cpu_topology();
-
-    if let Some(state) = app.try_state::<crate::state::AppState>() {
-        if let Ok(Some(config)) =
-            crate::database::repositories::setting::SettingsRepository::get_transcript_config(
-                state.db_manager.pool(),
-            )
-            .await
-        {
-            let threads = config
-                .capu_cpu_threads
-                .filter(|&t| t > 0)
-                .map(|t| (t as usize).min(physical_cores))
-                .unwrap_or(physical_cores);
-            let punct = config.capu_punctuation_level.clamp(1, 10) as u8;
-            let case = config.capu_case_level.clamp(1, 10) as u8;
-            return (threads, punct, case);
-        }
-    }
-
-    (physical_cores, 7, 3)
+    crate::capu_engine::cpu_topology::resolve_fixed_capu_runtime(physical_cores)
 }
 
 #[tauri::command]

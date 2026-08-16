@@ -376,6 +376,8 @@ pub async fn start_import<R: Runtime>(
     language: Option<String>,
     model: Option<String>,
     provider: Option<String>,
+    diarization_enabled: Option<bool>,
+    diarization_num_speakers: Option<i32>,
 ) -> Result<ImportResult> {
     // Acquire guard - ensures flag is cleared even on panic/early return
     let _guard = ImportGuard::acquire().map_err(|e| anyhow!(e))?;
@@ -383,7 +385,17 @@ pub async fn start_import<R: Runtime>(
     // Reset cancellation flag
     IMPORT_CANCELLED.store(false, Ordering::SeqCst);
 
-    let result = run_import(app.clone(), source_path, title, language, model, provider).await;
+    let result = run_import(
+        app.clone(),
+        source_path,
+        title,
+        language,
+        model,
+        provider,
+        diarization_enabled,
+        diarization_num_speakers,
+    )
+    .await;
 
     super::common::unload_engine_after_batch().await;
 
@@ -423,6 +435,8 @@ async fn run_import<R: Runtime>(
     language: Option<String>,
     model: Option<String>,
     provider: Option<String>,
+    diarization_enabled: Option<bool>,
+    diarization_num_speakers: Option<i32>,
 ) -> Result<ImportResult> {
     let source = PathBuf::from(&source_path);
 
@@ -773,19 +787,26 @@ async fn run_import<R: Runtime>(
         return Err(anyhow!("Import cancelled"));
     }
 
-    // Offline diarization (fail-open): align speaker turns onto transcript segments.
+    // Offline diarization (fail-open): uses this import's dialog choice, then
+    // remembers it for retranscription / the next import dialog.
     {
-        let app_state = app
-            .try_state::<AppState>()
-            .ok_or_else(|| anyhow!("App state not available"))?;
-        emit_progress(&app, "diarizing", 82, "Đang phân biệt người nói...");
-        maybe_apply_diarization(
-            &app,
-            app_state.db_manager.pool(),
-            &audio_samples,
-            &mut segments,
-        )
-        .await;
+        let (enabled, num_speakers) =
+            resolve_diarization_options(diarization_enabled, diarization_num_speakers);
+        if let Some(state) = app.try_state::<AppState>() {
+            if let Err(e) = crate::database::repositories::setting::SettingsRepository::save_diarization_config(
+                state.db_manager.pool(),
+                enabled,
+                num_speakers.map(|n| n as i32),
+            )
+            .await
+            {
+                warn!("Failed to persist diarization choice: {e}");
+            }
+        }
+        if enabled {
+            emit_progress(&app, "diarizing", 82, "Đang phân biệt người nói...");
+        }
+        maybe_apply_diarization(&app, &audio_samples, &mut segments, enabled, num_speakers).await;
         bench.mark("diarize");
     }
 
@@ -902,24 +923,29 @@ pub(crate) fn attach_diarization_clusters(
         .collect();
 }
 
-/// Fail-open offline diarization for file import when enabled in settings.
+/// Clamps optional import-dialog speaker counts to the supported 1..=20 range.
+pub(crate) fn resolve_diarization_options(
+    enabled: Option<bool>,
+    num_speakers: Option<i32>,
+) -> (bool, Option<u32>) {
+    let enabled = enabled.unwrap_or(false);
+    if !enabled {
+        return (false, None);
+    }
+    let n = num_speakers
+        .filter(|&n| (1..=20).contains(&n))
+        .map(|n| n as u32);
+    (true, n)
+}
+
+/// Fail-open offline diarization for file import when enabled for this run.
 pub(crate) async fn maybe_apply_diarization<R: Runtime>(
     app: &AppHandle<R>,
-    pool: &sqlx::SqlitePool,
     audio_samples: &[f32],
     segments: &mut Vec<TranscriptSegment>,
+    enabled: bool,
+    num_speakers: Option<u32>,
 ) {
-    use crate::database::repositories::setting::SettingsRepository;
-
-    let (enabled, num_speakers) = match SettingsRepository::get_transcript_config(pool).await {
-        Ok(Some(cfg)) => (
-            cfg.diarization_enabled,
-            cfg.diarization_num_speakers
-                .filter(|&n| (1..=20).contains(&n))
-                .map(|n| n as u32),
-        ),
-        _ => (false, None),
-    };
     if !enabled || segments.is_empty() || audio_samples.is_empty() {
         return;
     }
@@ -1164,6 +1190,8 @@ pub async fn start_import_audio_command<R: Runtime>(
     language: Option<String>,
     model: Option<String>,
     provider: Option<String>,
+    diarization_enabled: Option<bool>,
+    diarization_num_speakers: Option<i32>,
 ) -> Result<ImportStarted, String> {
     // Check if import is already in progress (guard will be acquired in start_import)
     if IMPORT_IN_PROGRESS.load(Ordering::SeqCst) {
@@ -1172,7 +1200,17 @@ pub async fn start_import_audio_command<R: Runtime>(
 
     // Spawn import in background
     tauri::async_runtime::spawn(async move {
-        let result = start_import(app, source_path, title, language, model, provider).await;
+        let result = start_import(
+            app,
+            source_path,
+            title,
+            language,
+            model,
+            provider,
+            diarization_enabled,
+            diarization_num_speakers,
+        )
+        .await;
 
         if let Err(e) = result {
             error!("Import failed: {}", e);
@@ -1445,6 +1483,34 @@ mod tests {
         clusters.dedup();
         assert_eq!(clusters, vec![0, 1]);
         assert!(segments.len() >= 2);
+    }
+
+    #[test]
+    fn resolve_diarization_options_defaults_to_disabled() {
+        assert_eq!(resolve_diarization_options(None, None), (false, None));
+        assert_eq!(resolve_diarization_options(Some(false), Some(4)), (false, None));
+    }
+
+    #[test]
+    fn resolve_diarization_options_keeps_enabled_and_clamps_speaker_count() {
+        assert_eq!(resolve_diarization_options(Some(true), None), (true, None));
+        assert_eq!(
+            resolve_diarization_options(Some(true), Some(3)),
+            (true, Some(3))
+        );
+        assert_eq!(resolve_diarization_options(Some(true), Some(0)), (true, None));
+        assert_eq!(
+            resolve_diarization_options(Some(true), Some(21)),
+            (true, None)
+        );
+        assert_eq!(
+            resolve_diarization_options(Some(true), Some(1)),
+            (true, Some(1))
+        );
+        assert_eq!(
+            resolve_diarization_options(Some(true), Some(20)),
+            (true, Some(20))
+        );
     }
 
     #[test]

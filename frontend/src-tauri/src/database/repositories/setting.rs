@@ -244,9 +244,12 @@ impl SettingsRepository {
             rover_family_b: None,
             rover_variant_b: None,
             hotwords: None,
-            capu_cpu_threads: None,
-            capu_punctuation_level: 7,
-            capu_case_level: 3,
+            capu_cpu_threads: Some(
+                crate::capu_engine::cpu_topology::FIXED_CAPU_CPU_THREADS as i32,
+            ),
+            capu_punctuation_level: crate::capu_engine::cpu_topology::FIXED_CAPU_PUNCTUATION_LEVEL
+                as i32,
+            capu_case_level: crate::capu_engine::cpu_topology::FIXED_CAPU_CASE_LEVEL as i32,
             live_model: None,
             live_asr_variant: None,
             live_decoding_method: None,
@@ -373,6 +376,27 @@ impl SettingsRepository {
         .bind(capu_cpu_threads)
         .bind(capu_punctuation_level)
         .bind(capu_case_level)
+        .bind(diarization_enabled)
+        .bind(diarization_num_speakers)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn save_diarization_config(
+        pool: &SqlitePool,
+        diarization_enabled: bool,
+        diarization_num_speakers: Option<i32>,
+    ) -> std::result::Result<(), sqlx::Error> {
+        Self::ensure_transcript_settings_row(pool).await?;
+        sqlx::query(
+            r#"
+            UPDATE transcript_settings SET
+                diarizationEnabled = $1,
+                diarizationNumSpeakers = $2
+            WHERE id = '1'
+            "#,
+        )
         .bind(diarization_enabled)
         .bind(diarization_num_speakers)
         .execute(pool)

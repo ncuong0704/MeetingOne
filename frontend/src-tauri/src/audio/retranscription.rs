@@ -316,16 +316,29 @@ async fn run_retranscription<R: Runtime>(
         return Err(anyhow!("Retranscription cancelled"));
     }
 
-    // Fail-open diarization (same settings as file import)
+    // Fail-open diarization (last choice from the import dialog)
     {
         let app_state = app
             .try_state::<AppState>()
             .ok_or_else(|| anyhow!("App state not available"))?;
+        let (enabled, num_speakers) =
+            match crate::database::repositories::setting::SettingsRepository::get_transcript_config(
+                app_state.db_manager.pool(),
+            )
+            .await
+            {
+                Ok(Some(cfg)) => crate::audio::import::resolve_diarization_options(
+                    Some(cfg.diarization_enabled),
+                    cfg.diarization_num_speakers,
+                ),
+                _ => (false, None),
+            };
         crate::audio::import::maybe_apply_diarization(
             &app,
-            app_state.db_manager.pool(),
             &audio_samples,
             &mut segments,
+            enabled,
+            num_speakers,
         )
         .await;
     }

@@ -484,9 +484,12 @@ pub async fn api_get_transcript_config<R: Runtime>(
                         config.hotwords.as_deref(),
                         bundled_hotwords.as_deref(),
                     ),
-                    capu_cpu_threads: config.capu_cpu_threads,
-                    capu_punctuation_level: config.capu_punctuation_level,
-                    capu_case_level: config.capu_case_level,
+                    capu_cpu_threads: Some(
+                        crate::capu_engine::cpu_topology::FIXED_CAPU_CPU_THREADS as i32,
+                    ),
+                    capu_punctuation_level:
+                        crate::capu_engine::cpu_topology::FIXED_CAPU_PUNCTUATION_LEVEL as i32,
+                    capu_case_level: crate::capu_engine::cpu_topology::FIXED_CAPU_CASE_LEVEL as i32,
                     diarization_enabled: config.diarization_enabled,
                     diarization_num_speakers: config.diarization_num_speakers,
                 },
@@ -514,9 +517,12 @@ pub async fn api_get_transcript_config<R: Runtime>(
                 },
                 shared: SharedTranscriptConfigDto {
                     hotwords: bundled_hotwords.clone(),
-                    capu_cpu_threads: None,
-                    capu_punctuation_level: 7,
-                    capu_case_level: 3,
+                    capu_cpu_threads: Some(
+                        crate::capu_engine::cpu_topology::FIXED_CAPU_CPU_THREADS as i32,
+                    ),
+                    capu_punctuation_level:
+                        crate::capu_engine::cpu_topology::FIXED_CAPU_PUNCTUATION_LEVEL as i32,
+                    capu_case_level: crate::capu_engine::cpu_topology::FIXED_CAPU_CASE_LEVEL as i32,
                     diarization_enabled: false,
                     diarization_num_speakers: None,
                 },
@@ -586,9 +592,12 @@ pub async fn api_save_transcript_config<R: Runtime>(
     let rover_on = rover_enabled.unwrap_or(false);
     let rover_variant_b_resolved = rover_variant_b.as_deref().unwrap_or("int8");
 
-    let capu_threads_resolved = capu_cpu_threads.filter(|&t| t > 0);
-    let capu_punct_resolved = capu_punctuation_level.unwrap_or(7).clamp(1, 10);
-    let capu_case_resolved = capu_case_level.unwrap_or(3).clamp(1, 10);
+    let _ = (capu_cpu_threads, capu_punctuation_level, capu_case_level);
+    let capu_threads_resolved =
+        Some(crate::capu_engine::cpu_topology::FIXED_CAPU_CPU_THREADS as i32);
+    let capu_punct_resolved =
+        crate::capu_engine::cpu_topology::FIXED_CAPU_PUNCTUATION_LEVEL as i32;
+    let capu_case_resolved = crate::capu_engine::cpu_topology::FIXED_CAPU_CASE_LEVEL as i32;
 
     if let Err(e) = SettingsRepository::save_transcript_config(
         pool,
@@ -833,9 +842,12 @@ pub async fn api_save_shared_transcript_config<R: Runtime>(
     _auth_token: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let pool = state.db_manager.pool();
-    let capu_threads_resolved = capu_cpu_threads.filter(|&t| t > 0);
-    let capu_punct_resolved = capu_punctuation_level.unwrap_or(7).clamp(1, 10);
-    let capu_case_resolved = capu_case_level.unwrap_or(3).clamp(1, 10);
+    let _ = (capu_cpu_threads, capu_punctuation_level, capu_case_level);
+    let capu_threads_resolved =
+        Some(crate::capu_engine::cpu_topology::FIXED_CAPU_CPU_THREADS as i32);
+    let capu_punct_resolved =
+        crate::capu_engine::cpu_topology::FIXED_CAPU_PUNCTUATION_LEVEL as i32;
+    let capu_case_resolved = crate::capu_engine::cpu_topology::FIXED_CAPU_CASE_LEVEL as i32;
     let diarization_enabled_resolved = diarization_enabled.unwrap_or(false);
     let diarization_num_resolved = diarization_num_speakers
         .filter(|&n| (1..=20).contains(&n));

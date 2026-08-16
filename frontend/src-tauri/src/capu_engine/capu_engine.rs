@@ -7,7 +7,7 @@ use ort::session::Session;
 use ort::value::TensorRef;
 use std::path::Path;
 
-/// Converts a punctuation-level UI slider value (1..10, default 7) into the probability
+/// Converts a punctuation-level value (1..10, app-fixed at 5 = "vừa") into the probability
 /// bias added to the `$KEEP` (no-op) label before argmax. Formula ported verbatim from the
 /// reference app's `tab_file.py:get_config()`. Higher level -> more negative bias -> $KEEP
 /// suppressed -> the model adds punctuation more aggressively. Level 1 is handled by the
@@ -18,7 +18,7 @@ fn punctuation_confidence(level: u8) -> f32 {
 }
 
 /// Same idea as `punctuation_confidence`, but for every `$TRANSFORM_CASE_*` label
-/// (case-level slider, 1..10, default 3). Higher level -> more positive bias -> case
+/// (case-level, 1..10, app-fixed at 5 = "vừa"). Higher level -> more positive bias -> case
 /// transforms fire more readily.
 fn case_confidence(level: u8) -> f32 {
     let level = level.clamp(1, 10) as f32;
