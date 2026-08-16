@@ -7,9 +7,9 @@ use serde::{Serialize, Deserialize};
 
 use super::ffmpeg::find_ffmpeg_path;
 
-/// FFmpeg concat + AAC re-encode (one encoder delay), not stream-copy.
-/// Stream-copy stacked per-checkpoint AAC priming and desynced playback vs PCM timestamps.
-pub(crate) fn ffmpeg_concat_reencode_args<'a>(
+/// FFmpeg concat with stream-copy (no AAC re-encode).
+/// Checkpoints are already AAC MP4; remuxing is enough at stop.
+pub(crate) fn ffmpeg_concat_copy_args<'a>(
     list_file: &'a str,
     output: &'a str,
 ) -> Vec<&'a str> {
@@ -20,16 +20,8 @@ pub(crate) fn ffmpeg_concat_reencode_args<'a>(
         "0",
         "-i",
         list_file,
-        "-c:a",
-        "aac",
-        "-b:a",
-        "192k",
-        "-ar",
-        "48000",
-        "-ac",
-        "1",
-        "-profile:a",
-        "aac_low",
+        "-c",
+        "copy",
         "-movflags",
         "+faststart",
         "-y",
@@ -174,7 +166,7 @@ impl IncrementalAudioSaver {
         Ok(final_audio_path)
     }
 
-    /// Merge all checkpoint files into final audio.mp4 using FFmpeg concat + AAC re-encode.
+    /// Merge all checkpoint files into final audio.mp4 using FFmpeg concat stream-copy.
     async fn merge_checkpoints(&self, output: &PathBuf) -> Result<()> {
         info!("Merging {} checkpoints into final audio file...", self.checkpoint_count);
 
@@ -211,7 +203,7 @@ impl IncrementalAudioSaver {
 
         let mut command = std::process::Command::new(ffmpeg_path);
 
-        command.args(ffmpeg_concat_reencode_args(list_file_str, output_str));
+        command.args(ffmpeg_concat_copy_args(list_file_str, output_str));
 
         // Hide console window on Windows to prevent CMD popup during finalization
         #[cfg(target_os = "windows")]
@@ -341,7 +333,7 @@ pub async fn recover_audio_from_checkpoints(
 
     let mut command = std::process::Command::new(ffmpeg_path);
 
-    command.args(ffmpeg_concat_reencode_args(
+    command.args(ffmpeg_concat_copy_args(
         &concat_file_path_str,
         &output_path_str,
     ));
@@ -514,10 +506,10 @@ mod tests {
     }
 
     #[test]
-    fn concat_reencode_args_do_not_stream_copy() {
-        let args = ffmpeg_concat_reencode_args("list.txt", "out.mp4");
-        assert!(args.windows(2).any(|w| w == ["-c:a", "aac"]));
-        assert!(!args.windows(2).any(|w| w == ["-c", "copy"]));
+    fn concat_args_use_stream_copy() {
+        let args = ffmpeg_concat_copy_args("list.txt", "out.mp4");
+        assert!(args.windows(2).any(|w| w == ["-c", "copy"]));
+        assert!(!args.windows(2).any(|w| w == ["-c:a", "aac"]));
         assert!(args.contains(&"-f") && args.contains(&"concat"));
     }
 }
