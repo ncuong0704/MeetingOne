@@ -478,6 +478,14 @@ impl RecordingManager {
         );
     }
 
+    /// Replace unedited live segments with CAPU sentence spans (1 batch → N sentences).
+    pub fn apply_live_capu_results(
+        &self,
+        finalized: &[crate::capu_engine::batch::FinalizedSegment],
+    ) {
+        self.recording_saver.apply_live_capu_results(finalized);
+    }
+
     /// User edit during active recording (updates memory + transcripts.json).
     pub fn update_live_transcript_text(&self, sequence_id: u64, new_text: String) -> Result<(), String> {
         self.recording_saver

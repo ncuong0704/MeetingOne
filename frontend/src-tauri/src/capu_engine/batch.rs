@@ -62,6 +62,12 @@ impl CapuBatcher {
         self.pending.push(seg);
     }
 
+    /// Peek at segments waiting to flush — used to map CAPU sentences back onto
+    /// the original utterance clocks after `flush` clears this buffer.
+    pub fn pending_segments(&self) -> &[PendingSegment] {
+        &self.pending
+    }
+
     /// The exact string CAPU would receive if flushed right now — exposed separately so
     /// the join logic is unit-testable without a loaded `CapuEngine`.
     pub fn joined_pending_text(&self) -> String {

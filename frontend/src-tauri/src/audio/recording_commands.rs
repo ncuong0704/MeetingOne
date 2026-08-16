@@ -886,18 +886,24 @@ pub async fn stop_recording<R: Runtime>(
         }
     }
 
+    // Drop the 1:1 replace listener before expanding batches into sentences,
+    // otherwise a leftover transcript-finalized emit would collapse N sentences
+    // back into one span.
+    {
+        use tauri::Listener;
+        if let Some(listener_id) = TRANSCRIPT_FINALIZED_LISTENER_ID.lock().take() {
+            app.unlisten(listener_id);
+            info!("✅ Transcript-finalized listener removed before live CAPU apply");
+        }
+    }
+
     if let Some(ref manager) = manager_for_cleanup {
         let raw_segments = manager.get_transcript_segments();
         let finalized_batches =
             crate::capu_engine::live_finalize::finalize_live_with_capu(&raw_segments);
-        let batch_count = finalized_batches.len();
+        let sentence_count = finalized_batches.len();
+        manager.apply_live_capu_results(&finalized_batches);
         for finalized in finalized_batches {
-            manager.replace_transcript_segments(
-                &finalized.source_ids,
-                finalized.text.clone(),
-                finalized.audio_start_time,
-                finalized.audio_end_time,
-            );
             let payload = crate::audio::transcription::TranscriptFinalized {
                 source_sequence_ids: finalized.source_ids,
                 text: finalized.text,
@@ -909,18 +915,9 @@ pub async fn stop_recording<R: Runtime>(
             }
         }
         info!(
-            "✅ Live CAPU finalize applied ({} batch(es))",
-            batch_count
+            "✅ Live CAPU finalize applied ({} sentence(s))",
+            sentence_count
         );
-    }
-
-    // The transcription task has completed — safe to stop listening for transcript-finalized.
-    {
-        use tauri::Listener;
-        if let Some(listener_id) = TRANSCRIPT_FINALIZED_LISTENER_ID.lock().take() {
-            app.unlisten(listener_id);
-            info!("✅ Transcript-finalized listener removed");
-        }
     }
 
     // Step 3: Now safely unload Whisper model after ALL chunks are processed

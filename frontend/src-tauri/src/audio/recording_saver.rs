@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use std::collections::{HashMap, HashSet};
 use tokio::sync::Mutex as AsyncMutex;
 use anyhow::Result;
 use log::{info, warn, error};
@@ -228,6 +229,89 @@ impl RecordingSaver {
         if let Some(folder) = &self.meeting_folder {
             if let Err(e) = self.write_transcripts_json(folder) {
                 warn!("Failed to write transcripts.json after replace: {}", e);
+            }
+        }
+    }
+
+    /// Rebuild unedited live transcripts from CAPU sentence spans.
+    /// Keeps `user_edited` rows; one batch may expand into many sentences.
+    pub fn apply_live_capu_results(
+        &self,
+        finalized: &[crate::capu_engine::batch::FinalizedSegment],
+    ) {
+        {
+            let mut segments = match self.transcript_segments.lock() {
+                Ok(s) => s,
+                Err(_) => {
+                    error!("Failed to lock transcript segments for live CAPU apply");
+                    return;
+                }
+            };
+
+            let mut speaker_by_id: HashMap<u64, Option<String>> = HashMap::new();
+            let mut confidence_by_id: HashMap<u64, f32> = HashMap::new();
+            let mut display_by_id: HashMap<u64, String> = HashMap::new();
+            for s in segments.iter() {
+                speaker_by_id.insert(s.sequence_id, s.speaker_name.clone());
+                confidence_by_id.insert(s.sequence_id, s.confidence);
+                display_by_id.insert(s.sequence_id, s.display_time.clone());
+            }
+
+            let user_edited: Vec<TranscriptSegment> =
+                segments.iter().filter(|s| s.user_edited).cloned().collect();
+            let edited_ids: HashSet<u64> = user_edited.iter().map(|s| s.sequence_id).collect();
+
+            let mut new_list: Vec<TranscriptSegment> = Vec::new();
+            for (i, f) in finalized.iter().enumerate() {
+                if f.source_ids.iter().any(|id| edited_ids.contains(id)) {
+                    continue;
+                }
+                if f.text.trim().is_empty() {
+                    continue;
+                }
+                let first_id = f.source_ids.first().copied();
+                let speaker_name = first_id
+                    .and_then(|id| speaker_by_id.get(&id).cloned())
+                    .flatten();
+                let confidence = first_id
+                    .and_then(|id| confidence_by_id.get(&id).copied())
+                    .unwrap_or(0.9);
+                let display_time = first_id
+                    .and_then(|id| display_by_id.get(&id).cloned())
+                    .unwrap_or_else(|| format_mmss(f.audio_start_time));
+                new_list.push(TranscriptSegment {
+                    id: format!("seg_{}_finalized", i),
+                    text: f.text.clone(),
+                    audio_start_time: f.audio_start_time,
+                    audio_end_time: f.audio_end_time,
+                    duration: (f.audio_end_time - f.audio_start_time).max(0.0),
+                    display_time,
+                    confidence,
+                    sequence_id: i as u64,
+                    user_edited: false,
+                    speaker_name,
+                });
+            }
+            new_list.extend(user_edited);
+            new_list.sort_by(|a, b| {
+                a.audio_start_time
+                    .partial_cmp(&b.audio_start_time)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            for (i, s) in new_list.iter_mut().enumerate() {
+                s.sequence_id = i as u64;
+            }
+
+            info!(
+                "Applied live CAPU: {} sentence(s) + kept user-edited segments",
+                new_list.iter().filter(|s| !s.user_edited).count()
+            );
+            *segments = new_list;
+        }
+
+        if let Some(folder) = &self.meeting_folder {
+            if let Err(e) = self.write_transcripts_json(folder) {
+                warn!("Failed to write transcripts.json after live CAPU: {}", e);
             }
         }
     }
@@ -622,6 +706,11 @@ impl RecordingSaver {
     }
 }
 
+fn format_mmss(seconds: f64) -> String {
+    let total = seconds.max(0.0) as u64;
+    format!("[{:02}:{:02}]", total / 60, total % 60)
+}
+
 impl Default for RecordingSaver {
     fn default() -> Self {
         Self::new()
@@ -691,5 +780,40 @@ mod tests {
         let segments = saver.get_transcript_segments();
         assert_eq!(segments.len(), 2, "user-edited segment must not be clobbered");
         assert_eq!(segments[1].text, "Chào (đã sửa)");
+    }
+
+    #[test]
+    fn apply_live_capu_results_expands_sentences_and_keeps_user_edited() {
+        use crate::capu_engine::batch::FinalizedSegment;
+
+        let saver = RecordingSaver::new();
+        saver.add_transcript_segment(seg(0, "xin"));
+        saver.add_transcript_segment(seg(1, "chao"));
+        saver.add_transcript_segment(seg(2, "keep"));
+        saver
+            .update_live_transcript_text(2, "Giữ nguyên".to_string())
+            .unwrap();
+
+        saver.apply_live_capu_results(&[
+            FinalizedSegment {
+                text: "Xin chào.".to_string(),
+                audio_start_time: 0.0,
+                audio_end_time: 1.0,
+                source_ids: vec![0, 1],
+            },
+            FinalizedSegment {
+                text: "Các bạn.".to_string(),
+                audio_start_time: 1.0,
+                audio_end_time: 2.0,
+                source_ids: vec![0, 1],
+            },
+        ]);
+
+        let segments = saver.get_transcript_segments();
+        assert_eq!(segments.len(), 3);
+        assert_eq!(segments[0].text, "Xin chào.");
+        assert_eq!(segments[1].text, "Các bạn.");
+        assert!(segments.iter().any(|s| s.user_edited && s.text == "Giữ nguyên"));
+        assert!(segments[0].audio_start_time <= segments[1].audio_start_time);
     }
 }

@@ -450,6 +450,80 @@ pub fn finalize_rover_word_timeline(
     segments
 }
 
+/// Expand a live utterance (one streaming-ASR chunk) into evenly spaced `TimedWord`s
+/// so `align_sentences_to_words` can reuse the file-import path without word-level ASR.
+pub fn utterances_to_timed_words(utterances: &[(&str, f64, f64)]) -> Vec<TimedWord> {
+    let mut out = Vec::new();
+    for (text, start, end) in utterances {
+        let words: Vec<&str> = text
+            .split_whitespace()
+            .filter(|w| !w.is_empty())
+            .collect();
+        if words.is_empty() {
+            continue;
+        }
+        let span = (*end - *start).max(0.0);
+        let n = words.len() as f64;
+        let step = span / n;
+        for (i, w) in words.iter().enumerate() {
+            let s = *start + i as f64 * step;
+            let e = if i + 1 == words.len() {
+                *end
+            } else {
+                *start + (i + 1) as f64 * step
+            };
+            out.push(TimedWord {
+                text: (*w).to_string(),
+                start_sec: s,
+                end_sec: e.max(s),
+                confidence: 0.9,
+            });
+        }
+    }
+    out
+}
+
+/// Map punctuated CAPU text onto live utterance clocks. Returns **seconds**
+/// (`align_sentences_to_words` uses milliseconds internally, matching import).
+pub fn split_punctuated_onto_utterances(
+    punctuated: &str,
+    utterances: &[(&str, f64, f64)],
+) -> Vec<(String, f64, f64)> {
+    if utterances.is_empty() {
+        return Vec::new();
+    }
+    let batch_start = utterances[0].1;
+    let batch_end = utterances[utterances.len() - 1].2;
+    let text = punctuated.trim();
+    if text.is_empty() {
+        return Vec::new();
+    }
+
+    let has_sentence_end = text.chars().any(|c| matches!(c, '.' | '!' | '?'));
+    if !has_sentence_end {
+        return vec![(text.to_string(), batch_start, batch_end)];
+    }
+
+    let sentences = split_sentences(text);
+    if sentences.len() <= 1 {
+        let only = sentences
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| text.to_string());
+        return vec![(only, batch_start, batch_end)];
+    }
+
+    let words = utterances_to_timed_words(utterances);
+    if words.is_empty() {
+        return vec![(text.to_string(), batch_start, batch_end)];
+    }
+
+    align_sentences_to_words(&sentences, &words)
+        .into_iter()
+        .map(|(t, start_ms, end_ms)| (t, start_ms / 1000.0, end_ms / 1000.0))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -531,5 +605,44 @@ mod tests {
         let segs = finalize_rover_word_timeline(&words, None);
         assert!(!segs.is_empty());
         assert!(segs.len() > 1);
+    }
+
+    #[test]
+    fn utterances_to_timed_words_interpolates_evenly_in_span() {
+        let words = utterances_to_timed_words(&[("xin chao", 0.0, 2.0)]);
+        assert_eq!(words.len(), 2);
+        assert_eq!(words[0].text, "xin");
+        assert_eq!(words[1].text, "chao");
+        assert!((words[0].start_sec - 0.0).abs() < 1e-9);
+        assert!((words[0].end_sec - 1.0).abs() < 1e-9);
+        assert!((words[1].start_sec - 1.0).abs() < 1e-9);
+        assert!((words[1].end_sec - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn split_punctuated_onto_utterances_returns_seconds_per_sentence() {
+        let utterances = [
+            ("xin chao cac ban", 0.0, 2.0),
+            ("hom nay", 2.0, 3.0),
+        ];
+        let split = split_punctuated_onto_utterances("Xin chào các bạn. Hôm nay.", &utterances);
+        assert_eq!(split.len(), 2);
+        assert!(split[0].0.to_lowercase().contains("xin"));
+        assert!(split[1].0.to_lowercase().contains("hôm") || split[1].0.to_lowercase().contains("hom"));
+        assert!(split[0].1 < split[1].1);
+        assert!(split[0].2 <= split[1].1 + 1e-6);
+        // Times are in seconds, not milliseconds (import align uses ms internally).
+        assert!(split[0].2 < 100.0);
+        assert!(split[1].2 <= 3.0 + 1e-6);
+    }
+
+    #[test]
+    fn split_punctuated_onto_utterances_keeps_one_span_without_punctuation() {
+        let utterances = [("xin chao", 0.0, 1.0), ("cac ban", 1.0, 2.0)];
+        let split = split_punctuated_onto_utterances("xin chao cac ban", &utterances);
+        assert_eq!(split.len(), 1);
+        assert_eq!(split[0].0, "xin chao cac ban");
+        assert!((split[0].1 - 0.0).abs() < 1e-9);
+        assert!((split[0].2 - 2.0).abs() < 1e-9);
     }
 }

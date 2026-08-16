@@ -7,6 +7,36 @@ use serde::{Serialize, Deserialize};
 
 use super::ffmpeg::find_ffmpeg_path;
 
+/// FFmpeg concat + AAC re-encode (one encoder delay), not stream-copy.
+/// Stream-copy stacked per-checkpoint AAC priming and desynced playback vs PCM timestamps.
+pub(crate) fn ffmpeg_concat_reencode_args<'a>(
+    list_file: &'a str,
+    output: &'a str,
+) -> Vec<&'a str> {
+    vec![
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        list_file,
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        "-ar",
+        "48000",
+        "-ac",
+        "1",
+        "-profile:a",
+        "aac_low",
+        "-movflags",
+        "+faststart",
+        "-y",
+        output,
+    ]
+}
+
 /// Audio data without device type (we only store mixed audio)
 #[derive(Clone)]
 struct AudioData {
@@ -144,8 +174,7 @@ impl IncrementalAudioSaver {
         Ok(final_audio_path)
     }
 
-    /// Merge all checkpoint files into final audio.mp4 using FFmpeg concat
-    /// Uses concat demuxer for fast merging without re-encoding
+    /// Merge all checkpoint files into final audio.mp4 using FFmpeg concat + AAC re-encode.
     async fn merge_checkpoints(&self, output: &PathBuf) -> Result<()> {
         info!("Merging {} checkpoints into final audio file...", self.checkpoint_count);
 
@@ -173,9 +202,6 @@ impl IncrementalAudioSaver {
             .ok_or_else(|| anyhow!("FFmpeg not found. Please install FFmpeg to finalize recordings."))?;
         info!("Using FFmpeg at: {:?}", ffmpeg_path);
 
-        // Run FFmpeg concat command
-        // Using concat demuxer with copy codec for fast merging (no re-encoding)
-        
         let list_file_str = list_file
             .to_str()
             .ok_or_else(|| anyhow!("Checkpoint list file path is not valid UTF-8: {}", list_file.display()))?;
@@ -185,14 +211,7 @@ impl IncrementalAudioSaver {
 
         let mut command = std::process::Command::new(ffmpeg_path);
 
-        command.args(&[
-            "-f", "concat",          // Use concat demuxer
-            "-safe", "0",            // Allow absolute paths
-            "-i", list_file_str,
-            "-c", "copy",            // Copy codec - no re-encoding!
-            "-y",                    // Overwrite output file
-            output_str
-        ]);
+        command.args(ffmpeg_concat_reencode_args(list_file_str, output_str));
 
         // Hide console window on Windows to prevent CMD popup during finalization
         #[cfg(target_os = "windows")]
@@ -322,14 +341,10 @@ pub async fn recover_audio_from_checkpoints(
 
     let mut command = std::process::Command::new(ffmpeg_path);
 
-    command.args(&[
-        "-f", "concat",
-        "-safe", "0",
-        "-i", &concat_file_path_str,
-        "-c", "copy",
-        "-y", // Overwrite if exists
-        &output_path_str
-    ]);
+    command.args(ffmpeg_concat_reencode_args(
+        &concat_file_path_str,
+        &output_path_str,
+    ));
 
     // Hide console window on Windows
     #[cfg(target_os = "windows")]
@@ -496,5 +511,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.txt");
         assert!(path.to_str().is_some(), "sanity check: tempdir paths are UTF-8 in this test environment");
+    }
+
+    #[test]
+    fn concat_reencode_args_do_not_stream_copy() {
+        let args = ffmpeg_concat_reencode_args("list.txt", "out.mp4");
+        assert!(args.windows(2).any(|w| w == ["-c:a", "aac"]));
+        assert!(!args.windows(2).any(|w| w == ["-c", "copy"]));
+        assert!(args.contains(&"-f") && args.contains(&"concat"));
     }
 }
