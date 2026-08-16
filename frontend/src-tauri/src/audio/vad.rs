@@ -298,8 +298,11 @@ impl ContinuousVadProcessor {
         // Force end any ongoing speech
         if self.in_speech && !self.current_speech.is_empty() {
             // processed_samples and speech_start_sample always count 16kHz samples (post-resampling)
-            let start_ms = (self.speech_start_sample as f64 / 16000.0) * 1000.0;
-            let end_ms = (self.processed_samples as f64 / 16000.0) * 1000.0;
+            let (start_ms, end_ms) = flush_segment_timestamps(
+                self.speech_start_sample,
+                self.processed_samples,
+                self.current_speech.len(),
+            );
 
             debug!("VAD flush: Force-ending speech - start={}ms, end={}ms, duration={}ms, samples={}",
                   start_ms, end_ms, end_ms - start_ms, self.current_speech.len());
@@ -351,8 +354,11 @@ impl ContinuousVadProcessor {
                         self.last_logged_state = true;
                     }
                     self.in_speech = true;
-                    // Use 16000 (VAD processing rate) since processed_samples counts 16kHz samples
-                    self.speech_start_sample = self.processed_samples + (timestamp_ms * 16000 / 1000);
+                    // Silero `timestamp_ms` is milliseconds since the start of the VAD
+                    // session, not relative to this chunk. Adding `processed_samples`
+                    // double-counts and can invert the last in-progress segment at EOF
+                    // (start past file end → prepare drops the samples).
+                    self.speech_start_sample = speech_start_sample_from_session_ms(timestamp_ms);
                     self.current_speech.clear();
                     self.force_flushed_samples = 0;
                 }
@@ -436,6 +442,34 @@ impl ContinuousVadProcessor {
         self.processed_samples += chunk.len();
         Ok(())
     }
+}
+
+/// Silero `SpeechStart.timestamp_ms` is session-absolute (ms since VAD session start).
+fn speech_start_sample_from_session_ms(timestamp_ms: usize) -> usize {
+    timestamp_ms.saturating_mul(16000) / 1000
+}
+
+/// EOF flush timestamps. If `speech_start_sample` was double-counted past EOF, reconstruct
+/// start from the actual buffered speech so the trailing samples are not dropped.
+fn flush_segment_timestamps(
+    speech_start_sample: usize,
+    processed_samples: usize,
+    current_speech_len: usize,
+) -> (f64, f64) {
+    let mut start_ms = (speech_start_sample as f64 / 16000.0) * 1000.0;
+    let end_ms = (processed_samples as f64 / 16000.0) * 1000.0;
+    if start_ms >= end_ms && current_speech_len > 0 {
+        let dur_ms = (current_speech_len as f64 / 16000.0) * 1000.0;
+        start_ms = (end_ms - dur_ms).max(0.0);
+        warn!(
+            "VAD flush: inverted timestamps (start={:.0}ms >= end={:.0}ms); reconstructed start={:.0}ms from {} samples",
+            (speech_start_sample as f64 / 16000.0) * 1000.0,
+            end_ms,
+            start_ms,
+            current_speech_len
+        );
+    }
+    (start_ms, end_ms)
 }
 
 /// Keep silero `post_speech_pad` ≤ redemption so SpeechEnd never indexes past the buffer.
@@ -593,6 +627,36 @@ mod tests {
             FILE_BATCH_VAD_THRESHOLDS.negative < FILE_BATCH_VAD_THRESHOLDS.positive,
             "negative threshold must stay below positive for valid hysteresis"
         );
+    }
+
+    #[test]
+    fn speech_start_uses_silero_session_time_not_processed_offset() {
+        // Real import: silero start ~203900ms while ~197800ms was already processed.
+        // Adding them produced start 401700ms > file end 293070ms.
+        let start = speech_start_sample_from_session_ms(203_900);
+        assert_eq!(start, 3_262_400);
+        let doubled = 3_164_800usize + 203_900usize.saturating_mul(16000) / 1000;
+        assert_eq!(doubled, 6_427_200);
+        assert!(
+            doubled > 4_688_892,
+            "old processed_samples+timestamp formula overshoots a 293s file"
+        );
+    }
+
+    #[test]
+    fn flush_reconstructs_start_when_speech_start_is_past_eof() {
+        // Inverted timestamps from a real import that dropped ~94s of trailing speech.
+        let (start_ms, end_ms) = flush_segment_timestamps(6_427_200, 4_689_120, 1_471_680);
+        assert!(start_ms < end_ms, "start={start_ms} end={end_ms}");
+        assert!((end_ms - 293_070.0).abs() < 1.0);
+        assert!((start_ms - 201_090.0).abs() < 2.0);
+    }
+
+    #[test]
+    fn flush_keeps_valid_start_when_not_inverted() {
+        let (start_ms, end_ms) = flush_segment_timestamps(3_262_400, 4_689_120, 1_471_680);
+        assert!((start_ms - 203_900.0).abs() < 1.0);
+        assert!((end_ms - 293_070.0).abs() < 1.0);
     }
 
     /// Generate synthetic speech-like audio with alternating speech/silence
