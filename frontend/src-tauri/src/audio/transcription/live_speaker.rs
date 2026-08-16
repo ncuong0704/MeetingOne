@@ -10,23 +10,20 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 const HOTKEYS_FILE: &str = "speaker_hotkeys.json";
 
-pub const SPEAKER_COLORS: [&str; 8] = [
+pub const SPEAKER_COLORS: [&str; 9] = [
     "#2563EB", "#DC2626", "#16A34A", "#CA8A04", "#9333EA", "#DB2777", "#0891B2",
-    "#EA580C",
+    "#EA580C", "#65A30D",
 ];
 
 pub fn color_for_name(name: &str) -> String {
-    let mut h: u32 = 0;
-    for b in name.as_bytes() {
-        h = h.wrapping_mul(31).wrapping_add(*b as u32);
-    }
-    SPEAKER_COLORS[(h as usize) % SPEAKER_COLORS.len()].to_string()
+    global_tracker().lock().color_for(name)
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct LiveSpeakerTracker {
     current: Option<String>,
     pending: Option<String>,
+    seen_names: Vec<String>,
 }
 
 impl LiveSpeakerTracker {
@@ -34,12 +31,34 @@ impl LiveSpeakerTracker {
         Self {
             current: None,
             pending: None,
+            seen_names: Vec::new(),
         }
     }
 
     pub fn reset(&mut self) {
         self.current = None;
         self.pending = None;
+        self.seen_names.clear();
+    }
+
+    pub fn clear_turn_state(&mut self) {
+        self.current = None;
+        self.pending = None;
+    }
+
+    pub fn color_for(&mut self, name: &str) -> String {
+        let name = name.trim();
+        if name.is_empty() {
+            return SPEAKER_COLORS[0].to_string();
+        }
+        let idx = match self.seen_names.iter().position(|n| n == name) {
+            Some(i) => i,
+            None => {
+                self.seen_names.push(name.to_string());
+                self.seen_names.len() - 1
+            }
+        };
+        SPEAKER_COLORS[idx % SPEAKER_COLORS.len()].to_string()
     }
 
     /// Queue `name` for the next utterance. Empty / whitespace-only is ignored.
@@ -89,6 +108,10 @@ fn global_tracker() -> &'static Mutex<LiveSpeakerTracker> {
 
 pub fn reset_session() {
     global_tracker().lock().reset();
+}
+
+pub fn clear_turn_state() {
+    global_tracker().lock().clear_turn_state();
 }
 
 pub fn queue_speaker(name: String) -> bool {
@@ -267,6 +290,48 @@ mod tests {
     }
 
     #[test]
+    fn colliding_hashed_names_get_distinct_session_colors() {
+        let mut t = LiveSpeakerTracker::new();
+        let hung = t.color_for("Đặng Trần Hùng");
+        let sam = t.color_for("Võ Ngọc Sâm");
+        assert_ne!(hung, sam);
+        assert_eq!(hung, t.color_for("Đặng Trần Hùng"));
+    }
+
+    #[test]
+    fn session_colors_are_unique_up_to_palette_size() {
+        let mut t = LiveSpeakerTracker::new();
+        let mut seen = std::collections::HashSet::new();
+        for i in 0..SPEAKER_COLORS.len() {
+            assert!(
+                seen.insert(t.color_for(&format!("S{i}"))),
+                "palette slot {i} reused"
+            );
+        }
+    }
+
+    #[test]
+    fn reset_clears_color_assignments() {
+        let mut t = LiveSpeakerTracker::new();
+        let lan = t.color_for("Lan");
+        let _minh = t.color_for("Minh");
+        t.reset();
+        assert_eq!(t.color_for("Minh"), lan);
+    }
+
+    #[test]
+    fn clear_turn_state_keeps_colors() {
+        let mut t = LiveSpeakerTracker::new();
+        t.queue("Lan".into());
+        t.apply_pending();
+        let lan = t.color_for("Lan");
+        t.clear_turn_state();
+        assert!(t.stamp().is_none());
+        assert!(t.pending().is_none());
+        assert_eq!(t.color_for("Lan"), lan);
+    }
+
+    #[test]
     fn apply_pending_noop_when_empty() {
         let mut t = LiveSpeakerTracker::new();
         assert!(t.apply_pending().is_none());
@@ -281,8 +346,9 @@ mod tests {
 
     #[test]
     fn same_name_maps_to_stable_color() {
-        assert_eq!(color_for_name("Lan"), color_for_name("Lan"));
-        assert_ne!(color_for_name("Lan"), color_for_name("Minh"));
+        let mut t = LiveSpeakerTracker::new();
+        assert_eq!(t.color_for("Lan"), t.color_for("Lan"));
+        assert_ne!(t.color_for("Lan"), t.color_for("Minh"));
     }
 
     #[test]

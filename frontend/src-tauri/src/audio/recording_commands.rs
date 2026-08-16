@@ -1107,7 +1107,7 @@ pub async fn stop_recording<R: Runtime>(
     // Set recording flag to false
     info!("🔍 Setting IS_RECORDING to false");
     IS_RECORDING.store(false, Ordering::SeqCst);
-    crate::audio::transcription::live_speaker::reset_session();
+    crate::audio::transcription::live_speaker::clear_turn_state();
 
     // Step 4.5: Prepare metadata for frontend (NO database save)
     // NOTE: We do NOT save to database here. The frontend will save after all transcripts are displayed.
