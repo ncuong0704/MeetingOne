@@ -123,6 +123,7 @@ pub const ITN_CLASSIFY_FAR: &str = "tokenize_and_classify.far";
 pub const ITN_VERBALIZE_FAR: &str = "verbalize.far";
 
 /// Bundled default hotwords list (tên riêng / thuật ngữ chuyên ngành)
+pub const USER_DEFAULTS_SUBDIR: &str = "mac-dinh";
 pub const HOTWORDS_RESOURCE_FILE: &str = "hotwords.txt";
 
 /// Speaker diarization — Senko CAM++ (matches test ASR `senko_campp_optimized`)

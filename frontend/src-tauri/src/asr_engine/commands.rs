@@ -20,15 +20,23 @@ pub(crate) fn resolve_models_base_dir<R: Runtime>(app: &AppHandle<R>) -> Option<
 }
 
 pub fn resolve_bundled_hotwords_path<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
+    let file = crate::config::HOTWORDS_RESOURCE_FILE;
+    let subdir = crate::config::USER_DEFAULTS_SUBDIR;
     if let Ok(resource) = app.path().resource_dir() {
-        let path = resource.join(crate::config::HOTWORDS_RESOURCE_FILE);
-        if path.exists() {
-            return Some(path);
+        for path in [
+            resource.join(subdir).join(file),
+            resource.join("resources").join(subdir).join(file),
+            resource.join(file),
+        ] {
+            if path.exists() {
+                return Some(path);
+            }
         }
     }
     let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("resources")
-        .join(crate::config::HOTWORDS_RESOURCE_FILE);
+        .join(subdir)
+        .join(file);
     if dev.exists() {
         return Some(dev);
     }

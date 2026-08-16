@@ -1,0 +1,17 @@
+Điền 3 file mặc định ở thư mục này:
+
+1. hotwords.txt
+   Một từ / cụm từ mỗi dòng. Dòng trống hoặc bắt đầu bằng # sẽ bị bỏ.
+
+2. nguoi-noi.json
+   Danh sách người nói. Điền hoTen (bắt buộc), chucVu, phongBan.
+   Dòng hoTen trống sẽ bị bỏ. App chỉ nạp khi Cài đặt → Danh sách đang trống.
+
+3. video-huong-dan.json
+   Video hiện trong nút Hướng dẫn (sidebar). Mảng JSON, mỗi mục:
+   {
+     "id": "getting-started",
+     "title": "Làm quen với giao diện",
+     "description": "Tổng quan các khu vực chính của ứng dụng",
+     "youtubeUrl": "https://www.youtube.com/watch?v=XXXXXXXXXXX"
+   }

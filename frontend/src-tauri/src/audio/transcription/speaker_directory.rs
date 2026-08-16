@@ -5,7 +5,8 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Manager, Runtime};
 
 const DIRECTORY_FILE: &str = "speaker_directory.json";
-const DEFAULTS_FILE: &str = "speaker_directory.defaults.json";
+const DEFAULTS_FILE: &str = "nguoi-noi.json";
+const DEFAULTS_SUBDIR: &str = "mac-dinh";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -63,17 +64,19 @@ fn read_directory_file(path: &PathBuf) -> Vec<DirectorySpeaker> {
 
 fn defaults_path<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
     if let Ok(resource) = app.path().resource_dir() {
-        let bundled = resource.join(DEFAULTS_FILE);
-        if bundled.exists() {
-            return Some(bundled);
-        }
-        let nested = resource.join("resources").join(DEFAULTS_FILE);
-        if nested.exists() {
-            return Some(nested);
+        for path in [
+            resource.join(DEFAULTS_SUBDIR).join(DEFAULTS_FILE),
+            resource.join("resources").join(DEFAULTS_SUBDIR).join(DEFAULTS_FILE),
+            resource.join(DEFAULTS_FILE),
+        ] {
+            if path.exists() {
+                return Some(path);
+            }
         }
     }
     let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("resources")
+        .join(DEFAULTS_SUBDIR)
         .join(DEFAULTS_FILE);
     if dev.exists() {
         Some(dev)

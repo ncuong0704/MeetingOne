@@ -1,17 +1,9 @@
 /**
- * Danh sách video hướng dẫn hiện trong dialog **Hướng dẫn** (sidebar).
- *
- * Điền các mục bên dưới. Mỗi phần tử = một hàng. `youtubeUrl` phải là
- * https://www.youtube.com/watch?v=... hoặc https://youtu.be/...
- *
- * Ví dụ:
- * {
- *   id: 'getting-started',
- *   title: 'Làm quen với giao diện',
- *   description: 'Tổng quan các khu vực chính của ứng dụng',
- *   youtubeUrl: 'https://www.youtube.com/watch?v=XXXXXXXXXXX',
- * },
+ * Danh sách video hướng dẫn: điền file
+ * `frontend/src-tauri/resources/mac-dinh/video-huong-dan.json`
  */
+import catalog from '../../../src-tauri/resources/mac-dinh/video-huong-dan.json';
+
 export type GuideVideo = {
   id: string;
   title: string;
@@ -19,7 +11,7 @@ export type GuideVideo = {
   youtubeUrl: string;
 };
 
-export const GUIDE_VIDEOS: GuideVideo[] = [];
+export const GUIDE_VIDEOS: GuideVideo[] = catalog;
 
 const YOUTUBE_HOSTS = new Set(['youtube.com', 'youtu.be', 'm.youtube.com']);
 
