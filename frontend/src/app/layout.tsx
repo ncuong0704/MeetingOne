@@ -22,8 +22,6 @@ import { AppUpdateNotifierGate } from '@/components/shared/AppUpdateNotifier'
 import { RecordingPostProcessingProvider } from '@/contexts/RecordingPostProcessingProvider'
 import { ImportAudioDialog, ImportDropOverlay } from '@/components/ImportAudio'
 import { ImportDialogProvider } from '@/contexts/ImportDialogContext'
-import { DocumentImportDialog } from '@/components/ImportDocuments'
-import { DocumentImportDialogProvider } from '@/contexts/DocumentImportDialogContext'
 import { isAudioExtension, getAudioFormatsDisplayList } from '@/constants/audioFormats'
 import { getBrowserOnboardingCompleted, isTauriRuntime } from '@/lib/tauriRuntime'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
@@ -58,21 +56,6 @@ function ConditionalImportDialog({
   );
 }
 
-function ConditionalDocumentImportDialog({
-  showDocumentImportDialog,
-  handleDocumentImportDialogClose,
-}: {
-  showDocumentImportDialog: boolean;
-  handleDocumentImportDialogClose: (open: boolean) => void;
-}) {
-  return (
-    <DocumentImportDialog
-      open={showDocumentImportDialog}
-      onOpenChange={handleDocumentImportDialogClose}
-    />
-  );
-}
-
 // export { metadata } from './metadata'
 
 export default function RootLayout({
@@ -102,7 +85,6 @@ function AppRoot({ children }: { children: React.ReactNode }) {
   const [showDropOverlay, setShowDropOverlay] = useState(false)
   const [showImportDialog, setShowImportDialog] = useState(false)
   const [importFilePath, setImportFilePath] = useState<string | null>(null)
-  const [showDocumentImportDialog, setShowDocumentImportDialog] = useState(false)
 
   useEffect(() => {
     if (loading || (authRequired && !user)) {
@@ -255,14 +237,6 @@ function AppRoot({ children }: { children: React.ReactNode }) {
     setShowImportDialog(true);
   }, []);
 
-  const handleDocumentImportDialogClose = useCallback((open: boolean) => {
-    setShowDocumentImportDialog(open);
-  }, []);
-
-  const handleOpenDocumentImportDialog = useCallback(() => {
-    setShowDocumentImportDialog(true);
-  }, []);
-
   const handleOnboardingComplete = () => {
     console.log('[Layout] Onboarding completed')
     setShowOnboarding(false)
@@ -283,7 +257,6 @@ function AppRoot({ children }: { children: React.ReactNode }) {
                   <UserGuideProvider>
                   <RecordingPostProcessingProvider>
                     <ImportDialogProvider onOpen={handleOpenImportDialog}>
-                      <DocumentImportDialogProvider onOpen={handleOpenDocumentImportDialog}>
                         <DownloadProgressToastProvider />
 
                         {loading ? (
@@ -312,11 +285,6 @@ function AppRoot({ children }: { children: React.ReactNode }) {
                           handleImportDialogClose={handleImportDialogClose}
                           importFilePath={importFilePath}
                         />
-                        <ConditionalDocumentImportDialog
-                          showDocumentImportDialog={showDocumentImportDialog}
-                          handleDocumentImportDialogClose={handleDocumentImportDialogClose}
-                        />
-                      </DocumentImportDialogProvider>
                     </ImportDialogProvider>
                   </RecordingPostProcessingProvider>
                   </UserGuideProvider>

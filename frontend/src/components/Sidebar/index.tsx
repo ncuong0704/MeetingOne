@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { ChevronDown, ChevronRight, File, Settings, ChevronLeftCircle, ChevronRightCircle, Calendar, StickyNote, Home, Trash2, Mic, Square, Plus, Search, Pencil, NotebookPen, SearchIcon, X, Upload, FileText } from 'lucide-react';
+import { ChevronDown, ChevronRight, File, Settings, ChevronLeftCircle, ChevronRightCircle, Calendar, StickyNote, Home, Trash2, Mic, Square, Plus, Search, Pencil, NotebookPen, SearchIcon, X, Upload } from 'lucide-react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useSidebar } from './SidebarProvider';
 import type { CurrentMeeting } from '@/components/Sidebar/SidebarProvider';
@@ -15,7 +15,6 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { toast } from 'sonner';
 import { useRecordingState } from '@/contexts/RecordingStateContext';
 import { useImportDialog } from '@/contexts/ImportDialogContext';
-import { useDocumentImportDialog } from '@/contexts/DocumentImportDialogContext';
 
 import {
   Dialog,
@@ -62,7 +61,6 @@ const Sidebar: React.FC = () => {
   // Get recording state from RecordingStateContext (single source of truth)
   const { isRecording } = useRecordingState();
   const { openImportDialog } = useImportDialog();
-  const { openDocumentImportDialog } = useDocumentImportDialog();
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['meetings']));
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [showModelSettings, setShowModelSettings] = useState(false);
@@ -528,20 +526,6 @@ const Sidebar: React.FC = () => {
           <Tooltip>
             <TooltipTrigger asChild>
               <button
-                onClick={() => openDocumentImportDialog()}
-                className="p-2 rounded-lg transition-colors duration-150 bg-[rgba(22,71,142,0.08)] hover:bg-[rgba(22,71,142,0.15)]"
-              >
-                <FileText className="w-5 h-5 text-[#16478e]" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              <p>Tải file transcript lên</p>
-            </TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
                 onClick={() => router.push('/settings')}
                 data-tour={TOUR_TARGETS.SETTINGS_SIDEBAR_BUTTON}
                 className={`p-2 rounded-lg transition-colors duration-150 ${isSettingsPage ? 'bg-gray-100' : 'hover:bg-gray-100'
@@ -826,15 +810,6 @@ const Sidebar: React.FC = () => {
             >
               <Upload className="w-3.5 h-3.5 shrink-0" />
               <span>Nhập file âm thanh</span>
-            </button>
-
-            {/* Import documents */}
-            <button
-              onClick={() => openDocumentImportDialog()}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-[#16478e] border border-[#16478e] bg-transparent hover:bg-[rgba(22,71,142,0.08)] rounded-lg transition-colors"
-            >
-              <FileText className="w-3.5 h-3.5 shrink-0" />
-              <span>Tải file transcript lên</span>
             </button>
 
             {/* Settings */}

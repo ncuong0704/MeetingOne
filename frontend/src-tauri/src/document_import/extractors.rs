@@ -39,53 +39,117 @@ fn extract_from_subtitle(path: &Path) -> Result<String, String> {
     Ok(lines_out.join("\n"))
 }
 
+fn collect_run_text(run: &docx_rs::Run) -> String {
+    let mut out = String::new();
+    for child in &run.children {
+        match child {
+            docx_rs::RunChild::Text(t) => out.push_str(&t.text),
+            docx_rs::RunChild::Tab(_) => out.push('\t'),
+            _ => {}
+        }
+    }
+    out
+}
+
+fn collect_paragraph_children(children: &[docx_rs::ParagraphChild]) -> String {
+    let mut out = String::new();
+    for child in children {
+        match child {
+            docx_rs::ParagraphChild::Run(run) => out.push_str(&collect_run_text(run)),
+            docx_rs::ParagraphChild::Hyperlink(link) => {
+                out.push_str(&collect_paragraph_children(&link.children));
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+fn paragraph_to_markdown(paragraph: &docx_rs::Paragraph) -> Option<String> {
+    let text = collect_paragraph_children(&paragraph.children);
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    let style = paragraph
+        .property
+        .style
+        .as_ref()
+        .map(|s| s.val.as_str())
+        .unwrap_or("");
+    if let Some(prefix) = super::to_markdown::heading_prefix(style) {
+        return Some(format!("{prefix}{text}"));
+    }
+    if paragraph.has_numbering || paragraph.property.numbering_property.is_some() {
+        return Some(format!("- {text}"));
+    }
+    Some(text.to_string())
+}
+
+fn docx_table_to_markdown(table: &docx_rs::Table) -> String {
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    for row in &table.rows {
+        let docx_rs::TableChild::TableRow(row) = row;
+        let mut cells: Vec<String> = Vec::new();
+        for cell in &row.cells {
+            let docx_rs::TableRowChild::TableCell(cell) = cell;
+            let mut parts: Vec<String> = Vec::new();
+            for content in &cell.children {
+                if let docx_rs::TableCellContent::Paragraph(paragraph) = content {
+                    let t = collect_paragraph_children(&paragraph.children);
+                    let t = t.trim();
+                    if !t.is_empty() {
+                        parts.push(t.to_string());
+                    }
+                }
+            }
+            cells.push(parts.join(" "));
+        }
+        if cells.iter().any(|c| !c.is_empty()) {
+            rows.push(cells);
+        }
+    }
+    super::to_markdown::to_markdown_table(&rows)
+        .trim()
+        .to_string()
+}
+
 fn extract_from_docx(path: &Path) -> Result<String, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("Lỗi đọc file: {}", e))?;
     let docx = docx_rs::read_docx(&bytes).map_err(|e| format!("Lỗi đọc DOCX: {}", e))?;
 
-    let mut text = String::new();
+    let mut blocks: Vec<String> = Vec::new();
     for child in docx.document.children {
-        if let docx_rs::DocumentChild::Paragraph(paragraph) = child {
-            let mut paragraph_text = String::new();
-            for pchild in paragraph.children {
-                if let docx_rs::ParagraphChild::Run(run) = pchild {
-                    for rchild in run.children {
-                        if let docx_rs::RunChild::Text(t) = rchild {
-                            paragraph_text.push_str(&t.text);
-                        }
-                    }
+        match child {
+            docx_rs::DocumentChild::Paragraph(paragraph) => {
+                if let Some(line) = paragraph_to_markdown(&paragraph) {
+                    blocks.push(line);
                 }
             }
-            if !paragraph_text.is_empty() {
-                text.push_str(&paragraph_text);
-                text.push('\n');
+            docx_rs::DocumentChild::Table(table) => {
+                let md = docx_table_to_markdown(&table);
+                if !md.is_empty() {
+                    blocks.push(md);
+                }
             }
+            _ => {}
         }
     }
-    Ok(text)
+    Ok(blocks.join("\n\n"))
 }
 
 fn extract_from_pdf(path: &Path) -> Result<String, String> {
     pdf_extract::extract_text(path).map_err(|e| format!("Lỗi đọc PDF: {}", e))
 }
 
-fn decode_xml_entities(s: &str) -> String {
-    s.replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&apos;", "'")
-        .replace("&amp;", "&")
-}
-
 /// PPTX is a ZIP archive of per-slide XML files under `ppt/slides/slideN.xml`.
-/// Extracts visible text runs (`<a:t>...</a:t>`) from each slide, in slide order.
+/// Converts each slide to Markdown (slide marker, title heading, tables).
 fn extract_from_pptx(path: &Path) -> Result<String, String> {
     let file = std::fs::File::open(path).map_err(|e| format!("Lỗi đọc file: {}", e))?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| format!("Lỗi đọc PPTX: {}", e))?;
 
     let slide_path_re =
         regex::Regex::new(r"^ppt/slides/slide(\d+)\.xml$").expect("static regex is valid");
-    let text_run_re = regex::Regex::new(r"<a:t[^>]*>(.*?)</a:t>").expect("static regex is valid");
 
     let mut slide_indices: Vec<(usize, usize)> = Vec::new();
     for i in 0..archive.len() {
@@ -99,8 +163,8 @@ fn extract_from_pptx(path: &Path) -> Result<String, String> {
     }
     slide_indices.sort_by_key(|(num, _)| *num);
 
-    let mut text = String::new();
-    for (_, index) in slide_indices {
+    let mut slides: Vec<String> = Vec::new();
+    for (slide_num, index) in slide_indices {
         let mut entry = archive
             .by_index(index)
             .map_err(|e| format!("Lỗi đọc PPTX: {}", e))?;
@@ -108,14 +172,17 @@ fn extract_from_pptx(path: &Path) -> Result<String, String> {
         std::io::Read::read_to_string(&mut entry, &mut xml)
             .map_err(|e| format!("Lỗi đọc PPTX: {}", e))?;
 
-        for cap in text_run_re.captures_iter(&xml) {
-            text.push_str(&decode_xml_entities(&cap[1]));
-            text.push(' ');
+        let body = super::to_markdown::pptx_slide_xml_to_markdown(&xml);
+        if body.trim().is_empty() {
+            continue;
         }
-        text.push('\n');
+        slides.push(format!(
+            "<!-- Slide number: {} -->\n\n{}",
+            slide_num, body
+        ));
     }
 
-    Ok(text)
+    Ok(slides.join("\n\n"))
 }
 
 fn extract_text(path: &Path) -> Result<String, String> {
@@ -240,6 +307,50 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_from_docx_heading_and_table_as_markdown() {
+        use docx_rs::{Docx, Paragraph, Run, Table, TableCell, TableRow};
+        use std::io::Cursor;
+
+        let mut buf: Vec<u8> = Vec::new();
+        Docx::new()
+            .add_paragraph(
+                Paragraph::new()
+                    .style("Heading1")
+                    .add_run(Run::new().add_text("Agenda")),
+            )
+            .add_table(Table::new(vec![
+                TableRow::new(vec![
+                    TableCell::new().add_paragraph(
+                        Paragraph::new().add_run(Run::new().add_text("Mục")),
+                    ),
+                    TableCell::new().add_paragraph(
+                        Paragraph::new().add_run(Run::new().add_text("Chủ trì")),
+                    ),
+                ]),
+                TableRow::new(vec![
+                    TableCell::new().add_paragraph(
+                        Paragraph::new().add_run(Run::new().add_text("Khai mạc")),
+                    ),
+                    TableCell::new().add_paragraph(
+                        Paragraph::new().add_run(Run::new().add_text("Lan")),
+                    ),
+                ]),
+            ]))
+            .build()
+            .pack(Cursor::new(&mut buf))
+            .expect("failed to pack test docx");
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("structured.docx");
+        std::fs::write(&path, &buf).unwrap();
+
+        let text = extract_from_docx(&path).unwrap();
+        assert!(text.contains("# Agenda"), "got: {}", text);
+        assert!(text.contains("| Mục | Chủ trì |"), "got: {}", text);
+        assert!(text.contains("| Khai mạc | Lan |"), "got: {}", text);
+    }
+
+    #[test]
     fn test_extract_from_pdf_invalid_bytes_returns_err() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("corrupt.pdf");
@@ -340,6 +451,64 @@ mod tests {
             "should decode to literal '&lt;div&gt;', not double-unescape to '<div>'; got: {}",
             text
         );
+    }
+
+    #[test]
+    fn test_extract_from_pptx_emits_slide_number_comment() {
+        use std::io::Write;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("numbered.pptx");
+
+        let file = std::fs::File::create(&path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default();
+
+        zip.start_file("ppt/slides/slide1.xml", options).unwrap();
+        zip.write_all(b"<p:sld><a:t>Opening remarks for the meeting today</a:t></p:sld>")
+            .unwrap();
+        zip.finish().unwrap();
+
+        let text = extract_from_pptx(&path).unwrap();
+        assert!(
+            text.starts_with("<!-- Slide number: 1 -->"),
+            "got: {}",
+            text
+        );
+        assert!(
+            text.contains("Opening remarks for the meeting today"),
+            "got: {}",
+            text
+        );
+    }
+
+    #[test]
+    fn test_extract_from_pptx_table_as_markdown() {
+        use std::io::Write;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("table.pptx");
+
+        let file = std::fs::File::create(&path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default();
+
+        zip.start_file("ppt/slides/slide1.xml", options).unwrap();
+        zip.write_all(
+            br#"<p:sld>
+            <a:tbl>
+              <a:tr><a:tc><a:t>KPI</a:t></a:tc><a:tc><a:t>Q1</a:t></a:tc></a:tr>
+              <a:tr><a:tc><a:t>Doanh thu</a:t></a:tc><a:tc><a:t>10</a:t></a:tc></a:tr>
+            </a:tbl>
+        </p:sld>"#,
+        )
+        .unwrap();
+        zip.finish().unwrap();
+
+        let text = extract_from_pptx(&path).unwrap();
+        assert!(text.contains("<!-- Slide number: 1 -->"), "got: {}", text);
+        assert!(text.contains("| KPI | Q1 |"), "got: {}", text);
+        assert!(text.contains("| Doanh thu | 10 |"), "got: {}", text);
     }
 
     #[test]

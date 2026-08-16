@@ -61,8 +61,8 @@ export function MeetingDocumentsDialog({
             Tài liệu tham khảo
           </DialogTitle>
           <DialogDescription>
-            Đính kèm slide, văn bản (PDF, DOCX, PPTX) được dùng trong cuộc họp để AI tham khảo khi
-            tạo báo cáo.
+            Đính kèm slide, văn bản hoặc phụ đề (PDF, DOCX, PPTX, TXT, SRT, VTT) được dùng trong
+            cuộc họp để AI tham khảo khi tạo báo cáo.
           </DialogDescription>
         </DialogHeader>
 

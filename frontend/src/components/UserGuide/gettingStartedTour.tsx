@@ -59,10 +59,6 @@ export const GETTING_STARTED_TOUR_STEPS: Step[] = [
             <strong>Nhập file âm thanh</strong> — phiên âm từ file âm thanh có sẵn
           </li>
           <li>
-            <strong>Tải file transcript lên</strong> — tải file phiên âm (transcript) được xuất từ
-            ứng dụng khác
-          </li>
-          <li>
             <strong>Cài đặt</strong> — cấu hình thiết bị, mô hình AI và mẫu tóm tắt
           </li>
           <li>

@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import Analytics from '@/lib/analytics';
 import { invoke as invokeTauri } from '@tauri-apps/api/core';
 import { copyRichText, wrapWordHtml } from '@/lib/clipboardUtils';
+import { formatTranscriptHtml, formatTranscriptPlainText } from '@/lib/transcriptDisplay';
 import { blocksToWordHtml } from '@/lib/blockNoteToWordHtml';
 
 function escapeHtmlAttr(s: string): string {
@@ -62,35 +63,14 @@ export function useCopyOperations({
       return;
     }
 
-    const formatTime = (seconds: number | undefined, fallbackTimestamp: string): string => {
-      if (seconds === undefined) return fallbackTimestamp;
-      const totalSecs = Math.floor(seconds);
-      const mins = Math.floor(totalSecs / 60);
-      const secs = totalSecs % 60;
-      return `[${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}]`;
-    };
-
-    const dateStr = new Date(meeting.created_at).toLocaleDateString('vi-VN');
-    const titleStr = meetingTitle ?? meeting.title;
-
-    const plainText =
-      `# Bản ghi cuộc họp: ${titleStr}\n\nNgày: ${dateStr}\n\n` +
-      allTranscripts.map(t => `${formatTime(t.audio_start_time, t.timestamp)} ${t.text}`).join('\n');
-
-    const FONT = "Calibri,'Segoe UI',Arial,sans-serif";
-    const rowsHtml = allTranscripts
-      .map(t =>
-        `<p style="font-family:${FONT};font-size:11pt;margin:3pt 0;">` +
-        `<span style="font-family:'Courier New',monospace;font-size:9.5pt;color:#666;margin-right:6pt;">${formatTime(t.audio_start_time, t.timestamp)}</span>` +
-        `${t.text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}` +
-        `</p>`
-      ).join('\n');
-
-    const bodyHtml =
-      `<h1 style="font-family:${FONT};font-size:18pt;font-weight:bold;color:#111;margin:0 0 6pt;">Bản ghi cuộc họp: ${titleStr.replace(/&/g, '&amp;')}</h1>` +
-      `<p style="font-family:${FONT};font-size:10pt;color:#666;margin:0 0 10pt;">Ngày: ${dateStr}</p>` +
-      `<hr style="border:none;border-top:1pt solid #ccc;margin:8pt 0;">` +
-      rowsHtml;
+    const segments = allTranscripts.map((t) => ({
+      id: t.id,
+      text: t.text,
+      speakerId: t.speaker_id ?? null,
+      speakerName: t.speaker_name ?? null,
+    }));
+    const plainText = formatTranscriptPlainText(segments);
+    const bodyHtml = formatTranscriptHtml(segments);
 
     await copyRichText(wrapWordHtml(bodyHtml), plainText);
     toast.success('Đã sao chép bản ghi vào bảng nhớ tạm');
@@ -103,7 +83,7 @@ export function useCopyOperations({
       transcript_length: allTranscripts.length.toString(),
       word_count: wordCount.toString(),
     });
-  }, [meeting, meetingTitle, fetchAllTranscripts]);
+  }, [meeting, fetchAllTranscripts]);
 
   // ── Copy tóm tắt ─────────────────────────────────────────────────────────────
   const handleCopySummary = useCallback(async () => {

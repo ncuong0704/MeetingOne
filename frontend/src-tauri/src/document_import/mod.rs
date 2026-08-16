@@ -1,5 +1,5 @@
-// Document import module - creates meetings from TXT/SRT/VTT transcript files.
+// Extractors and transcript parsers used when attaching reference documents to a meeting.
 
 pub mod extractors;
-pub mod commands;
+mod to_markdown;
 pub mod transcript_parser;

@@ -5,6 +5,7 @@ import { TranscriptSegmentData } from '@/types';
 import { Popover, PopoverAnchor, PopoverContent } from './ui/popover';
 import { usePlaybackFollowScroll } from '@/hooks/usePlaybackFollowScroll';
 import { DiarizationAPI } from '@/lib/asr';
+import { cleanStopWords, endsSentence, groupBySpeaker } from '@/lib/transcriptDisplay';
 
 export interface FlowingTranscriptViewProps {
     segments: TranscriptSegmentData[];
@@ -18,51 +19,6 @@ export interface FlowingTranscriptViewProps {
     loadedCount?: number;
     onLoadMore?: () => void;
     onSpeakersChanged?: () => void | Promise<void>;
-}
-
-// Remove filler words and repetitions (same rule as VirtualizedTranscriptView).
-function cleanStopWords(text: string): string {
-    const stopWords = ['uh', 'um', 'er', 'ah', 'hmm', 'hm', 'eh', 'oh'];
-    let cleanedText = text;
-    stopWords.forEach(word => {
-        const pattern = new RegExp(`\\b${word}\\b[,\\s]*`, 'gi');
-        cleanedText = cleanedText.replace(pattern, ' ');
-    });
-    return cleanedText.replace(/\s+/g, ' ').trim();
-}
-
-// A sentence ending in '.', '?', or '!' (optionally followed by a closing quote)
-// starts the next segment on a new line — mirrors normal paragraph flow.
-function endsSentence(text: string): boolean {
-    return /[.?!][)"'”]?\s*$/.test(text.trim());
-}
-
-type SpeakerBlock = {
-    key: string;
-    speakerId: string | null;
-    speakerName: string | null;
-    speakerColor: string | null;
-    segments: TranscriptSegmentData[];
-};
-
-function groupBySpeaker(segments: TranscriptSegmentData[]): SpeakerBlock[] {
-    const blocks: SpeakerBlock[] = [];
-    for (const segment of segments) {
-        const sid = segment.speakerId ?? null;
-        const last = blocks[blocks.length - 1];
-        if (last && last.speakerId === sid && sid !== null) {
-            last.segments.push(segment);
-        } else {
-            blocks.push({
-                key: `${sid ?? 'none'}-${segment.id}`,
-                speakerId: sid,
-                speakerName: segment.speakerName ?? null,
-                speakerColor: segment.speakerColor ?? null,
-                segments: [segment],
-            });
-        }
-    }
-    return blocks;
 }
 
 function FlowingSegment({

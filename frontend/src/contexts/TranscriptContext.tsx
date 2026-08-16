@@ -7,6 +7,7 @@ import { useRecordingState } from './RecordingStateContext';
 import { transcriptService } from '@/services/transcriptService';
 import { recordingService } from '@/services/recordingService';
 import { indexedDBService } from '@/services/indexedDBService';
+import { formatTranscriptPlainText } from '@/lib/transcriptDisplay';
 
 interface TranscriptContextType {
   transcripts: Transcript[];
@@ -465,24 +466,15 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  // Copy transcript to clipboard with recording-relative timestamps
   const copyTranscript = useCallback(() => {
-    // Format timestamps as recording-relative [MM:SS] instead of wall-clock time
-    const formatTime = (seconds: number | undefined): string => {
-      if (seconds === undefined) return '[--:--]';
-      const totalSecs = Math.floor(seconds);
-      const mins = Math.floor(totalSecs / 60);
-      const secs = totalSecs % 60;
-      return `[${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}]`;
-    };
-
-    const fullTranscript = transcripts
-      .map(t => {
-        const time = formatTime(t.audio_start_time);
-        const speaker = t.speaker_name ? `${t.speaker_name}: ` : '';
-        return `${time} ${speaker}${t.text}`;
-      })
-      .join('\n');
+    const fullTranscript = formatTranscriptPlainText(
+      transcripts.map((t) => ({
+        id: t.id,
+        text: t.text,
+        speakerId: t.speaker_id ?? null,
+        speakerName: t.speaker_name ?? null,
+      })),
+    );
     navigator.clipboard.writeText(fullTranscript);
 
     toast.success('Đã sao chép bản ghi vào bảng nhớ tạm');
