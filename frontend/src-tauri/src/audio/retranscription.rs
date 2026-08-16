@@ -109,12 +109,11 @@ pub async fn start_retranscription<R: Runtime>(
 
 fn find_audio_file(folder: &Path) -> Result<PathBuf> {
     let candidates = [
-        // The exact audio ASR decoded (see `import.rs`'s `write_pcm_wav` call) — preferred
-        // so playback and retranscription both use the same decode ffmpeg produced,
-        // rather than a separately-decoded copy of the original file that a different
-        // decoder (e.g. the browser's, for playback) could time slightly differently.
+        // Legacy imports wrote this alongside a copy of the original source.
         "audio_decoded.wav",
-        "audio.mp4", "audio.m4a", "audio.wav", "audio.mp3",
+        // Current imports persist only this 16 kHz playback WAV.
+        "audio.wav",
+        "audio.mp4", "audio.m4a", "audio.mp3",
         "audio.flac", "audio.ogg", "recording.mp4",
         "audio.mkv", "audio.webm", "audio.wma",
     ];
@@ -578,5 +577,24 @@ mod tests {
     #[test]
     fn test_vad_redemption_time_constant() {
         assert_eq!(VAD_REDEMPTION_TIME_MS, 2000);
+    }
+
+    #[test]
+    fn find_audio_file_prefers_legacy_decoded_wav_when_both_exist() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("audio.mp3"), b"original").unwrap();
+        std::fs::write(dir.path().join("audio_decoded.wav"), b"decoded").unwrap();
+
+        let found = find_audio_file(dir.path()).expect("audio file");
+        assert_eq!(found.file_name().unwrap(), "audio_decoded.wav");
+    }
+
+    #[test]
+    fn find_audio_file_uses_audio_wav_when_that_is_the_only_file() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("audio.wav"), b"playback").unwrap();
+
+        let found = find_audio_file(dir.path()).expect("audio file");
+        assert_eq!(found.file_name().unwrap(), "audio.wav");
     }
 }

@@ -473,44 +473,21 @@ async fn run_import<R: Runtime>(
         .unwrap_or_else(|_| super::recording_preferences::get_default_recordings_folder());
     let meeting_folder = create_meeting_folder(&base_folder, &title, false)?;
 
-    // Copy audio file to meeting folder
-    emit_progress(&app, "copying", 10, "Copying audio file...");
-
-    let dest_filename = format!(
-        "audio.{}",
-        source
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("mp4")
-    );
-    let dest_path = meeting_folder.join(&dest_filename);
-
-    let src = source.clone();
-    let dst = dest_path.clone();
-    tokio::task::spawn_blocking(move || std::fs::copy(&src, &dst))
-        .await
-        .map_err(|e| anyhow!("Copy task join error: {}", e))?
-        .map_err(|e| anyhow!("Failed to copy audio file: {}", e))?;
-
-    info!("Copied audio to: {}", dest_path.display());
-    bench.mark("copy");
-
     // Check for cancellation
     if IMPORT_CANCELLED.load(Ordering::SeqCst) {
-        // Cleanup: remove the meeting folder
         let _ = std::fs::remove_dir_all(&meeting_folder);
         return Err(anyhow!("Import cancelled"));
     }
 
-    emit_progress(&app, "decoding", 15, "Loading audio file...");
+    emit_progress(&app, "decoding", 10, "Loading audio file...");
 
     let app_for_decode = app.clone();
     let decode_progress = Box::new(move |progress: u32, msg: &str| {
-        let overall_progress = 15 + ((progress as f32 * 0.10) as u32);
+        let overall_progress = 10 + ((progress as f32 * 0.15) as u32);
         emit_progress(&app_for_decode, "decoding", overall_progress.min(25), msg);
     });
 
-    let path_for_decode = dest_path.clone();
+    let path_for_decode = source.clone();
     let (audio_samples, duration_seconds) = tokio::task::spawn_blocking(move || {
         load_audio_for_file_pipeline(&path_for_decode, Some(decode_progress))
     })
@@ -530,16 +507,17 @@ async fn run_import<R: Runtime>(
         return Err(anyhow!("Import cancelled"));
     }
 
-    // Persist the exact audio ASR decoded, so playback uses this decode instead of a
-    // separately-decoded copy of the original file — different decoders (ffmpeg here vs.
-    // the browser's native decoder for playback) can disagree on frame timing for lossy
-    // formats like MP3, causing transcript highlighting to drift out of sync with
-    // playback over the file's duration. See `find_audio_file` in retranscription.rs,
-    // which now prefers this file when present.
-    let decoded_wav_path = meeting_folder.join("audio_decoded.wav");
-    if let Err(e) = crate::audio::audio_processing::write_pcm_wav(&audio_samples, 16_000, &decoded_wav_path) {
-        warn!("Failed to save decoded audio for playback sync: {}", e);
-    }
+    // Persist only the playback audio: the 16 kHz PCM WAV ASR decoded. Playback and
+    // transcript timestamps stay in sync because the player uses this same decode
+    // (ffmpeg vs the browser's native decoder can disagree on MP3 frame timing).
+    // Do not also copy the original source file into the meeting folder.
+    let dest_filename = match persist_imported_playback_audio(&meeting_folder, &audio_samples) {
+        Ok(name) => name,
+        Err(e) => {
+            let _ = std::fs::remove_dir_all(&meeting_folder);
+            return Err(e);
+        }
+    };
 
     info!(
         "Audio ready for VAD (raw decode, preprocess deferred until after VAD concat): {} samples",
@@ -1097,6 +1075,17 @@ async fn create_meeting_with_transcripts(
 }
 
 
+/// Filename of the single audio asset kept after import (playback + retranscription).
+const IMPORT_PLAYBACK_AUDIO_FILENAME: &str = "audio.wav";
+
+/// Write the 16 kHz mono PCM WAV used for playback. This is the only audio file
+/// stored in the meeting folder for imports — not a second copy of the source.
+fn persist_imported_playback_audio(meeting_folder: &Path, samples: &[f32]) -> Result<&'static str> {
+    let path = meeting_folder.join(IMPORT_PLAYBACK_AUDIO_FILENAME);
+    crate::audio::audio_processing::write_pcm_wav(samples, 16_000, &path)?;
+    Ok(IMPORT_PLAYBACK_AUDIO_FILENAME)
+}
+
 /// Write metadata.json to a meeting folder (atomic write with temp file)
 fn write_import_metadata(
     folder: &Path,
@@ -1511,6 +1500,37 @@ mod tests {
             resolve_diarization_options(Some(true), Some(20)),
             (true, Some(20))
         );
+    }
+
+    #[test]
+    fn persist_imported_playback_audio_writes_only_audio_wav() {
+        let dir = tempfile::tempdir().unwrap();
+        let samples = vec![0.1f32; 1600];
+
+        let filename = persist_imported_playback_audio(dir.path(), &samples)
+            .expect("persist playback audio");
+
+        assert_eq!(filename, "audio.wav");
+        assert!(dir.path().join("audio.wav").exists());
+        assert!(!dir.path().join("audio_decoded.wav").exists());
+
+        let audio_files: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.path()
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .map(|ext| {
+                        matches!(
+                            ext.to_ascii_lowercase().as_str(),
+                            "wav" | "mp3" | "mp4" | "m4a" | "flac" | "ogg" | "webm" | "mkv" | "wma"
+                        )
+                    })
+                    .unwrap_or(false)
+            })
+            .collect();
+        assert_eq!(audio_files.len(), 1, "import should persist only the playback audio");
     }
 
     #[test]

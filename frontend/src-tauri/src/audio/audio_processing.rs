@@ -679,11 +679,9 @@ pub fn write_audio_to_file_with_meeting_name(
 
 /// Writes `samples` (mono, roughly [-1.0, 1.0]) as a 16-bit PCM WAV file.
 ///
-/// Used to persist the *exact* audio ASR decoded so playback can use that same decode
-/// instead of a separately-decoded copy of the original file. Different decoders (ffmpeg
-/// for ASR vs. the browser's native decoder for playback) can disagree on frame timing
-/// for lossy formats like MP3 — a small per-second discrepancy that compounds into a
-/// linearly growing drift between what's highlighted and what's actually playing.
+/// Import persists this as the only meeting audio (`audio.wav`) so playback uses the
+/// same decode ASR used. Different decoders (ffmpeg vs the browser's native decoder)
+/// can disagree on MP3 frame timing and drift transcript highlighting.
 pub fn write_pcm_wav(samples: &[f32], sample_rate: u32, output_path: &PathBuf) -> Result<()> {
     let mut file = std::fs::File::create(output_path)?;
     let bits_per_sample: u16 = 16;
