@@ -3,7 +3,6 @@
 import React from 'react';
 import dynamic from 'next/dynamic';
 import { ChevronUp, ChevronDown, Trash2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   Select,
@@ -46,72 +45,53 @@ export function SectionEditor({
   onMoveDown,
   onRemove,
 }: SectionEditorProps) {
+  const iconBtn =
+    'inline-flex h-8 w-8 items-center justify-center rounded-md text-ink-2 hover:bg-secondary hover:text-ink disabled:opacity-30 disabled:cursor-not-allowed';
+
   return (
-    <div className="border border-rule rounded-md p-4 bg-paper-2 space-y-3">
-      {/* Header row */}
+    <div className="px-4 py-3 space-y-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-semibold text-ink-2 uppercase tracking-wide">
-          Phần {index + 1}
-        </span>
-        <div className="flex items-center gap-1">
-          {!disabled && (
-            <>
-              <button
-                type="button"
-                onClick={onMoveUp}
-                disabled={index === 0}
-                className={cn(
-                  'p-1 rounded-md hover:bg-secondary transition-colors',
-                  index === 0 && 'opacity-30 cursor-not-allowed'
-                )}
-                title="Di chuyển lên"
-              >
-                <ChevronUp className="w-4 h-4 text-ink-2" />
-              </button>
-              <button
-                type="button"
-                onClick={onMoveDown}
-                disabled={index === total - 1}
-                className={cn(
-                  'p-1 rounded-md hover:bg-secondary transition-colors',
-                  index === total - 1 && 'opacity-30 cursor-not-allowed'
-                )}
-                title="Di chuyển xuống"
-              >
-                <ChevronDown className="w-4 h-4 text-ink-2" />
-              </button>
-              <button
-                type="button"
-                onClick={onRemove}
-                disabled={total <= 1}
-                className={cn(
-                  'p-1 rounded hover:bg-red-50 transition-colors',
-                  total <= 1 && 'opacity-30 cursor-not-allowed'
-                )}
-                title="Xóa phần này"
-              >
-                <Trash2 className="w-4 h-4 text-red-400" />
-              </button>
-            </>
-          )}
-        </div>
+        <span className="text-sm font-medium text-ink">Phần {index + 1}</span>
+        {!disabled && (
+          <div className="flex items-center">
+            <button type="button" onClick={onMoveUp} disabled={index === 0} className={iconBtn} title="Di chuyển lên">
+              <ChevronUp className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={onMoveDown}
+              disabled={index === total - 1}
+              className={iconBtn}
+              title="Di chuyển xuống"
+            >
+              <ChevronDown className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={onRemove}
+              disabled={total <= 1}
+              className={cn(iconBtn, 'hover:bg-destructive/10 hover:text-destructive')}
+              title="Xóa phần này"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Title */}
-      <div className="space-y-1">
-        <label className="text-xs font-medium text-ink-2">Tiêu đề</label>
+      <div className="space-y-1.5">
+        <label className="text-sm font-medium text-ink">Tiêu đề</label>
         <Input
           value={section.title}
           onChange={e => onChange('title', e.target.value)}
           placeholder="VD: I. Nội dung cuộc họp"
-          className="text-sm"
+          className="h-9 text-sm"
           disabled={disabled}
         />
       </div>
 
-      {/* Instruction */}
-      <div className="space-y-1">
-        <label className="text-xs font-medium text-ink-2">Chỉ dẫn cho AI</label>
+      <div className="space-y-1.5">
+        <label className="text-sm font-medium text-ink">Chỉ dẫn cho AI</label>
         <SectionInstructionEditor
           value={section.instruction}
           onChange={md => onChange('instruction', md)}
@@ -119,9 +99,8 @@ export function SectionEditor({
         />
       </div>
 
-      {/* Format */}
-      <div className="space-y-1">
-        <label className="text-xs font-medium text-ink-2">Định dạng</label>
+      <div className="space-y-1.5">
+        <label className="text-sm font-medium text-ink">Định dạng</label>
         <Select
           value={section.format}
           onValueChange={val => onChange('format', val)}
@@ -138,12 +117,11 @@ export function SectionEditor({
         </Select>
       </div>
 
-      {/* item_format — only when format=list */}
       {section.format === 'list' && (
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-ink-2">Cột bảng</label>
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium text-ink">Cột bảng</label>
           <p className="text-xs text-ink-2">
-            Thêm các cột và đặt tiêu đề — AI sẽ điền nội dung theo cấu trúc bảng này.
+            Thêm cột và đặt tiêu đề. AI điền nội dung theo bảng này.
           </p>
           <TableColumnsEditor
             value={section.item_format ?? section.example_item_format ?? ''}

@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { cn } from '@/lib/utils';
 import {
   AnalysisResult,
   MicQualityProgress,
@@ -141,52 +142,60 @@ export function MicQualityDialog({ open, onOpenChange, deviceName }: MicQualityD
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) handleClose(); }}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>
+      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-md">
+        <DialogHeader className="space-y-0 px-5 pb-4 pt-5 pr-12 text-left">
+          <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-2">
+            Kiểm tra micro
+          </p>
+          <DialogTitle className="mt-1 text-base font-semibold tracking-[-0.02em] text-ink">
             {phase === 'result' ? 'Kết quả đánh giá chất lượng âm thanh' : 'Đánh giá Microphone'}
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="mt-1.5 text-xs text-ink-2">
             {phase === 'result'
               ? result?.is_ready
                 ? 'Sẵn sàng cho nhận dạng'
                 : 'Cần cải thiện chất lượng'
               : 'Đứng tại vị trí phát biểu và nói nội dung bất kỳ (ví dụ: «Một hai ba bốn năm»). Thời gian ghi âm: 8–10 giây.'}
           </DialogDescription>
+          {deviceName && (
+            <p className="mt-2 font-mono text-[11px] text-ink-2 truncate">{deviceName}</p>
+          )}
         </DialogHeader>
 
-        {phase !== 'result' && (
-          <div className="space-y-3">
-            {(busy || phase === 'need_download') && (
-              <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
-                <div
-                  className="h-full bg-amber-400 transition-all"
-                  style={{ width: `${phase === 'need_download' ? 0 : percent}%` }}
-                />
-              </div>
-            )}
-            <p className="text-center text-sm text-gray-500">{statusText}</p>
-            {error && <p className="text-sm text-red-600">{error}</p>}
-          </div>
-        )}
+        <div className="px-5 pb-4">
+          {phase !== 'result' && (
+            <div className="space-y-3">
+              {(busy || phase === 'need_download') && (
+                <div className="h-1.5 w-full overflow-hidden rounded-full border border-rule bg-paper">
+                  <div
+                    className="h-full bg-primary transition-all"
+                    style={{ width: `${phase === 'need_download' ? 0 : percent}%` }}
+                  />
+                </div>
+              )}
+              <p className="text-center font-mono text-xs text-ink-2">{statusText}</p>
+              {error && <p className="text-xs text-destructive">{error}</p>}
+            </div>
+          )}
 
-        {phase === 'result' && result && (
-          <ResultBody result={result} />
-        )}
+          {phase === 'result' && result && (
+            <ResultBody result={result} />
+          )}
+        </div>
 
-        <DialogFooter>
+        <DialogFooter className="border-t border-rule bg-paper px-5 py-3">
           {phase === 'need_download' && (
-            <Button onClick={handleDownload}>Tải model DNSMOS</Button>
+            <Button size="sm" onClick={handleDownload}>Tải model DNSMOS</Button>
           )}
           {(phase === 'idle' || phase === 'error') && (
-            <Button onClick={handleStart}>Bắt đầu ghi âm</Button>
+            <Button size="sm" onClick={handleStart}>Bắt đầu ghi âm</Button>
           )}
           {phase === 'result' && (
-            <Button variant="outline" onClick={handleStart}>
+            <Button variant="outline" size="sm" onClick={handleStart}>
               Thử lại
             </Button>
           )}
-          <Button variant="outline" onClick={handleClose} disabled={phase === 'analyzing'}>
+          <Button variant="outline" size="sm" onClick={handleClose} disabled={phase === 'analyzing'}>
             {busy ? 'Hủy' : 'Đóng'}
           </Button>
         </DialogFooter>
@@ -198,62 +207,92 @@ export function MicQualityDialog({ open, onOpenChange, deviceName }: MicQualityD
 function ResultBody({ result }: { result: AnalysisResult }) {
   const m = result.metrics;
   return (
-    <div className="space-y-3 text-sm">
-      <p className={`font-semibold ${result.is_ready ? 'text-green-600' : 'text-red-600'}`}>
-        {result.is_ready ? '✓ Sẵn sàng cho nhận dạng' : '⚠ Cần cải thiện chất lượng'}
-      </p>
+    <div className="max-h-[50vh] space-y-3 overflow-y-auto">
+      <div
+        className={cn(
+          'flex items-center justify-between rounded-md border px-3 py-2',
+          result.is_ready ? 'border-rule bg-paper' : 'border-destructive/30 bg-paper'
+        )}
+      >
+        <p className={cn('text-sm font-medium', result.is_ready ? 'text-ink' : 'text-destructive')}>
+          {result.is_ready ? 'Sẵn sàng cho nhận dạng' : 'Cần cải thiện chất lượng'}
+        </p>
+        <span
+          className={cn(
+            'inline-flex h-6 items-center rounded-md px-2 font-mono text-[10px] uppercase tracking-[0.12em]',
+            result.is_ready
+              ? 'bg-primary text-primary-foreground'
+              : 'border border-rule text-ink-2'
+          )}
+        >
+          {result.is_ready ? 'Đạt' : 'Chưa đạt'}
+        </span>
+      </div>
+
       {m.duration_analyzed > 0 && (
-        <p className="text-xs text-gray-500">
-          Đã phân tích: {m.duration_analyzed.toFixed(1)}s, {m.num_segments} đoạn
+        <p className="font-mono text-[11px] text-ink-2">
+          {m.duration_analyzed.toFixed(1)}s · {m.num_segments} đoạn
         </p>
       )}
-      <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-        Chất lượng âm thanh (DNSMOS)
-      </p>
-      <MetricRow
-        label="SIG - Chất lượng giọng nói"
-        value={`${m.dnsmos_sig.toFixed(2)}/5`}
-        status={dnsmosLabel(m.dnsmos_sig)}
-        colorClass={dnsmosColorClass(m.dnsmos_sig)}
-      />
-      <MetricRow
-        label="BAK - Chất lượng nhiễu, vang nền"
-        value={`${m.dnsmos_bak.toFixed(2)}/5`}
-        status={dnsmosLabel(m.dnsmos_bak)}
-        colorClass={dnsmosColorClass(m.dnsmos_bak)}
-      />
-      <MetricRow
-        label="OVRL - Tổng thể"
-        value={`${m.dnsmos_ovrl.toFixed(2)}/5`}
-        status={dnsmosLabel(m.dnsmos_ovrl)}
-        colorClass={dnsmosColorClass(m.dnsmos_ovrl)}
-      />
-      {m.asr_confidence > 0 && (
-        <MetricRow
-          label="ASRProxy - Độ tự tin nhận dạng"
-          value={`${(m.asr_confidence * 100).toFixed(1)}%`}
-          status={confidenceLabel(m.asr_confidence)}
-          colorClass={confidenceColorClass(m.asr_confidence)}
-        />
-      )}
+
+      <div>
+        <p className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-2">
+          Chất lượng âm thanh (DNSMOS)
+        </p>
+        <div className="overflow-hidden rounded-md border border-rule">
+          <MetricRow
+            label="SIG · Giọng nói"
+            value={`${m.dnsmos_sig.toFixed(2)}/5`}
+            status={dnsmosLabel(m.dnsmos_sig)}
+            colorClass={dnsmosColorClass(m.dnsmos_sig)}
+          />
+          <MetricRow
+            label="BAK · Nhiễu, vang"
+            value={`${m.dnsmos_bak.toFixed(2)}/5`}
+            status={dnsmosLabel(m.dnsmos_bak)}
+            colorClass={dnsmosColorClass(m.dnsmos_bak)}
+          />
+          <MetricRow
+            label="OVRL · Tổng thể"
+            value={`${m.dnsmos_ovrl.toFixed(2)}/5`}
+            status={dnsmosLabel(m.dnsmos_ovrl)}
+            colorClass={dnsmosColorClass(m.dnsmos_ovrl)}
+          />
+          {m.asr_confidence > 0 && (
+            <MetricRow
+              label="ASRProxy · Độ tin cậy"
+              value={`${(m.asr_confidence * 100).toFixed(1)}%`}
+              status={confidenceLabel(m.asr_confidence)}
+              colorClass={confidenceColorClass(m.asr_confidence)}
+            />
+          )}
+        </div>
+      </div>
+
       {m.sample_text && (
         <div>
-          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
+          <p className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-2">
             Chữ nhận dạng được
           </p>
-          <p className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-gray-800">
+          <p className="rounded-md border border-rule bg-paper px-3 py-2 text-sm text-ink">
             {m.sample_text}
           </p>
         </div>
       )}
+
       {result.suggestions.length > 0 && (
         <div>
-          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
+          <p className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-2">
             Gợi ý cải thiện
           </p>
-          <ul className="space-y-1 text-gray-700">
+          <ul className="overflow-hidden rounded-md border border-rule">
             {result.suggestions.map((s) => (
-              <li key={s}>• {stripSuggestionEmoji(s)}</li>
+              <li
+                key={s}
+                className="border-b border-rule px-3 py-2 text-sm text-ink last:border-b-0"
+              >
+                {stripSuggestionEmoji(s)}
+              </li>
             ))}
           </ul>
         </div>
@@ -274,10 +313,11 @@ function MetricRow({
   colorClass: string;
 }) {
   return (
-    <div className="flex items-baseline justify-between gap-2">
-      <span className="text-gray-700">{label}:</span>
-      <span className="shrink-0">
-        {value} <span className={`font-semibold ${colorClass}`}>({status})</span>
+    <div className="flex items-center justify-between gap-3 border-b border-rule px-3 py-2 last:border-b-0">
+      <span className="text-sm text-ink">{label}</span>
+      <span className="shrink-0 font-mono text-xs text-ink">
+        {value}{' '}
+        <span className={cn('font-medium', colorClass)}>({status})</span>
       </span>
     </div>
   );

@@ -3,7 +3,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { appDataDir } from '@tauri-apps/api/path';
 import { useCallback, useEffect, useState, useRef } from 'react';
-import { Play, Pause, Square, AlertCircle, X } from 'lucide-react';
+import { Play, Pause, Square, Mic, AlertCircle, X } from 'lucide-react';
 import { MicQualityDialog } from '@/components/MicQualityDialog';
 import { ProcessRequest, SummaryResponse } from '@/types/summary';
 import { listen } from '@tauri-apps/api/event';
@@ -11,11 +11,53 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import Analytics from '@/lib/analytics';
 import { useRecordingState } from '@/contexts/RecordingStateContext';
+import { cn } from '@/lib/utils';
 import {
   AUDIO_CAPTURE_SOURCE_OPTIONS,
   AudioCaptureSource,
   wantsMicrophone,
 } from '@/lib/audioCaptureSource';
+
+function AudioSourcePicker({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: AudioCaptureSource;
+  disabled?: boolean;
+  onChange?: (source: AudioCaptureSource) => void;
+}) {
+  return (
+    <div
+      className="grid h-8 w-[17.5rem] shrink-0 grid-cols-3 rounded-md border border-rule bg-paper p-0.5"
+      role="radiogroup"
+      aria-label="Nguồn ghi âm"
+    >
+      {AUDIO_CAPTURE_SOURCE_OPTIONS.map((option) => {
+        const active = value === option.value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            disabled={disabled}
+            title={option.label}
+            onClick={() => onChange?.(option.value)}
+            className={cn(
+              'h-7 whitespace-nowrap rounded-md px-2 text-xs font-medium disabled:opacity-50',
+              active
+                ? 'bg-primary text-primary-foreground'
+                : 'text-ink-2 hover:bg-secondary hover:text-ink'
+            )}
+          >
+            {option.shortLabel}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 interface RecordingControlsProps {
   isRecording: boolean;
@@ -356,217 +398,188 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
 
   return (
     <TooltipProvider>
-      <div className="flex flex-col space-y-2">
-        <div className="flex items-center space-x-2 px-3 py-2">
-          {isProcessing && !isParentProcessing ? (
-            <div className="flex items-center space-x-2">
-              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-900"></div>
-              <span className="text-sm text-muted-foreground">Đang xử lý bản ghi...</span>
+      <div className="flex w-full flex-col items-center gap-1.5">
+        {isProcessing && !isParentProcessing ? (
+          <div className="flex items-center space-x-2 px-3 py-2">
+            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-900"></div>
+            <span className="text-sm text-muted-foreground">Đang xử lý bản ghi...</span>
+          </div>
+        ) : showPlayback ? (
+          <div className="flex items-center space-x-2 px-3 py-2">
+            <button
+              onClick={handleStartRecording}
+              className="w-10 h-10 flex items-center justify-center bg-destructive rounded-md text-destructive-foreground hover:bg-destructive/90 transition-colors"
+            >
+              <Mic size={16} />
+            </button>
+
+            <div className="w-px h-6 bg-gray-200 mx-1" />
+
+            <div className="flex items-center space-x-1 mx-2">
+              <div className="text-sm text-gray-600 min-w-[40px]">
+                {formatTime(currentTime)}
+              </div>
+              <div
+                className="relative w-24 h-1 bg-gray-200 rounded-full"
+              >
+                <div
+                  className="absolute h-full bg-primary rounded-full"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+              <div className="text-sm text-gray-600 min-w-[40px]">
+                {formatTime(duration)}
+              </div>
             </div>
-          ) : (
-            <>
-              {showPlayback ? (
-                <>
-                  <button
-                    onClick={handleStartRecording}
-                    className="w-10 h-10 flex items-center justify-center bg-destructive rounded-md text-destructive-foreground hover:bg-destructive/90 transition-colors"
-                  >
-                    <Mic size={16} />
-                  </button>
 
-                  <div className="w-px h-6 bg-gray-200 mx-1" />
+            <button
+              className="w-10 h-10 flex items-center justify-center bg-gray-300 rounded-full text-white cursor-not-allowed"
+              disabled
+            >
+              <Play size={16} />
+            </button>
+          </div>
+        ) : (
+          <>
+            <AudioSourcePicker
+              value={audioCaptureSource}
+              disabled={isRecording || isStarting || isProcessing || isValidatingModel}
+              onChange={isRecording ? undefined : onAudioSourceChange}
+            />
 
-                  <div className="flex items-center space-x-1 mx-2">
-                    <div className="text-sm text-gray-600 min-w-[40px]">
-                      {formatTime(currentTime)}
-                    </div>
-                    <div
-                      className="relative w-24 h-1 bg-gray-200 rounded-full"
-                    >
-                      <div
-                        className="absolute h-full bg-primary rounded-full"
-                        style={{ width: `${progress}%` }}
-                      />
-                    </div>
-                    <div className="text-sm text-gray-600 min-w-[40px]">
-                      {formatTime(duration)}
-                    </div>
-                  </div>
-
-                  <button
-                    className="w-10 h-10 flex items-center justify-center bg-gray-300 rounded-full text-white cursor-not-allowed"
-                    disabled
-                  >
-                    <Play size={16} />
-                  </button>
-                </>
-              ) : (
-                <>
-                  {!isRecording ? (
-                    // Start recording: source select + record button
-                    <div className="flex items-center space-x-2">
-                      <select
-                        value={audioCaptureSource}
+            <div className="grid w-full grid-cols-[1fr_3rem_1fr] items-center gap-2">
+              <div className="flex items-center justify-end">
+                {!isRecording && hasMicrophoneAccess && wantsMicrophone(audioCaptureSource) && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => setQualityOpen(true)}
                         disabled={isStarting || isProcessing || isValidatingModel}
-                        onChange={(event) =>
-                          onAudioSourceChange?.(event.target.value as AudioCaptureSource)
-                        }
-                        className="h-8 max-w-[11.5rem] shrink-0 rounded-md border border-input bg-paper-2 px-2 text-[11px] font-medium text-foreground disabled:opacity-50"
-                        aria-label="Nguồn ghi âm"
-                        title="Chọn nguồn ghi âm"
+                        className="inline-flex h-8 shrink-0 items-center rounded-md border border-rule bg-paper-2 px-2.5 text-xs font-medium text-ink hover:bg-secondary disabled:opacity-50"
                       >
-                        {AUDIO_CAPTURE_SOURCE_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.shortLabel}
-                          </option>
-                        ))}
-                      </select>
-
-                      {hasMicrophoneAccess && wantsMicrophone(audioCaptureSource) && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              onClick={() => setQualityOpen(true)}
-                              disabled={isStarting || isProcessing || isValidatingModel}
-                              className="h-8 shrink-0 rounded-md bg-primary px-2.5 text-[11px] font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
-                            >
-                              Đánh giá
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>Kiểm tra chất lượng microphone trước khi ghi</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      )}
-
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="inline-flex">
-                            <button
-                              onClick={() => {
-                                Analytics.trackButtonClick('start_recording', 'recording_controls');
-                                handleStartRecording();
-                              }}
-                              disabled={isStarting || isProcessing || isRecordingDisabled || isValidatingModel}
-                              className={`w-12 h-12 flex items-center justify-center rounded-md border transition-colors relative ${isStarting || isProcessing || isValidatingModel || isRecordingDisabled
-                                ? 'bg-secondary border-input cursor-not-allowed'
-                                : 'bg-paper-2 border-input hover:bg-secondary'
-                                }`}
-                            >
-                              {isValidatingModel ? (
-                                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-500"></div>
-                              ) : (
-                                <span
-                                  className={`absolute inset-[1.5px] rounded-md ${isStarting || isProcessing || isRecordingDisabled ? 'bg-muted-foreground/50' : 'bg-destructive'
-                                    }`}
-                                />
-                              )}
-                            </button>
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>
-                            {!canRecordAudio
-                              ? 'Không có thiết bị âm thanh khả dụng. Cần micro hoặc âm thanh hệ thống để ghi âm.'
-                              : isRecordingDisabled
-                                ? 'Không thể ghi âm lúc này'
-                                : 'Bắt đầu ghi âm'}
-                          </p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </div>
-                  ) : (
-                    // Recording controls (pause/resume + stop)
-                    <>
-                      <select
-                        value={audioCaptureSource}
-                        disabled
-                        className="h-8 max-w-[11.5rem] shrink-0 rounded-md border border-input bg-secondary px-2 text-[11px] font-medium text-muted-foreground"
-                        aria-label="Nguồn ghi âm"
-                      >
-                        {AUDIO_CAPTURE_SOURCE_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.shortLabel}
-                          </option>
-                        ))}
-                      </select>
-
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            onClick={() => {
-                              if (isPaused) {
-                                Analytics.trackButtonClick('resume_recording', 'recording_controls');
-                                handleResumeRecording();
-                              } else {
-                                Analytics.trackButtonClick('pause_recording', 'recording_controls');
-                                handlePauseRecording();
-                              }
-                            }}
-                            disabled={isPausing || isResuming || isStopping}
-                            className={`w-10 h-10 flex items-center justify-center ${isPausing || isResuming || isStopping
-                              ? 'bg-secondary border border-input text-muted-foreground'
-                              : 'bg-paper-2 border border-input text-foreground hover:bg-secondary'
-                              } rounded-md transition-colors relative`}
-                          >
-                            {isPaused ? <Play size={16} /> : <Pause size={16} />}
-                            {(isPausing || isResuming) && (
-                              <div className="absolute -top-8 text-gray-600 font-medium text-xs">
-                                {isPausing ? 'Đang tạm dừng...' : 'Đang tiếp tục...'}
-                              </div>
-                            )}
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>{isPaused ? 'Tiếp tục ghi âm' : 'Tạm dừng ghi âm'}</p>
-                        </TooltipContent>
-                      </Tooltip>
-
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            onClick={() => {
-                              Analytics.trackButtonClick('stop_recording', 'recording_controls');
-                              handleStopRecording();
-                            }}
-                            disabled={isStopping || isPausing || isResuming}
-                            className={`w-10 h-10 flex items-center justify-center ${isStopping || isPausing || isResuming ? 'bg-muted-foreground' : 'bg-destructive hover:bg-destructive/90'
-                              } rounded-md text-destructive-foreground transition-colors relative`}
-                          >
-                            <Square size={16} />
-                            {isStopping && (
-                              <div className="absolute -top-8 text-gray-600 font-medium text-xs">
-                                Đang dừng...
-                              </div>
-                            )}
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>Dừng ghi âm</p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </>
-                  )}
-
-                  <div className="flex items-center space-x-1 mx-4">
-                    {barHeights.map((height, index) => (
-                      <div
-                        key={index}
-                        className={`w-1 rounded-sm transition-all duration-200 ${isPaused ? 'bg-primary' : 'bg-destructive'
-                          }`}
-                        style={{
-                          height: isRecording && !isPaused ? height : '4px',
-                          opacity: isPaused ? 0.6 : 1,
+                        Kiểm tra micro
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Kiểm tra chất lượng microphone trước khi ghi</p>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+                {isRecording && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => {
+                          if (isPaused) {
+                            Analytics.trackButtonClick('resume_recording', 'recording_controls');
+                            handleResumeRecording();
+                          } else {
+                            Analytics.trackButtonClick('pause_recording', 'recording_controls');
+                            handlePauseRecording();
+                          }
                         }}
-                      />
-                    ))}
-                  </div>
-                </>
-              )}
-            </>
-          )}
-        </div>
+                        disabled={isPausing || isResuming || isStopping}
+                        className={`w-10 h-10 flex items-center justify-center ${isPausing || isResuming || isStopping
+                          ? 'bg-secondary border border-input text-muted-foreground'
+                          : 'bg-paper-2 border border-input text-foreground hover:bg-secondary'
+                          } rounded-md transition-colors relative`}
+                      >
+                        {isPaused ? <Play size={16} /> : <Pause size={16} />}
+                        {(isPausing || isResuming) && (
+                          <div className="absolute -top-8 text-gray-600 font-medium text-xs">
+                            {isPausing ? 'Đang tạm dừng...' : 'Đang tiếp tục...'}
+                          </div>
+                        )}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>{isPaused ? 'Tiếp tục ghi âm' : 'Tạm dừng ghi âm'}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+              </div>
+
+              <div className="flex justify-center">
+                {!isRecording ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex">
+                        <button
+                          onClick={() => {
+                            Analytics.trackButtonClick('start_recording', 'recording_controls');
+                            handleStartRecording();
+                          }}
+                          disabled={isStarting || isProcessing || isRecordingDisabled || isValidatingModel}
+                          className={`w-12 h-12 flex items-center justify-center rounded-full border transition-colors relative ${isStarting || isProcessing || isValidatingModel || isRecordingDisabled
+                            ? 'bg-secondary border-input cursor-not-allowed'
+                            : 'bg-paper-2 border-input hover:bg-secondary'
+                            }`}
+                        >
+                          {isValidatingModel ? (
+                            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-500"></div>
+                          ) : (
+                            <span
+                              className={`absolute inset-[1.5px] rounded-full ${isStarting || isProcessing || isRecordingDisabled ? 'bg-muted-foreground/50' : 'bg-destructive'
+                                }`}
+                            />
+                          )}
+                        </button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>
+                        {!canRecordAudio
+                          ? 'Không có thiết bị âm thanh khả dụng. Cần micro hoặc âm thanh hệ thống để ghi âm.'
+                          : isRecordingDisabled
+                            ? 'Không thể ghi âm lúc này'
+                            : 'Bắt đầu ghi âm'}
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => {
+                          Analytics.trackButtonClick('stop_recording', 'recording_controls');
+                          handleStopRecording();
+                        }}
+                        disabled={isStopping || isPausing || isResuming}
+                        className={`w-12 h-12 flex items-center justify-center rounded-full ${isStopping || isPausing || isResuming ? 'bg-muted-foreground' : 'bg-destructive hover:bg-destructive/90'
+                          } text-destructive-foreground transition-colors relative`}
+                      >
+                        <Square size={16} />
+                        {isStopping && (
+                          <div className="absolute -top-8 text-gray-600 font-medium text-xs">
+                            Đang dừng...
+                          </div>
+                        )}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Dừng ghi âm</p>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+              </div>
+
+              <div className="flex items-center justify-start space-x-1">
+                {barHeights.map((height, index) => (
+                  <div
+                    key={index}
+                    className={`w-1 rounded-sm transition-all duration-200 ${isPaused ? 'bg-primary' : 'bg-destructive'
+                      }`}
+                    style={{
+                      height: isRecording && !isPaused ? height : '4px',
+                      opacity: isPaused ? 0.6 : 1,
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+          </>
+        )}
 
         {/* Show validation status only */}
         {isValidatingModel && (

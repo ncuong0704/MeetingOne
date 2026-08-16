@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef } from 'react';
-import { Paperclip, Loader2, FileText, Trash2, Upload } from 'lucide-react';
+import { Loader2, Trash2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -54,40 +54,46 @@ export function MeetingDocumentsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Paperclip className="h-5 w-5 text-primary" />
+      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-md">
+        <DialogHeader className="space-y-0 px-5 pb-4 pt-5 pr-12 text-left">
+          <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-2">
+            Báo cáo AI
+          </p>
+          <DialogTitle className="mt-1 text-base font-semibold tracking-[-0.02em] text-ink">
             Tài liệu tham khảo
           </DialogTitle>
-          <DialogDescription>
-            Đính kèm slide, văn bản hoặc phụ đề (PDF, DOCX, PPTX, TXT, SRT, VTT) được dùng trong
-            cuộc họp để AI tham khảo khi tạo báo cáo.
+          <DialogDescription className="mt-1.5 text-xs text-ink-2">
+            Đính kèm slide, văn bản hoặc phụ đề để AI tham khảo khi tạo báo cáo.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3 py-2">
+        <div className="px-5 pb-4">
           {status === 'loading' ? (
-            <div className="flex items-center justify-center py-8 text-ink-2 text-sm">
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            <div className="flex items-center justify-center rounded-md border border-rule py-8 text-xs text-ink-2">
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               Đang tải...
             </div>
           ) : documents.length > 0 ? (
-            <ul className="space-y-1 max-h-64 overflow-y-auto">
-              {documents.map((doc) => (
+            <ul className="max-h-64 overflow-y-auto rounded-md border border-rule">
+              {documents.map((doc, index) => (
                 <li
                   key={doc.id}
-                  className="flex items-center gap-2 text-sm text-ink bg-paper rounded-md px-3 py-2"
+                  className="flex items-center gap-2.5 border-b border-rule px-2.5 py-2 last:border-b-0"
                 >
-                  <FileText className="h-4 w-4 text-primary shrink-0" />
-                  <span className="truncate flex-1">{doc.filename}</span>
-                  <span className="text-xs text-ink-2 shrink-0">
-                    {doc.char_count.toLocaleString()} ký tự
+                  <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-rule bg-paper font-mono text-[11px] font-medium text-ink-2">
+                    {String(index + 1).padStart(2, '0')}
                   </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-ink">{doc.filename}</p>
+                    <p className="mt-0.5 font-mono text-[11px] text-ink-2">
+                      {doc.char_count.toLocaleString()} ký tự
+                    </p>
+                  </div>
                   <button
+                    type="button"
                     onClick={() => handleRemove(doc.id)}
                     disabled={isBusy}
-                    className="text-ink-2 hover:text-destructive disabled:opacity-40 shrink-0"
+                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-2 hover:bg-secondary hover:text-destructive disabled:opacity-40"
                     title="Xóa tài liệu"
                     aria-label="Xóa tài liệu"
                   >
@@ -97,27 +103,28 @@ export function MeetingDocumentsDialog({
               ))}
             </ul>
           ) : (
-            <div className="border-2 border-dashed border-rule rounded-md p-6 text-center text-sm text-ink-2">
-              Chưa có tài liệu nào được đính kèm
+            <div className="rounded-md border border-dashed border-rule px-3 py-8 text-center">
+              <p className="text-sm text-ink-2">Chưa có tài liệu nào được đính kèm</p>
+              <p className="mt-1.5 font-mono text-[11px] text-ink-2">
+                PDF, DOCX, PPTX, TXT, SRT, VTT
+              </p>
             </div>
           )}
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+        <DialogFooter className="border-t border-rule bg-paper px-5 py-3">
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
             Đóng
           </Button>
-          <Button
-            onClick={handleAttach}
-            disabled={isBusy}
-            className="bg-primary hover:bg-primary-hover"
-          >
+          <Button size="sm" onClick={handleAttach} disabled={isBusy}>
             {status === 'attaching' ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Thêm tài liệu
+              </>
             ) : (
-              <Upload className="h-4 w-4 mr-2" />
+              'Thêm tài liệu'
             )}
-            Thêm tài liệu
           </Button>
         </DialogFooter>
       </DialogContent>

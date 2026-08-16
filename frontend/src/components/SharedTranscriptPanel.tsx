@@ -51,54 +51,42 @@ export default function SharedTranscriptPanel({
   };
 
   return (
-    <div className="space-y-4 mt-6 pt-6 border-t border-gray-100 dark:border-gray-700">
-      <div>
-        <h4 className="text-sm font-semibold text-gray-900 dark:text-white">Cấu hình chung</h4>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-          Hotwords dùng cho cả ghi âm trực tiếp và nhập file. Với ghi âm trực tiếp, dấu câu/viết hoa
-          chỉ áp dụng sau khi kết thúc cuộc họp.
-        </p>
-      </div>
-
-      <div className="space-y-2">
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-          Từ khóa ưu tiên (tên riêng, thuật ngữ chuyên ngành)
-        </label>
-        <p className="text-xs text-gray-500 dark:text-gray-400">
-          Mỗi dòng một cụm từ. Có thể thêm trọng số bằng cú pháp{' '}
-          <code className="px-1 rounded bg-gray-100 dark:bg-gray-700">CỤM TỪ :2.5</code>. Dòng bắt
-          đầu bằng <code className="px-1 rounded bg-gray-100 dark:bg-gray-700">#</code> là ghi chú.
-        </p>
+    <section>
+      <h2 className="text-sm font-semibold text-ink tracking-tight">Từ khóa</h2>
+      <p className="text-xs text-ink-2 mt-0.5 mb-2">
+        Dùng cho cả ghi trực tiếp và nhập file. Mỗi dòng một cụm; có thể thêm trọng số
+        <span className="font-mono"> CỤM TỪ :2.5</span>. Dòng bắt đầu bằng
+        <span className="font-mono"> #</span> là ghi chú.
+      </p>
+      <div className="app-surface overflow-hidden px-4 py-3 space-y-3">
         <textarea
           value={hotwords}
           onChange={(e) => setHotwords(e.target.value)}
           disabled={disabled}
-          rows={6}
+          rows={5}
           placeholder={'ỦY BAN NHÂN DÂN :2.5\nCHUYỂN ĐỔI SỐ\n# Tên riêng\nANH MINH'}
-          className="w-full px-3 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white font-mono focus:outline-none focus:ring-2 focus-visible:ring-ring disabled:opacity-50"
+          className="w-full px-3 py-2 text-sm font-mono rounded-md border border-rule bg-paper-2 text-ink placeholder:text-ink-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
         />
-      </div>
-
-      <div className="flex items-center gap-3 pt-1">
-        <button
-          onClick={handleSave}
-          disabled={isSaving || disabled}
-          className="px-4 py-2 text-sm rounded-md bg-primary hover:bg-primary-hover disabled:opacity-50 text-primary-foreground font-medium transition-colors"
-        >
-          {isSaving ? 'Đang lưu...' : 'Lưu cấu hình chung'}
-        </button>
-        {saveMessage && (
-          <span
-            className={`text-xs ${
-              saveMessage.startsWith('Lỗi')
-                ? 'text-red-500'
-                : 'text-green-600 dark:text-green-400'
-            }`}
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={isSaving || disabled}
+            className="inline-flex h-8 items-center rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
           >
-            {saveMessage}
-          </span>
-        )}
+            {isSaving ? 'Đang lưu...' : 'Lưu'}
+          </button>
+          {saveMessage && (
+            <span
+              className={`text-xs ${
+                saveMessage.startsWith('Lỗi') ? 'text-destructive' : 'text-ink-2'
+              }`}
+            >
+              {saveMessage}
+            </span>
+          )}
+        </div>
       </div>
-    </div>
+    </section>
   );
 }

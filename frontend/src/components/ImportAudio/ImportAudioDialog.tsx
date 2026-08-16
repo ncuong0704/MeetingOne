@@ -1,14 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import {
-  Upload,
-  Loader2,
-  AlertCircle,
-  CheckCircle2,
-  X,
-  FileAudio,
-  Clock,
-  HardDrive,
-} from 'lucide-react';
+import { Upload, Loader2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -18,6 +9,7 @@ import {
   DialogTitle,
 } from '../ui/dialog';
 import { Button } from '../ui/button';
+import { Switch } from '../ui/switch';
 import { Textarea } from '../ui/textarea';
 import { toast } from 'sonner';
 import { useConfig } from '@/contexts/ConfigContext';
@@ -227,70 +219,50 @@ export function ImportAudioDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
-        className="sm:max-w-[500px]"
+        className="gap-0 overflow-hidden p-0 sm:max-w-md"
         onEscapeKeyDown={handleEscapeKeyDown}
         onInteractOutside={handleInteractOutside}
       >
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            {isProcessing ? (
-              <>
-                <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                Đang nhập âm thanh...
-              </>
-            ) : error ? (
-              <>
-                <AlertCircle className="h-5 w-5 text-red-600" />
-                Nhập file thất bại
-              </>
-            ) : status === 'complete' ? (
-              <>
-                <CheckCircle2 className="h-5 w-5 text-green-600" />
-                Nhập file hoàn tất
-              </>
-            ) : (
-              <>
-                <Upload className="h-5 w-5 text-primary" />
-                Nhập file âm thanh
-              </>
-            )}
+        <DialogHeader className="space-y-0 px-5 pb-4 pt-5 pr-12 text-left">
+          <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-2">
+            {isProcessing ? 'Đang xử lý' : error ? 'Lỗi' : status === 'complete' ? 'Hoàn tất' : 'Âm thanh'}
+          </p>
+          <DialogTitle className="mt-1 text-base font-semibold tracking-[-0.02em] text-ink">
+            {isProcessing
+              ? 'Đang nhập âm thanh...'
+              : error
+                ? 'Nhập file thất bại'
+                : status === 'complete'
+                  ? 'Nhập file hoàn tất'
+                  : 'Nhập file âm thanh'}
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="mt-1.5 text-xs text-ink-2">
             {isProcessing
               ? progress?.message || 'Đang xử lý âm thanh...'
               : error
-              ? 'Đã xảy ra lỗi khi nhập file'
-              : 'Chọn file âm thanh để tạo cuộc họp mới kèm bản ghi'}
+                ? 'Đã xảy ra lỗi khi nhập file'
+                : 'Chọn file âm thanh để tạo cuộc họp mới kèm bản ghi'}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
-          {/* File selection / info */}
+        <div className="space-y-3 px-5 pb-4">
           {!isProcessing && !error && (
             <>
               {fileInfo ? (
-                <div className="bg-paper rounded-md border border-rule p-4 space-y-3">
-                  <div className="flex items-start gap-3">
-                    <FileAudio className="h-8 w-8 text-primary flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-ink">{fileInfo.filename}</p>
-                      <div className="flex items-center gap-4 text-sm text-ink-2 mt-1">
-                        <span className="flex items-center gap-1">
-                          <Clock className="h-3.5 w-3.5" />
-                          {formatDuration(fileInfo.duration_seconds)}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <HardDrive className="h-3.5 w-3.5" />
-                          {formatFileSize(fileInfo.size_bytes)}
-                        </span>
-                        <span className="text-primary font-medium">{fileInfo.format}</span>
-                      </div>
+                <div className="overflow-hidden rounded-md border border-rule">
+                  <div className="flex items-start justify-between gap-2 border-b border-rule px-3 py-2.5">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-ink">{fileInfo.filename}</p>
+                      <p className="mt-0.5 font-mono text-[11px] text-ink-2">
+                        {formatDuration(fileInfo.duration_seconds)} · {formatFileSize(fileInfo.size_bytes)} · {fileInfo.format}
+                      </p>
                     </div>
+                    <Button variant="outline" size="sm" onClick={handleSelectFile}>
+                      Đổi file
+                    </Button>
                   </div>
-
-                  {/* Editable title */}
-                  <div className="space-y-1">
-                    <label className="text-sm font-medium text-ink">Tiêu đề cuộc họp</label>
+                  <div className="px-3 py-2.5">
+                    <label className="text-xs font-medium text-ink">Tiêu đề cuộc họp</label>
                     <Textarea
                       value={title}
                       onChange={(e) => {
@@ -299,55 +271,45 @@ export function ImportAudioDialog({
                       }}
                       placeholder="Nhập tiêu đề cuộc họp"
                       rows={2}
+                      className="mt-1.5 min-h-0"
                     />
                   </div>
-
-                  <Button variant="outline" size="sm" onClick={handleSelectFile} className="w-full">
-                    Chọn file khác
-                  </Button>
                 </div>
               ) : (
-                <div className="border-2 border-dashed border-rule rounded-md p-8 text-center">
-                  <FileAudio className="h-12 w-12 text-ink-2 mx-auto mb-4" />
-                  <Button onClick={handleSelectFile} disabled={status === 'validating'}>
+                <div className="rounded-md border border-dashed border-rule px-3 py-8 text-center">
+                  <Button size="sm" onClick={handleSelectFile} disabled={status === 'validating'}>
                     {status === 'validating' ? (
                       <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        <Loader2 className="h-4 w-4 animate-spin" />
                         Đang kiểm tra...
                       </>
                     ) : (
                       <>
-                        <Upload className="h-4 w-4 mr-2" />
+                        <Upload className="h-4 w-4" />
                         Chọn file âm thanh
                       </>
                     )}
                   </Button>
-                  <p className="text-sm text-ink-2 mt-2">MP4, WAV, MP3, FLAC, OGG, MKV, WebM, WMA</p>
+                  <p className="mt-2 font-mono text-[11px] text-ink-2">
+                    MP4, WAV, MP3, FLAC, OGG, MKV, WebM, WMA
+                  </p>
                 </div>
               )}
 
-              <div className="space-y-3 pt-1">
-                <label className="flex items-start gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
+              <div className="rounded-md border border-rule px-3 py-2.5">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-ink">Phân biệt người nói</p>
+                    <p className="mt-0.5 text-xs text-ink-2">Senko CAM++. Chỉ áp dụng cho file này.</p>
+                  </div>
+                  <Switch
                     checked={diarizationEnabled}
-                    onChange={(e) => setDiarizationEnabled(e.target.checked)}
-                    className="mt-1 accent-blue-600"
+                    onCheckedChange={setDiarizationEnabled}
                   />
-                  <span>
-                    <span className="block text-sm font-medium text-ink">
-                      Phân biệt người nói
-                    </span>
-                    <span className="block text-xs text-ink-2 mt-0.5">
-                      Dùng Senko CAM++. Chỉ áp dụng cho file này.
-                    </span>
-                  </span>
-                </label>
+                </div>
                 {diarizationEnabled && (
-                  <div className="space-y-1 pl-6">
-                    <label className="block text-sm font-medium text-ink">
-                      Số người nói (tuỳ chọn)
-                    </label>
+                  <div className="mt-2.5 border-t border-rule pt-2.5">
+                    <label className="text-xs font-medium text-ink">Số người nói (tuỳ chọn)</label>
                     <input
                       type="number"
                       min={1}
@@ -355,74 +317,64 @@ export function ImportAudioDialog({
                       value={diarizationNumSpeakers}
                       onChange={(e) => setDiarizationNumSpeakers(e.target.value)}
                       placeholder="Tự đoán"
-                      className="w-28 px-3 py-1.5 text-sm rounded-md border border-input bg-paper-2 text-ink focus:outline-none focus:ring-2 focus-visible:ring-ring"
+                      className="mt-1.5 w-28 rounded-md border border-rule bg-paper px-3 py-1.5 font-mono text-sm text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     />
-                    <p className="text-xs text-ink-2">Để trống để tự đoán (1–20).</p>
+                    <p className="mt-1 text-xs text-ink-2">Để trống để tự đoán (1–20).</p>
                   </div>
                 )}
               </div>
             </>
           )}
 
-          {/* Progress display */}
           {isProcessing && (
             <div className="space-y-2">
-              <div className="relative">
-                <div className="w-full bg-paper-3 rounded-md h-3">
-                  <div
-                    className="bg-primary h-3 rounded-md transition-all duration-300 ease-out"
-                    style={{
-                      width: `${Math.min(progress?.progress_percentage ?? 5, 100)}%`,
-                    }}
-                  />
-                </div>
-                <div className="flex justify-between text-xs text-ink-2 mt-1">
-                  <span>{progress?.stage ?? 'processing'}</span>
-                  <span>{Math.round(progress?.progress_percentage ?? 0)}%</span>
-                </div>
+              <div className="h-1.5 w-full overflow-hidden rounded-full border border-rule bg-paper">
+                <div
+                  className="h-full bg-primary transition-all"
+                  style={{
+                    width: `${Math.min(progress?.progress_percentage ?? 5, 100)}%`,
+                  }}
+                />
               </div>
-              <p className="text-sm text-muted-foreground text-center">
+              <div className="flex justify-between font-mono text-[11px] text-ink-2">
+                <span>{progress?.stage ?? 'processing'}</span>
+                <span>{Math.round(progress?.progress_percentage ?? 0)}%</span>
+              </div>
+              <p className="text-center text-xs text-ink-2">
                 {progress?.message ?? 'Đang xử lý âm thanh...'}
               </p>
             </div>
           )}
 
-          {/* Error display */}
           {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-              <p className="text-sm text-red-800">{error}</p>
+            <div className="rounded-md border border-destructive/30 bg-paper px-3 py-2">
+              <p className="text-sm text-destructive">{error}</p>
             </div>
           )}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="border-t border-rule bg-paper px-5 py-3">
           {!isProcessing && !error && (
             <>
-              <Button variant="outline" onClick={() => onOpenChange(false)}>
+              <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
                 Hủy
               </Button>
-              <Button
-                onClick={handleStartImport}
-                className="bg-primary hover:bg-primary-hover"
-                disabled={!fileInfo}
-              >
-                <Upload className="h-4 w-4 mr-2" />
+              <Button size="sm" onClick={handleStartImport} disabled={!fileInfo}>
                 Nhập
               </Button>
             </>
           )}
           {isProcessing && (
-            <Button variant="outline" onClick={handleCancel}>
-              <X className="h-4 w-4 mr-2" />
+            <Button variant="outline" size="sm" onClick={handleCancel}>
               Hủy
             </Button>
           )}
           {error && (
             <>
-              <Button variant="outline" onClick={() => onOpenChange(false)}>
+              <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
                 Đóng
               </Button>
-              <Button onClick={reset} variant="outline">
+              <Button variant="outline" size="sm" onClick={reset}>
                 Thử lại
               </Button>
             </>

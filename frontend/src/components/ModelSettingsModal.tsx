@@ -4,13 +4,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useConfig } from '@/contexts/ConfigContext';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Lock, Unlock, Eye, EyeOff, RefreshCw, CheckCircle2, ChevronDown, ChevronUp, Check, ChevronsUpDown, Search } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
@@ -23,6 +16,7 @@ import {
 } from '@/components/ui/command';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   DEFAULT_CUSTOM_OPENAI_ENDPOINT,
   DEFAULT_CUSTOM_OPENAI_MODEL,
@@ -568,6 +562,83 @@ export const ModelSettingsModal = forwardRef<ModelSettingsModalRef, ModelSetting
     }
   };
 
+  const handleProviderChange = (value: string) => {
+    const provider = value as ModelConfig['provider'];
+
+    const map = JSON.parse(localStorage.getItem('providerModelMap') || '{}');
+    if (modelConfig.model) {
+      map[modelConfig.provider] = modelConfig.model;
+      localStorage.setItem('providerModelMap', JSON.stringify(map));
+    }
+
+    const savedModel = map[provider];
+    const providerModels = modelOptions[provider];
+    const defaultModel = providerModels && providerModels.length > 0
+      ? providerModels[0]
+      : '';
+    const model = (savedModel && providerModels?.includes(savedModel))
+      ? savedModel
+      : defaultModel;
+
+    const keyForProvider =
+      providerApiKeys?.[provider as keyof typeof providerApiKeys]?.trim() || null;
+    applyApiKeyForProvider(provider);
+    setModelConfig({
+      ...modelConfig,
+      provider,
+      model,
+      apiKey: keyForProvider,
+    });
+    const rawMap = modelConfig.fallbackModels;
+    const savedFallbackMap: Record<string, string[]> =
+      !rawMap ? {} :
+      typeof rawMap === 'string' ? (() => { try { return JSON.parse(rawMap); } catch { return {}; } })() :
+      rawMap as Record<string, string[]>;
+    setFallbackModels(savedFallbackMap[provider] ?? []);
+
+    if (provider === 'openrouter') {
+      loadOpenRouterModels();
+    }
+
+    if (provider === 'custom-openai') {
+      invoke<any>('api_get_custom_openai_config').then((config) => {
+        const endpoint = config?.endpoint || DEFAULT_CUSTOM_OPENAI_ENDPOINT;
+        const model = config?.model || DEFAULT_CUSTOM_OPENAI_MODEL;
+        setCustomOpenAIEndpoint(endpoint);
+        setCustomOpenAIModel(model);
+        setCustomOpenAIApiKey(config?.apiKey || '');
+        setCustomMaxTokens(config?.maxTokens?.toString() || '');
+        setCustomTemperature(config?.temperature?.toString() || '');
+        setCustomTopP(config?.topP?.toString() || '');
+        setModelConfig((prev: ModelConfig) => ({
+          ...prev,
+          provider,
+          model,
+          customOpenAIEndpoint: endpoint,
+          customOpenAIModel: model,
+          customOpenAIApiKey: config?.apiKey || null,
+          maxTokens: config?.maxTokens ?? null,
+          temperature: config?.temperature ?? null,
+          topP: config?.topP ?? null,
+        }));
+      }).catch((err) => {
+        console.error('Failed to load custom OpenAI config:', err);
+        setCustomOpenAIEndpoint(DEFAULT_CUSTOM_OPENAI_ENDPOINT);
+        setCustomOpenAIModel(DEFAULT_CUSTOM_OPENAI_MODEL);
+        setModelConfig((prev: ModelConfig) => ({
+          ...prev,
+          provider,
+          model: DEFAULT_CUSTOM_OPENAI_MODEL,
+          customOpenAIEndpoint: DEFAULT_CUSTOM_OPENAI_ENDPOINT,
+          customOpenAIModel: DEFAULT_CUSTOM_OPENAI_MODEL,
+        }));
+      });
+    }
+  };
+
+  const providerTabClass =
+    'h-7 min-w-0 overflow-hidden rounded-md px-1 text-xs shadow-none data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-none';
+
   const providerModelsCount = modelOptions[modelConfig.provider]?.length ?? 0;
   const hasModelsForProvider = providerModelsCount > 0;
   const selectedModelLabel = hasModelsForProvider
@@ -575,136 +646,61 @@ export const ModelSettingsModal = forwardRef<ModelSettingsModalRef, ModelSetting
     : 'Chưa cài đặt';
 
   return (
-    <div>
+    <div className="min-w-0 w-full overflow-hidden">
       {!embedded && (
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-semibold">Cài đặt mô hình</h3>
+        <div className="space-y-0 px-5 pb-4 pt-5 pr-12 text-left">
+          <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-2">
+            Tóm tắt AI
+          </p>
+          <h3 className="mt-1 text-base font-semibold tracking-[-0.02em] text-ink">
+            Cài đặt mô hình
+          </h3>
+          <p className="mt-1.5 text-xs text-ink-2">
+            Nhà cung cấp, mô hình và khóa API dùng để tạo báo cáo.
+          </p>
         </div>
       )}
 
-      <div className="space-y-4">
-        <div>
-          <Label>Mô hình tóm tắt</Label>
-          <div className="flex space-x-2 mt-1">
-            <Select
-              value={modelConfig.provider}
-              onValueChange={(value) => {
-                const provider = value as ModelConfig['provider'];
+      <div className={cn('min-w-0 space-y-3', !embedded && 'max-h-[60vh] overflow-x-hidden overflow-y-auto px-5 pb-4')}>
+        <div className="min-w-0">
+          <Tabs value={modelConfig.provider} onValueChange={handleProviderChange} className="w-full min-w-0">
+            <TabsList className="grid h-auto w-full min-w-0 grid-cols-2 rounded-md border border-rule bg-paper p-0.5 text-ink-2">
+              <TabsTrigger value="claude" className={providerTabClass}>Claude</TabsTrigger>
+              <TabsTrigger value="openai" className={providerTabClass}>OpenAI</TabsTrigger>
+              <TabsTrigger value="openrouter" className={providerTabClass}>OpenRouter</TabsTrigger>
+              <TabsTrigger value="custom-openai" className={providerTabClass}>Tùy chỉnh</TabsTrigger>
+            </TabsList>
+          </Tabs>
 
-                // Save current provider's model to localStorage before switching
-                const map = JSON.parse(localStorage.getItem('providerModelMap') || '{}');
-                if (modelConfig.model) {
-                  map[modelConfig.provider] = modelConfig.model;
-                  localStorage.setItem('providerModelMap', JSON.stringify(map));
-                }
-
-                // Try to restore cached model for the new provider
-                const savedModel = map[provider];
-                const providerModels = modelOptions[provider];
-                const defaultModel = providerModels && providerModels.length > 0
-                  ? providerModels[0]
-                  : '';
-                const model = (savedModel && providerModels?.includes(savedModel))
-                  ? savedModel
-                  : defaultModel;
-
-                const keyForProvider =
-                  providerApiKeys?.[provider as keyof typeof providerApiKeys]?.trim() || null;
-                applyApiKeyForProvider(provider);
-                setModelConfig({
-                  ...modelConfig,
-                  provider,
-                  model,
-                  apiKey: keyForProvider,
-                });
-                // Reset fallback models to the saved list for the new provider.
-                // modelConfig.fallbackModels may be a raw JSON string — parse safely.
-                const rawMap = modelConfig.fallbackModels;
-                const savedFallbackMap: Record<string, string[]> =
-                  !rawMap ? {} :
-                  typeof rawMap === 'string' ? (() => { try { return JSON.parse(rawMap); } catch { return {}; } })() :
-                  rawMap as Record<string, string[]>;
-                setFallbackModels(savedFallbackMap[provider] ?? []);
-                // API key is now synced automatically via useEffect watching providerApiKeys
-
-                // Load OpenRouter models only when OpenRouter is selected
-                if (provider === 'openrouter') {
-                  loadOpenRouterModels();
-                }
-
-                // Load custom OpenAI config when selected
-                if (provider === 'custom-openai') {
-                  invoke<any>('api_get_custom_openai_config').then((config) => {
-                    const endpoint = config?.endpoint || DEFAULT_CUSTOM_OPENAI_ENDPOINT;
-                    const model = config?.model || DEFAULT_CUSTOM_OPENAI_MODEL;
-                    setCustomOpenAIEndpoint(endpoint);
-                    setCustomOpenAIModel(model);
-                    setCustomOpenAIApiKey(config?.apiKey || '');
-                    setCustomMaxTokens(config?.maxTokens?.toString() || '');
-                    setCustomTemperature(config?.temperature?.toString() || '');
-                    setCustomTopP(config?.topP?.toString() || '');
-                    setModelConfig((prev: ModelConfig) => ({
-                      ...prev,
-                      provider,
-                      model,
-                      customOpenAIEndpoint: endpoint,
-                      customOpenAIModel: model,
-                      customOpenAIApiKey: config?.apiKey || null,
-                      maxTokens: config?.maxTokens ?? null,
-                      temperature: config?.temperature ?? null,
-                      topP: config?.topP ?? null,
-                    }));
-                  }).catch((err) => {
-                    console.error('Failed to load custom OpenAI config:', err);
-                    setCustomOpenAIEndpoint(DEFAULT_CUSTOM_OPENAI_ENDPOINT);
-                    setCustomOpenAIModel(DEFAULT_CUSTOM_OPENAI_MODEL);
-                    setModelConfig((prev: ModelConfig) => ({
-                      ...prev,
-                      provider,
-                      model: DEFAULT_CUSTOM_OPENAI_MODEL,
-                      customOpenAIEndpoint: DEFAULT_CUSTOM_OPENAI_ENDPOINT,
-                      customOpenAIModel: DEFAULT_CUSTOM_OPENAI_MODEL,
-                    }));
-                  });
-                }
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Chọn nhà cung cấp" />
-              </SelectTrigger>
-              <SelectContent className="max-h-64 overflow-y-auto">
-                <SelectItem value="claude">Claude</SelectItem>
-                <SelectItem value="custom-openai">Máy chủ tùy chỉnh (OpenAI)</SelectItem>
-                <SelectItem value="openai">OpenAI</SelectItem>
-                <SelectItem value="openrouter">OpenRouter</SelectItem>
-              </SelectContent>
-            </Select>
-
-            {modelConfig.provider !== 'custom-openai' && (
-              <Popover open={modelComboboxOpen} onOpenChange={setModelComboboxOpen} modal={true}>
+          {modelConfig.provider !== 'custom-openai' && (
+            <div className="mt-3 space-y-1.5">
+              <Label className="text-sm font-medium text-ink">Mô hình</Label>
+              <Popover open={modelComboboxOpen} onOpenChange={setModelComboboxOpen}>
                 <PopoverTrigger asChild>
                   <Button
                     variant="outline"
                     role="combobox"
                     aria-expanded={modelComboboxOpen}
-                    className="flex-1 max-w-[200px] justify-between font-normal"
+                    className="h-9 w-full min-w-0 justify-between overflow-hidden font-normal"
                     disabled={!hasModelsForProvider}
                   >
-                    <span className="truncate">
-                      {selectedModelLabel}
-                    </span>
+                    <span className="min-w-0 flex-1 truncate">{selectedModelLabel}</span>
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-[250px] p-0" align="start">
+                <PopoverContent
+                  className="z-[calc(var(--z-modal)+10)] w-[var(--radix-popover-trigger-width)] min-w-[16rem] p-0"
+                  align="start"
+                  onOpenAutoFocus={(event) => event.preventDefault()}
+                >
                   <Command>
                     <CommandInput placeholder="Tìm mô hình…" />
                     <CommandList className="max-h-[300px]">
                       {(modelConfig.provider === 'openrouter' && isLoadingOpenRouter) ||
                        (modelConfig.provider === 'openai' && isLoadingOpenAI) ||
                        (modelConfig.provider === 'claude' && isLoadingClaude) ? (
-                        <div className="py-6 text-center text-sm text-muted-foreground">
-                          <RefreshCw className="mx-auto h-4 w-4 animate-spin mb-2" />
+                        <div className="py-6 text-center text-sm text-ink-2">
+                          <RefreshCw className="mx-auto mb-2 h-4 w-4 animate-spin" />
                           Đang tải mô hình...
                         </div>
                       ) : (
@@ -715,6 +711,7 @@ export const ModelSettingsModal = forwardRef<ModelSettingsModalRef, ModelSetting
                               <CommandItem
                                 key={model}
                                 value={model}
+                                className="min-w-0 overflow-hidden"
                                 onSelect={(currentValue) => {
                                   setModelConfig((prev: ModelConfig) => ({ ...prev, model: currentValue }));
                                   setModelComboboxOpen(false);
@@ -722,11 +719,11 @@ export const ModelSettingsModal = forwardRef<ModelSettingsModalRef, ModelSetting
                               >
                                 <Check
                                   className={cn(
-                                    "mr-2 h-4 w-4",
-                                    modelConfig.model === model ? "opacity-100" : "opacity-0"
+                                    'mr-2 h-4 w-4',
+                                    modelConfig.model === model ? 'opacity-100' : 'opacity-0'
                                   )}
                                 />
-                                <span className="truncate">{model}</span>
+                                <span className="min-w-0 flex-1 truncate">{model}</span>
                               </CommandItem>
                             ))}
                           </CommandGroup>
@@ -736,30 +733,30 @@ export const ModelSettingsModal = forwardRef<ModelSettingsModalRef, ModelSetting
                   </Command>
                 </PopoverContent>
               </Popover>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
         {/* Fallback Models Section — shown for providers with multiple models */}
         {(['openai', 'claude', 'openrouter'] as const).includes(modelConfig.provider as any) &&
           (modelOptions[modelConfig.provider]?.length ?? 0) > 1 && (
-          <div className="space-y-2 border-t pt-3">
-            <Label className="text-sm font-medium">
+          <div className="min-w-0 space-y-2 border-t border-rule pt-3">
+            <Label className="text-sm font-medium text-ink">
               Model dự phòng
-              <span className="ml-1 text-xs text-muted-foreground font-normal">
+              <span className="ml-1 text-xs font-normal text-ink-2">
                 (tự chuyển sang khi model chính bị rate limit)
               </span>
             </Label>
             <div className="relative">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+              <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-2" />
               <Input
                 placeholder="Tìm model dự phòng…"
                 value={fallbackSearchQuery}
                 onChange={(e) => setFallbackSearchQuery(e.target.value)}
-                className="h-7 pl-7 text-sm"
+                className="h-8 pl-7 text-sm"
               />
             </div>
-            <div className="max-h-36 overflow-y-auto space-y-1 rounded border p-2 bg-muted/30">
+            <div className="max-h-36 min-w-0 overflow-y-auto overflow-x-hidden rounded-md border border-rule">
               {(modelOptions[modelConfig.provider] ?? [])
                 .filter((m) => m !== modelConfig.model)
                 .filter((m) =>
@@ -767,7 +764,7 @@ export const ModelSettingsModal = forwardRef<ModelSettingsModalRef, ModelSetting
                   m.toLowerCase().includes(fallbackSearchQuery.toLowerCase())
                 )
                 .map((model) => (
-                  <div key={model} className="flex items-center gap-2 py-0.5">
+                  <div key={model} className="flex min-w-0 items-center gap-2 border-b border-rule px-2.5 py-1.5 last:border-b-0">
                     <input
                       type="checkbox"
                       id={`fallback-${model}`}
@@ -779,11 +776,11 @@ export const ModelSettingsModal = forwardRef<ModelSettingsModalRef, ModelSetting
                             : prev.filter((m) => m !== model)
                         )
                       }
-                      className="h-3.5 w-3.5 cursor-pointer accent-primary"
+                      className="h-3.5 w-3.5 shrink-0 cursor-pointer accent-primary"
                     />
                     <label
                       htmlFor={`fallback-${model}`}
-                      className="text-sm cursor-pointer truncate"
+                      className="min-w-0 flex-1 truncate text-sm text-ink cursor-pointer"
                     >
                       {model}
                     </label>
@@ -792,7 +789,7 @@ export const ModelSettingsModal = forwardRef<ModelSettingsModalRef, ModelSetting
               }
             </div>
             {fallbackModels.length > 0 && (
-              <p className="text-xs text-muted-foreground">
+              <p className="min-w-0 break-all font-mono text-[11px] text-ink-2">
                 Thứ tự thử: {[modelConfig.model, ...fallbackModels].join(' → ')}
               </p>
             )}
@@ -811,7 +808,7 @@ export const ModelSettingsModal = forwardRef<ModelSettingsModalRef, ModelSetting
                 placeholder="http://localhost:8000/v1"
                 className="mt-1"
               />
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="mt-1 text-xs text-ink-2">
                 Địa chỉ gốc của API tương thích OpenAI
               </p>
             </div>
@@ -825,7 +822,7 @@ export const ModelSettingsModal = forwardRef<ModelSettingsModalRef, ModelSetting
                 placeholder="ví dụ: gpt-4, llama-3-70b"
                 className="mt-1"
               />
-              <p className="text-xs text-muted-foreground mt-1">
+              <p className="mt-1 text-xs text-ink-2">
                 Định danh mô hình dùng cho mỗi yêu cầu
               </p>
             </div>
@@ -850,14 +847,14 @@ export const ModelSettingsModal = forwardRef<ModelSettingsModalRef, ModelSetting
               >
                 <Label className="cursor-pointer">Tùy chọn nâng cao</Label>
                 {isCustomOpenAIAdvancedOpen ? (
-                  <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                  <ChevronUp className="h-4 w-4 text-ink-2" />
                 ) : (
-                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                  <ChevronDown className="h-4 w-4 text-ink-2" />
                 )}
               </div>
 
               {isCustomOpenAIAdvancedOpen && (
-                <div className="space-y-3 pl-2 border-l-2 border-muted mt-2">
+                <div className="mt-2 space-y-3 border-l border-rule pl-2">
                   <div>
                     <Label htmlFor="custom-max-tokens">Số token tối đa</Label>
                     <Input
@@ -927,8 +924,8 @@ export const ModelSettingsModal = forwardRef<ModelSettingsModalRef, ModelSetting
 
         {requiresApiKey && (
           <div>
-            <Label>Khóa API</Label>
-            <div className="relative mt-1">
+            <Label className="text-sm font-medium text-ink">Khóa API</Label>
+            <div className="relative mt-1.5">
               <Input
                 type={showApiKey ? 'text' : 'password'}
                 value={apiKey || ''}
@@ -972,15 +969,8 @@ export const ModelSettingsModal = forwardRef<ModelSettingsModalRef, ModelSetting
       </div>
 
       {!embedded && (
-        <div className="mt-6 flex justify-end">
-          <Button
-            className={cn(
-              'px-4 text-sm font-medium text-primary-foreground rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-ring',
-              isDoneDisabled ? 'bg-gray-400 cursor-not-allowed' : 'bg-primary hover:bg-primary-hover'
-            )}
-            onClick={handleSave}
-            disabled={isDoneDisabled}
-          >
+        <div className="flex justify-end border-t border-rule bg-paper px-5 py-3">
+          <Button size="sm" onClick={handleSave} disabled={isDoneDisabled}>
             Lưu
           </Button>
         </div>

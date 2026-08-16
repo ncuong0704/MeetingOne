@@ -184,6 +184,22 @@ export function SummaryGeneratorButtonGroup({
         </DialogTrigger>
         <DialogContent
           aria-describedby={undefined}
+          className="min-w-0 w-full max-w-md gap-0 overflow-hidden p-0"
+          onPointerDownOutside={(event) => {
+            if ((event.target as HTMLElement | null)?.closest('[data-radix-popper-content-wrapper]')) {
+              event.preventDefault();
+            }
+          }}
+          onFocusOutside={(event) => {
+            if ((event.target as HTMLElement | null)?.closest('[data-radix-popper-content-wrapper]')) {
+              event.preventDefault();
+            }
+          }}
+          onInteractOutside={(event) => {
+            if ((event.target as HTMLElement | null)?.closest('[data-radix-popper-content-wrapper]')) {
+              event.preventDefault();
+            }
+          }}
         >
           <VisuallyHidden>
             <DialogTitle>Cài đặt mô hình AI</DialogTitle>

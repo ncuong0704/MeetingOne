@@ -30,13 +30,13 @@ test('mic quality evaluate button remains in DeviceSelection and RecordingContro
   const settings = readSrc('components/RecordingSettings.tsx');
 
   assert.match(devices, /MicQualityDialog/);
-  assert.match(devices, /Đánh giá chất lượng microphone/);
-  assert.match(devices, />\s*Đánh giá\s*</);
+  assert.match(devices, /Kiểm tra chất lượng microphone/);
+  assert.match(devices, />\s*Kiểm tra micro\s*</);
   assert.match(devices, /setQualityOpen\(true\)/);
   assert.match(devices, /min-w-0 flex-1/);
   assert.match(devices, /id="mic-selection"/);
   assert.match(controls, /MicQualityDialog/);
-  assert.match(controls, />\s*Đánh giá\s*</);
+  assert.match(controls, />\s*Kiểm tra micro\s*</);
   assert.match(controls, /hasMicrophoneAccess && wantsMicrophone/);
   assert.match(dialog, /Đánh giá Microphone/);
   assert.match(settings, /<DeviceSelection/);

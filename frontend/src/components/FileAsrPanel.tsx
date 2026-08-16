@@ -26,6 +26,7 @@ import {
   VARIANT_OPTIONS,
 } from './asrSettingsConstants';
 import { AsrVariantNotice } from './AsrVariantNotice';
+import { Switch } from '@/components/ui/switch';
 
 interface FileAsrPanelProps {
   config?: FileAsrConfig | null;
@@ -229,21 +230,24 @@ export default function FileAsrPanel({ config, disabled = false, onSaved }: File
   const currentStatus = variantStatuses[effectiveVariant];
   const { downloading, progress, error } = downloadState;
 
+  const selectClass =
+    'w-full h-9 px-3 text-sm rounded-md border border-rule bg-paper-2 text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50';
+  const saveClass =
+    'inline-flex h-8 items-center rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground hover:bg-primary-hover disabled:opacity-50';
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <p className="text-xs text-ink-2">
-        Cấu hình này dùng khi nhập file audio hoặc nhận dạng lại. ROVER chỉ áp dụng cho luồng file.
+        Dùng khi nhập file hoặc nhận dạng lại. ROVER chỉ áp dụng cho luồng file.
       </p>
 
-      <div className="space-y-2">
-        <label className="block text-sm font-medium text-ink">
-          Model ASR (nhập file)
-        </label>
+      <div className="space-y-1.5">
+        <label className="block text-sm font-medium text-ink">Model ASR</label>
         <select
           value={selectedFamily}
           onChange={(e) => setSelectedFamily(e.target.value as AsrModelFamily)}
           disabled={disabled}
-          className="w-full px-3 py-2 text-sm rounded-md border border-input bg-paper-2 text-ink focus:outline-none focus:ring-2 focus-visible:ring-ring disabled:opacity-50"
+          className={selectClass}
         >
           {ASR_MODELS.filter((m) => !m.liveOnly).map((m) => (
             <option key={m.id} value={m.id}>{m.label}</option>
@@ -251,13 +255,13 @@ export default function FileAsrPanel({ config, disabled = false, onSaved }: File
         </select>
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         <label className="block text-sm font-medium text-ink">Biến thể</label>
         <select
           value={effectiveVariant}
           onChange={(e) => setSelectedVariant(e.target.value as ModelVariant)}
           disabled={disabled || availableVariantOptions.length <= 1}
-          className="w-full px-3 py-2 text-sm rounded-md border border-input bg-paper-2 text-ink focus:outline-none focus:ring-2 focus-visible:ring-ring disabled:opacity-50"
+          className={selectClass}
         >
           {availableVariantOptions.map((v) => {
             const size = v.id === 'int8' ? selectedModelInfo?.int8Size : selectedModelInfo?.fullSize;
@@ -267,109 +271,96 @@ export default function FileAsrPanel({ config, disabled = false, onSaved }: File
           })}
         </select>
         <AsrVariantNotice family={selectedFamily} variant={effectiveVariant} path="file" />
-        <div className="flex items-center justify-between p-3 rounded-md border border-rule bg-paper">
-          <div>
-            {currentStatus.isLoaded && (
-              <span className="text-xs text-green-600 font-medium">✓ Đang dùng</span>
-            )}
-            {currentStatus.hasFiles && !currentStatus.isLoaded && (
-              <span className="text-xs text-yellow-600">Đã tải, chưa load</span>
-            )}
-            {!currentStatus.hasFiles && !downloading && (
-              <span className="text-xs text-gray-400">Chưa tải</span>
-            )}
-          </div>
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-xs text-ink-2">
+            {currentStatus.isLoaded && 'Đang dùng'}
+            {currentStatus.hasFiles && !currentStatus.isLoaded && 'Đã tải, chưa load'}
+            {!currentStatus.hasFiles && !downloading && 'Chưa tải'}
+          </span>
           {!currentStatus.hasFiles && !downloading && (
-            <button
-              onClick={handleDownload}
-              disabled={disabled}
-              className="px-3 py-1.5 text-xs rounded-md bg-primary hover:bg-primary-hover disabled:opacity-50 text-primary-foreground font-medium"
-            >
+            <button type="button" onClick={handleDownload} disabled={disabled} className={saveClass}>
               Tải xuống
             </button>
           )}
         </div>
-        {downloading && <p className="text-xs text-ink-2">Đang tải... {progress}%</p>}
-        {error && <p className="text-xs text-red-500">{error}</p>}
+        {downloading && <p className="text-xs text-ink-2 font-mono">Đang tải {progress}%</p>}
+        {error && <p className="text-xs text-destructive">{error}</p>}
       </div>
 
-      <div className="flex items-center justify-between p-3 rounded-md border border-rule">
-        <div>
-          <label className="text-sm font-medium text-ink">
-            Bật ROVER (kết hợp 2 model)
-          </label>
-          <p className="text-xs text-ink-2">ROVER dùng gấp đôi RAM/CPU — khuyến nghị int8 cho cả 2 phía.</p>
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-ink">ROVER</p>
+          <p className="mt-0.5 text-xs text-ink-2 leading-snug">
+            Kết hợp 2 model. Tốn RAM/CPU, nên dùng int8 cho cả hai.
+          </p>
         </div>
-        <input
-          type="checkbox"
+        <Switch
           checked={roverEnabled}
-          onChange={(e) => setRoverEnabled(e.target.checked)}
+          onCheckedChange={setRoverEnabled}
           disabled={disabled}
-          className="w-5 h-5 accent-blue-500 disabled:opacity-50"
         />
       </div>
 
       {roverEnabled && (
-        <div className="space-y-2 p-3 rounded-lg border border-primary/30 dark:border-blue-800">
-          <p className="text-xs font-medium text-ink">
-            Model B (phụ) — Model A là model chọn ở trên
-          </p>
-          <select
-            value={roverFamilyB}
-            onChange={(e) => setRoverFamilyB(e.target.value as AsrModelFamily)}
-            disabled={disabled}
-            className="w-full px-3 py-2 text-sm rounded-md border border-input bg-paper-2 text-ink"
-          >
-            {ASR_MODELS.filter((m) => !m.liveOnly && m.id !== selectedFamily).map((m) => (
-              <option key={m.id} value={m.id}>{m.label}</option>
-            ))}
-          </select>
-          <select
-            value={roverEffectiveVariantB}
-            onChange={(e) => setRoverVariantB(e.target.value as ModelVariant)}
-            disabled={disabled || roverAvailableVariantsB.length <= 1}
-            className="w-full px-3 py-2 text-sm rounded-md border border-input bg-paper-2 text-ink"
-          >
-            {roverAvailableVariantsB.map((v) => (
-              <option key={v.id} value={v.id}>{v.label}</option>
-            ))}
-          </select>
-          <div className="flex items-center justify-between p-2 rounded-md bg-paper">
-            <span className="text-xs text-gray-600">
-              {roverVariantBStatus.hasFiles ? '✓ Đã tải' : 'Chưa tải'}
+        <div className="space-y-3 border-t border-rule pt-3">
+          <p className="text-xs text-ink-2">Model B (phụ). Model A là lựa chọn ở trên.</p>
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-ink">Model B</label>
+            <select
+              value={roverFamilyB}
+              onChange={(e) => setRoverFamilyB(e.target.value as AsrModelFamily)}
+              disabled={disabled}
+              className={selectClass}
+            >
+              {ASR_MODELS.filter((m) => !m.liveOnly && m.id !== selectedFamily).map((m) => (
+                <option key={m.id} value={m.id}>{m.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-ink">Biến thể B</label>
+            <select
+              value={roverEffectiveVariantB}
+              onChange={(e) => setRoverVariantB(e.target.value as ModelVariant)}
+              disabled={disabled || roverAvailableVariantsB.length <= 1}
+              className={selectClass}
+            >
+              {roverAvailableVariantsB.map((v) => (
+                <option key={v.id} value={v.id}>{v.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs text-ink-2">
+              {roverVariantBStatus.hasFiles ? 'Đã tải' : 'Chưa tải'}
             </span>
             {!roverVariantBStatus.hasFiles && !roverDownloadState.downloading && (
-              <button
-                onClick={handleDownloadRoverB}
-                disabled={disabled}
-                className="px-3 py-1.5 text-xs rounded-md bg-primary text-primary-foreground"
-              >
+              <button type="button" onClick={handleDownloadRoverB} disabled={disabled} className={saveClass}>
                 Tải xuống
               </button>
             )}
           </div>
           {roverDownloadState.error && (
-            <p className="text-xs text-red-500">{roverDownloadState.error}</p>
+            <p className="text-xs text-destructive">{roverDownloadState.error}</p>
           )}
         </div>
       )}
 
       {!roverEnabled && (
         <>
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-ink">
-              Phương pháp giải mã
-            </label>
-            <div className="flex gap-2">
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium text-ink">Phương pháp giải mã</label>
+            <div className="flex gap-1.5">
               {(['greedy_search', 'modified_beam_search'] as DecodingMethod[]).map((m) => (
                 <button
                   key={m}
+                  type="button"
                   onClick={() => setDecodingMethod(m)}
                   disabled={disabled}
-                  className={`px-3 py-1.5 text-sm rounded-md border disabled:opacity-50 ${
+                  className={`h-8 px-2.5 text-xs rounded-md border disabled:opacity-50 ${
                     decodingMethod === m
-                      ? 'border-orange-500 bg-orange-50 text-orange-700'
-                      : 'border-gray-300 text-gray-600'
+                      ? 'border-primary bg-paper text-ink'
+                      : 'border-rule text-ink-2 hover:bg-secondary'
                   }`}
                 >
                   {m}
@@ -378,12 +369,10 @@ export default function FileAsrPanel({ config, disabled = false, onSaved }: File
             </div>
           </div>
           {decodingMethod === 'modified_beam_search' && (
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <label className="text-sm font-medium text-ink">
-                  Số đường giải mã
-                </label>
-                <span className="text-sm font-mono">{numActivePaths}</span>
+                <label className="text-sm font-medium text-ink">Số đường giải mã</label>
+                <span className="text-xs font-mono text-ink-2">{numActivePaths}</span>
               </div>
               <input
                 type="range"
@@ -392,19 +381,17 @@ export default function FileAsrPanel({ config, disabled = false, onSaved }: File
                 value={numActivePaths}
                 onChange={(e) => setNumActivePaths(Number(e.target.value))}
                 disabled={disabled}
-                className="w-full accent-orange-500 disabled:opacity-50"
+                className="w-full accent-primary disabled:opacity-50"
               />
             </div>
           )}
         </>
       )}
 
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         <div className="flex items-center justify-between">
-          <label className="text-sm font-medium text-ink">
-            Độ dài tối đa mỗi đoạn
-          </label>
-          <span className="text-sm font-mono">{maxSegmentSeconds}s</span>
+          <label className="text-sm font-medium text-ink">Độ dài tối đa mỗi đoạn</label>
+          <span className="text-xs font-mono text-ink-2">{maxSegmentSeconds}s</span>
         </div>
         <input
           type="range"
@@ -413,20 +400,16 @@ export default function FileAsrPanel({ config, disabled = false, onSaved }: File
           value={maxSegmentSeconds}
           onChange={(e) => setMaxSegmentSeconds(Number(e.target.value))}
           disabled={disabled}
-          className="w-full accent-blue-500 disabled:opacity-50"
+          className="w-full accent-primary disabled:opacity-50"
         />
       </div>
 
-      <div className="flex items-center gap-3 pt-1">
-        <button
-          onClick={handleSave}
-          disabled={isSaving || disabled}
-          className="px-4 py-2 text-sm rounded-md bg-primary hover:bg-primary-hover disabled:opacity-50 text-primary-foreground font-medium"
-        >
-          {isSaving ? 'Đang lưu...' : 'Lưu cấu hình nhập file'}
+      <div className="flex items-center gap-3 pt-0.5">
+        <button type="button" onClick={handleSave} disabled={isSaving || disabled} className={saveClass}>
+          {isSaving ? 'Đang lưu...' : 'Lưu'}
         </button>
         {saveMessage && (
-          <span className={`text-xs ${saveMessage.startsWith('Lỗi') ? 'text-red-500' : 'text-green-600'}`}>
+          <span className={`text-xs ${saveMessage.startsWith('Lỗi') ? 'text-destructive' : 'text-ink-2'}`}>
             {saveMessage}
           </span>
         )}

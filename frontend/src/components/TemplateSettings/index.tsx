@@ -2,7 +2,6 @@
 
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { TemplateList } from './TemplateList';
 import { TemplateEditor } from './TemplateEditor';
 import { useTemplateSettings } from './useTemplateSettings';
@@ -18,24 +17,32 @@ function DeleteConfirmDialog({
 }) {
   return (
     <div className="fixed inset-0 z-[var(--z-modal)] flex items-center justify-center app-modal-overlay">
-      <div className="app-surface p-6 max-w-sm w-full mx-4 space-y-4 shadow-[var(--shadow-modal)]">
+      <div className="app-surface p-5 max-w-sm w-full mx-4 space-y-4 shadow-[var(--shadow-modal)]">
         <div className="flex items-start gap-3">
-          <AlertTriangle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
+          <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
           <div>
             <h4 className="text-sm font-semibold text-ink">Xác nhận xóa mẫu</h4>
-            <p className="text-sm text-ink-2 mt-1">
+            <p className="text-xs text-ink-2 mt-1 leading-snug">
               Bạn có chắc muốn xóa mẫu <strong>&quot;{templateName}&quot;</strong>?
               {' '}Hành động này không thể hoàn tác.
             </p>
           </div>
         </div>
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={onCancel}>
+        <div className="flex justify-end gap-1.5">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="inline-flex h-8 items-center rounded-md border border-rule bg-paper-2 px-2.5 text-xs font-medium text-ink-2 hover:bg-secondary hover:text-ink"
+          >
             Huỷ
-          </Button>
-          <Button variant="destructive" size="sm" onClick={onConfirm}>
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="inline-flex h-8 items-center rounded-md bg-destructive px-2.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90"
+          >
             Xóa
-          </Button>
+          </button>
         </div>
       </div>
     </div>
@@ -60,7 +67,7 @@ export function TemplateSettings() {
     : undefined;
 
   return (
-    <div className="flex h-[calc(100vh-180px)] min-h-[400px]">
+    <div className="max-w-xl">
       {state.editorMode === 'idle' ? (
         <TemplateList
           templates={state.templates}

@@ -2,7 +2,6 @@
 
 import React from 'react';
 import { Plus, Star } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { TemplateInfo } from './types';
 
@@ -28,101 +27,87 @@ export function TemplateList({
   onSetDefault,
 }: TemplateListProps) {
   return (
-    <div className="flex flex-col w-full min-h-0 app-surface overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-rule">
-        <span className="text-sm font-semibold text-ink">
-          Danh sách mẫu
-        </span>
-        <Button
-          variant="blue"
-          size="sm"
+    <section>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold text-ink tracking-tight">Danh sách mẫu</h2>
+        <button
+          type="button"
           onClick={onNew}
-          className="h-7 px-2 text-xs gap-1"
+          className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground hover:bg-primary-hover"
         >
-          <Plus className="w-3.5 h-3.5" />
+          <Plus className="h-3.5 w-3.5" />
           Tạo mới
-        </Button>
+        </button>
       </div>
-
-      {/* List */}
-      <div className="flex-1 min-h-0 overflow-y-auto">
+      <p className="text-xs text-ink-2 mt-0.5 mb-2">
+        Chọn mẫu để sửa. Một mẫu mặc định dùng khi tạo tóm tắt.
+      </p>
+      <div className="app-surface overflow-hidden">
         {isLoading ? (
-          <div className="px-4 py-8 text-center text-sm text-ink-2">Đang tải...</div>
+          <p className="px-4 py-3 text-xs text-ink-2">Đang tải...</p>
         ) : templates.length === 0 ? (
-          <div className="px-4 py-8 text-center text-sm text-ink-2">
-            Chưa có mẫu nào
-          </div>
+          <p className="px-4 py-3 text-xs text-ink-2">Chưa có mẫu nào</p>
         ) : (
-          <div className="p-2 space-y-1">
+          <ul className="divide-y divide-rule">
             {templates.map((t) => {
               const isActive = selectedId === t.id;
               const isDefault = defaultTemplateId === t.id;
               return (
-                <div key={t.id} className="group/item relative">
+                <li key={t.id} className="flex items-center gap-3 px-4 py-3">
                   <button
                     type="button"
                     onClick={() => onSelect(t.id)}
                     className={cn(
-                      'w-full text-left px-3 py-2.5 rounded-lg transition-colors',
+                      'min-w-0 flex-1 text-left rounded-md px-2 py-1 -mx-2 transition-colors',
                       isActive
-                        ? 'bg-primary/10 border border-primary/30'
-                        : 'hover:bg-secondary border border-transparent'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'hover:bg-secondary'
                     )}
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        {isDefault && (
-                          <Star className="w-3 h-3 text-amber-500 fill-amber-400 shrink-0" />
-                        )}
-                        <span
-                          className={cn(
-                            'text-sm font-medium leading-snug truncate',
-                            isActive ? 'text-primary' : 'text-ink'
-                          )}
-                        >
-                          {t.name}
-                        </span>
-                      </div>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      {isDefault && (
+                        <Star className={cn(
+                          'h-3 w-3 shrink-0 fill-current',
+                          isActive ? 'text-primary-foreground' : 'text-primary'
+                        )} />
+                      )}
+                      <span className={cn(
+                        'text-sm font-medium truncate',
+                        isActive ? 'text-primary-foreground' : 'text-ink'
+                      )}>
+                        {t.name}
+                      </span>
                     </div>
                     {isDefault && (
-                      <p className="text-[10px] text-amber-600 font-medium mt-0.5">
-                        Đang dùng làm mặc định
+                      <p className="text-xs mt-0.5 text-amber-600">
+                        Mặc định
                       </p>
                     )}
-                    <p className="text-xs text-ink-2 mt-0.5 line-clamp-2 leading-relaxed">
+                    <p className={cn(
+                      'text-xs mt-0.5 line-clamp-2 leading-snug',
+                      isActive ? 'text-primary-foreground/80' : 'text-ink-2'
+                    )}>
                       {t.description}
                     </p>
                   </button>
-
-                  {/* Set-as-default button — shown on hover */}
                   {!isDefault && (
                     <button
                       type="button"
                       disabled={isSettingDefault}
-                      onClick={e => {
-                        e.stopPropagation();
-                        onSetDefault(t.id, t.name);
-                      }}
-                      className={cn(
-                        'absolute right-2 bottom-2 opacity-0 group-hover/item:opacity-100 transition-opacity z-10',
-                        'text-[10px] px-1.5 py-0.5 rounded-md border border-rule',
-                        'bg-paper-2 text-ink-2 hover:text-amber-700 hover:border-amber-300',
-                        'flex items-center gap-1 whitespace-nowrap',
-                        isSettingDefault && 'cursor-not-allowed'
-                      )}
-                      title="Đặt làm mẫu mặc định"
+                      onClick={() => onSetDefault(t.id, t.name)}
+                      className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md border border-rule bg-paper-2 px-2 text-xs font-medium text-ink-2 hover:bg-secondary hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+                      title="Đặt mặc định"
                     >
-                      <Star className="w-2.5 h-2.5" />
-                      Đặt mặc định
+                      <Star className="h-3 w-3" />
+                      Mặc định
                     </button>
                   )}
-                </div>
+                </li>
               );
             })}
-          </div>
+          </ul>
         )}
       </div>
-    </div>
+    </section>
   );
 }

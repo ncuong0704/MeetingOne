@@ -38,6 +38,8 @@ interface DeviceSelectionProps {
   onDeviceChange: (devices: SelectedDevices) => void;
   disabled?: boolean;
   audioSource?: AudioCaptureSource;
+  /** Settings pane: hide duplicate heading and helper bullets. */
+  compact?: boolean;
 }
 
 export function DeviceSelection({
@@ -45,6 +47,7 @@ export function DeviceSelection({
   onDeviceChange,
   disabled = false,
   audioSource = 'both',
+  compact = false,
 }: DeviceSelectionProps) {
   const [devices, setDevices] = useState<AudioDevice[]>([]);
   const [loading, setLoading] = useState(true);
@@ -224,18 +227,31 @@ export function DeviceSelection({
 
   if (loading) {
     return (
-      <div className="p-4 space-y-4">
-        <div className="animate-pulse">
-          <div className="h-4 bg-gray-200 rounded w-1/3 mb-4"></div>
-          <div className="h-10 bg-gray-200 rounded mb-3"></div>
-          <div className="h-10 bg-gray-200 rounded"></div>
+      <div className={compact ? 'space-y-2' : 'p-4 space-y-4'}>
+        <div className="animate-pulse space-y-2">
+          <div className="h-4 bg-paper-3 rounded w-1/3" />
+          <div className="h-9 bg-paper-3 rounded" />
+          <div className="h-9 bg-paper-3 rounded" />
         </div>
       </div>
     );
   }
 
+  const refreshButton = (
+    <button
+      type="button"
+      onClick={handleRefresh}
+      disabled={refreshing || disabled}
+      title="Làm mới danh sách thiết bị"
+      className="h-8 w-8 p-0 inline-flex items-center justify-center rounded-md text-ink-2 hover:bg-secondary hover:text-ink disabled:pointer-events-none disabled:opacity-50"
+    >
+      <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+    </button>
+  );
+
   return (
-    <div className="space-y-4">
+    <div className={compact ? 'space-y-3' : 'space-y-4'}>
+      {!compact && (
       <div className="flex items-center justify-between">
         <h4 className="text-sm font-medium text-ink">Thiết bị âm thanh</h4>
         <div className="flex items-center space-x-2">
@@ -252,15 +268,10 @@ export function DeviceSelection({
           {/* > */}
           {/*   {isMonitoring ? 'Stop Test' : 'Test Mic'} */}
           {/* </button> */}
-          <button
-            onClick={handleRefresh}
-            disabled={refreshing || disabled}
-            className="h-8 w-8 p-0 inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-secondary disabled:pointer-events-none disabled:opacity-50"
-          >
-            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-          </button>
+          {refreshButton}
         </div>
       </div>
+      )}
 
       {error && (
         <div className="p-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-md">
@@ -276,6 +287,7 @@ export function DeviceSelection({
             <Label htmlFor="mic-selection" className="text-sm font-medium text-ink">
               Micro
             </Label>
+            {compact && <span className="ml-auto">{refreshButton}</span>}
           </div>
               <div className="flex items-center gap-2">
                 <div className="min-w-0 flex-1">
@@ -305,9 +317,9 @@ export function DeviceSelection({
               onClick={() => setQualityOpen(true)}
               disabled={disabled || !wantsMicrophone(audioSource)}
               className="h-9 shrink-0 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary-hover disabled:pointer-events-none disabled:opacity-50"
-              title="Đánh giá chất lượng microphone (10 giây)"
+              title="Kiểm tra chất lượng microphone (10 giây)"
             >
-              Đánh giá
+              Kiểm tra micro
             </button>
           </div>
           <MicQualityDialog
@@ -398,17 +410,18 @@ export function DeviceSelection({
         </div>
       </div>
 
-      {/* Info text */}
-      <div className="text-xs text-ink-2 space-y-1">
-        <p>• <strong>Micro:</strong> Ghi giọng nói và âm thanh xung quanh</p>
-        <p>• <strong>Âm thanh hệ thống:</strong> Ghi âm từ máy (nhạc, cuộc gọi, v.v.)</p>
-        {isMonitoring && (
-          <p>• <strong>Mức micro:</strong> Xanh = tốt, Vàng = lớn, Đỏ = quá lớn</p>
-        )}
-        {!isMonitoring && inputDevices.length > 0 && (
-          <p>• <strong>Mẹo:</strong> Bấm «Đánh giá» cạnh micro để kiểm tra chất lượng trước khi ghi trực tiếp</p>
-        )}
-      </div>
+      {!compact && (
+        <div className="text-xs text-ink-2 space-y-1">
+          <p>• <strong>Micro:</strong> Ghi giọng nói và âm thanh xung quanh</p>
+          <p>• <strong>Âm thanh hệ thống:</strong> Ghi âm từ máy (nhạc, cuộc gọi, v.v.)</p>
+          {isMonitoring && (
+            <p>• <strong>Mức micro:</strong> Xanh = tốt, Vàng = lớn, Đỏ = quá lớn</p>
+          )}
+          {!isMonitoring && inputDevices.length > 0 && (
+            <p>• <strong>Mẹo:</strong> Bấm «Kiểm tra micro» cạnh micro để kiểm tra chất lượng trước khi ghi trực tiếp</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

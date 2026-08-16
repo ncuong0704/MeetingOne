@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import {
   emptySpeakerHotkeys,
   getSpeakerHotkeys,
@@ -58,7 +59,7 @@ export function SpeakerHotkeyDialog({ open, onOpenChange }: SpeakerHotkeyDialogP
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="max-w-md"
+        className="gap-0 overflow-hidden p-0 sm:max-w-md"
         onPointerDownOutside={(event) => {
           if ((event.target as HTMLElement | null)?.closest('[data-speaker-suggestions]')) {
             event.preventDefault();
@@ -75,39 +76,64 @@ export function SpeakerHotkeyDialog({ open, onOpenChange }: SpeakerHotkeyDialogP
           }
         }}
       >
-        <DialogHeader>
-          <DialogTitle>Cấu hình phím tắt người nói</DialogTitle>
-          <DialogDescription>
-            Trong khi ghi âm trực tiếp, bấm phím số tương ứng để gán người đang nói. Để trống = ẩn phím.
+        <DialogHeader className="space-y-0 px-5 pb-4 pt-5 pr-12 text-left">
+          <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-2">
+            Ghi trực tiếp
+          </p>
+          <DialogTitle className="mt-1 text-base font-semibold tracking-[-0.02em] text-ink">
+            Cấu hình phím tắt người nói
+          </DialogTitle>
+          <DialogDescription className="mt-1.5 text-xs text-ink-2">
+            Bấm phím số 1–9 khi đang ghi để gán người đang nói. Ô trống thì ẩn phím đó.
           </DialogDescription>
         </DialogHeader>
-        <div className="grid grid-cols-[2.5rem_3.5rem_1fr] gap-2 items-center text-xs font-medium text-ink-2">
-          <span>STT</span>
-          <span>Phím</span>
-          <span>Tên người nói</span>
+
+        <div className="px-5 pb-4">
+          <div className="max-h-[50vh] overflow-y-auto rounded-md border border-rule">
+            {Array.from({ length: 9 }, (_, i) => String(i + 1)).map((key) => {
+              const filled = Boolean((slots[key] ?? '').trim());
+              return (
+                <div
+                  key={key}
+                  className="flex items-center gap-2.5 border-b border-rule px-2.5 py-1.5 last:border-b-0"
+                >
+                  <span
+                    className={cn(
+                      'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md font-mono text-sm font-medium',
+                      filled
+                        ? 'bg-primary text-primary-foreground'
+                        : 'border border-rule bg-paper text-ink-2'
+                    )}
+                  >
+                    {key}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <SpeakerNameCombobox
+                      value={slots[key] ?? ''}
+                      placeholder="Tên người nói"
+                      people={people}
+                      onChange={(next) =>
+                        setSlots((prev) => ({ ...prev, [key]: next }))
+                      }
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
         </div>
-        <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
-          {Array.from({ length: 9 }, (_, i) => String(i + 1)).map((key) => (
-            <div key={key} className="grid grid-cols-[2.5rem_3.5rem_1fr] gap-2 items-center">
-              <span className="text-center text-sm text-ink-2">{key}</span>
-              <span className="text-center text-sm font-semibold text-primary">Num {key}</span>
-              <SpeakerNameCombobox
-                value={slots[key] ?? ''}
-                placeholder={`Nhập tên cho phím ${key}...`}
-                people={people}
-                onChange={(next) =>
-                  setSlots((prev) => ({ ...prev, [key]: next }))
-                }
-              />
-            </div>
-          ))}
-        </div>
-        {error && <p className="text-xs text-red-500">{error}</p>}
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+
+        <DialogFooter className="border-t border-rule bg-paper px-5 py-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onOpenChange(false)}
+            disabled={saving}
+          >
             Hủy
           </Button>
-          <Button onClick={handleSave} disabled={saving}>
+          <Button size="sm" onClick={handleSave} disabled={saving}>
             {saving ? 'Đang lưu...' : 'Lưu'}
           </Button>
         </DialogFooter>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Switch } from '@/components/ui/switch';
-import { FolderOpen, HardDrive, Info, AlertTriangle, FolderInput } from 'lucide-react';
+import { FolderOpen, FolderInput } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { DeviceSelection, SelectedDevices } from '@/components/DeviceSelection';
 import Analytics from '@/lib/analytics';
@@ -153,118 +153,78 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
 
   if (loading) {
     return (
-      <div className="animate-pulse">
-        <div className="h-4 bg-gray-200 rounded w-1/4 mb-4"></div>
-        <div className="h-8 bg-gray-200 rounded mb-4"></div>
+      <div className="max-w-xl space-y-6 animate-pulse">
+        <div className="h-28 bg-paper-3 rounded-md" />
+        <div className="h-40 bg-paper-3 rounded-md" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
-
-      {/* ── Thư mục lưu trữ ──────────────────────────────────────────── */}
-      <div className="app-surface overflow-hidden">
-        <div className="px-5 py-4 border-b border-rule">
-          <h3 className="text-base font-semibold text-ink">Thư mục lưu trữ</h3>
-          <p className="text-sm text-ink-2 mt-1">
-            Chọn nơi lưu file ghi âm, transcript và metadata của mỗi cuộc họp.
-          </p>
-        </div>
-
-        <div className="px-5 py-4 space-y-3">
-          <div className="flex items-start gap-3 p-4 rounded-md bg-secondary border border-rule">
-            <div className="w-9 h-9 rounded-md bg-paper-2 border border-rule flex items-center justify-center shrink-0">
-              <HardDrive className="w-4.5 h-4.5 text-muted-foreground" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-base font-medium text-ink mb-1">Thư mục lưu</p>
-              <p className="text-sm text-ink-2 font-mono break-all leading-relaxed">
+    <div className="max-w-xl space-y-6">
+      <section>
+        <h2 className="text-sm font-semibold text-ink tracking-tight mb-2">Lưu trữ</h2>
+        <div className="app-surface divide-y divide-rule overflow-hidden">
+          <div className="px-4 py-3 flex items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-ink">Thư mục</p>
+              <p
+                className="mt-0.5 text-xs font-mono text-ink-2 truncate"
+                title={preferences.save_folder || undefined}
+              >
                 {preferences.save_folder || 'Thư mục mặc định'}
               </p>
             </div>
-            <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+            <div className="flex shrink-0 gap-1.5">
               <button
+                type="button"
                 onClick={handleSelectFolder}
                 disabled={saving}
-                className="flex items-center justify-center gap-2 px-3.5 py-2 text-sm font-medium text-primary-foreground bg-primary border border-primary rounded-md hover:bg-primary-hover transition-colors disabled:opacity-50"
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-rule bg-paper-2 px-2.5 text-xs font-medium text-ink hover:bg-secondary disabled:opacity-50"
               >
-                <FolderInput className="w-4 h-4" />
-                Chọn thư mục
+                <FolderInput className="h-3.5 w-3.5" />
+                Chọn
               </button>
               <button
+                type="button"
                 onClick={handleOpenFolder}
-                className="flex items-center justify-center gap-2 px-3.5 py-2 text-sm font-medium text-muted-foreground bg-paper-2 border border-input rounded-md hover:bg-secondary transition-colors"
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-rule bg-paper-2 px-2.5 text-xs font-medium text-ink-2 hover:bg-secondary hover:text-ink"
               >
-                <FolderOpen className="w-4 h-4" />
+                <FolderOpen className="h-3.5 w-3.5" />
                 Mở
               </button>
             </div>
           </div>
 
-          <div className="flex items-start gap-3 bg-primary/10 border border-primary/20 rounded-md px-4 py-3">
-            <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-            <p className="text-sm text-primary leading-relaxed">
-              Mỗi cuộc họp được lưu trong một thư mục riêng, chứa <span className="font-semibold">transcripts.json</span>
-              {preferences.auto_save && (
-                <> và file âm thanh <span className="font-mono">audio.{preferences.file_format}</span></>
-              )}
-              . Cơ sở dữ liệu và mô hình AI được lưu trong thư mục dữ liệu ứng dụng.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Lưu file âm thanh ────────────────────────────────────────── */}
-      <div className="app-surface overflow-hidden">
-        <div className="px-5 py-4 border-b border-rule">
-          <h3 className="text-base font-semibold text-ink">Lưu file ghi âm</h3>
-          <p className="text-sm text-ink-2 mt-1">Cấu hình cách lưu file âm thanh sau cuộc họp.</p>
-        </div>
-
-        <div
-          className="flex items-center justify-between px-5 py-4 border-b border-rule"
-        >
-          <div>
-            <p className="text-base font-medium text-ink">Tự động lưu</p>
-            <p className="text-sm text-ink-2 mt-0.5">Tự động lưu file âm thanh khi dừng ghi (transcript luôn được lưu)</p>
-          </div>
-          <Switch
-            checked={preferences.auto_save}
-            onCheckedChange={handleAutoSaveToggle}
-            disabled={saving}
-          />
-        </div>
-
-        {!preferences.auto_save && (
-          <div className="px-5 py-4">
-            <div className="flex items-start gap-3 bg-amber-50 border border-amber-100 rounded-lg px-4 py-3">
-              <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-              <p className="text-sm text-amber-700">
-                Lưu file âm thanh đang tắt. Transcript vẫn được lưu vào thư mục đã chọn ở trên.
+          <div className="px-4 py-3 flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-ink">Tự động lưu file</p>
+              <p className="mt-0.5 text-xs text-ink-2 leading-snug">
+                {preferences.auto_save
+                  ? `Lưu audio.${preferences.file_format} khi dừng ghi. Transcript luôn được lưu.`
+                  : 'Đang tắt. Transcript vẫn lưu vào thư mục trên, không lưu file âm thanh.'}
               </p>
             </div>
+            <Switch
+              checked={preferences.auto_save}
+              onCheckedChange={handleAutoSaveToggle}
+              disabled={saving}
+            />
           </div>
-        )}
-      </div>
-
-      {/* ── Thiết bị âm thanh ────────────────────────────────────────── */}
-      <div className="app-surface overflow-hidden">
-        <div className="px-5 py-4 border-b border-rule">
-          <h3 className="text-base font-semibold text-ink">Thiết bị âm thanh mặc định</h3>
-          <p className="text-sm text-ink-2 mt-1">
-            Micro và âm thanh hệ thống ưu tiên — được chọn sẵn khi bắt đầu ghi mới.
-          </p>
         </div>
-        <div className="px-5 py-4 space-y-4">
-          <div className="space-y-2">
-            <Label className="text-sm font-medium text-ink">Nguồn ghi âm</Label>
+      </section>
+
+      <section>
+        <h2 className="text-sm font-semibold text-ink tracking-tight mb-2">Ghi âm</h2>
+        <div className="app-surface overflow-hidden px-4 py-3 space-y-4">
+          <div className="space-y-1.5">
+            <Label className="text-sm font-medium text-ink">Nguồn</Label>
             <Select
               value={parseAudioCaptureSource(preferences.audio_source)}
               onValueChange={(value) => handleAudioSourceChange(value as AudioCaptureSource)}
               disabled={saving}
             >
-              <SelectTrigger className="w-full">
+              <SelectTrigger className="w-full h-9">
                 <SelectValue placeholder="Chọn nguồn ghi âm" />
               </SelectTrigger>
               <SelectContent>
@@ -275,22 +235,21 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-ink-2">
-              Chỉ thu micro, chỉ âm thanh hệ thống, hoặc cả hai. Áp dụng cho lần bấm Ghi kế tiếp.
-            </p>
           </div>
-          <DeviceSelection
-            selectedDevices={{
-              micDevice: preferences.preferred_mic_device,
-              systemDevice: preferences.preferred_system_device,
-            }}
-            onDeviceChange={handleDeviceChange}
-            disabled={saving}
-            audioSource={parseAudioCaptureSource(preferences.audio_source)}
-          />
+          <div className="border-t border-rule pt-3">
+            <DeviceSelection
+              selectedDevices={{
+                micDevice: preferences.preferred_mic_device,
+                systemDevice: preferences.preferred_system_device,
+              }}
+              onDeviceChange={handleDeviceChange}
+              disabled={saving}
+              audioSource={parseAudioCaptureSource(preferences.audio_source)}
+              compact
+            />
+          </div>
         </div>
-      </div>
-
+      </section>
     </div>
   );
 }

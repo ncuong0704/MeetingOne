@@ -1,9 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Pencil, Plus, Trash2, Users } from 'lucide-react';
+import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -79,113 +78,131 @@ export function SpeakerDirectorySettings() {
 
   if (loading) {
     return (
-      <div className="animate-pulse space-y-3">
-        <div className="h-24 bg-gray-200 rounded-xl" />
-        <div className="h-40 bg-gray-200 rounded-xl" />
+      <div className="max-w-xl space-y-6 animate-pulse">
+        <div className="h-28 bg-paper-3 rounded-md" />
+        <div className="h-40 bg-paper-3 rounded-md" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
-      <div className="app-surface overflow-hidden">
-        <div className="px-5 py-4 border-b border-rule">
-          <h3 className="text-base font-semibold text-ink">
-            {editingId ? 'Sửa người nói' : 'Thêm người nói'}
-          </h3>
-          <p className="text-sm text-ink-2 mt-1">
-            Danh sách dùng để gợi ý khi gán tên trong «Người nói 1–9».
-          </p>
-        </div>
-        <div className="px-5 py-4 grid gap-3 sm:grid-cols-3">
-          <div className="space-y-1.5 sm:col-span-1">
-            <Label htmlFor="speaker-full-name">Họ tên</Label>
+    <div className="max-w-xl space-y-6">
+      <section>
+        <h2 className="text-sm font-semibold text-ink tracking-tight">
+          {editingId ? 'Sửa người nói' : 'Thêm người nói'}
+        </h2>
+        <p className="text-xs text-ink-2 mt-0.5 mb-2">
+          Gợi ý khi gán tên Người nói 1-9.
+        </p>
+        <div className="app-surface overflow-hidden px-4 py-3 space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="speaker-full-name" className="text-sm font-medium text-ink">
+              Họ tên
+            </Label>
             <Input
               id="speaker-full-name"
               value={form.fullName}
               onChange={(event) => setForm((prev) => ({ ...prev, fullName: event.target.value }))}
               placeholder="Nguyễn Văn A"
+              className="h-9"
             />
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="speaker-title">Chức vụ</Label>
-            <Input
-              id="speaker-title"
-              value={form.title}
-              onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
-              placeholder="Trưởng phòng"
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="speaker-title" className="text-sm font-medium text-ink">
+                Chức vụ
+              </Label>
+              <Input
+                id="speaker-title"
+                value={form.title}
+                onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
+                placeholder="Trưởng phòng"
+                className="h-9"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="speaker-department" className="text-sm font-medium text-ink">
+                Phòng ban
+              </Label>
+              <Input
+                id="speaker-department"
+                value={form.department}
+                onChange={(event) => setForm((prev) => ({ ...prev, department: event.target.value }))}
+                placeholder="Kế hoạch"
+                className="h-9"
+              />
+            </div>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="speaker-department">Phòng ban</Label>
-            <Input
-              id="speaker-department"
-              value={form.department}
-              onChange={(event) => setForm((prev) => ({ ...prev, department: event.target.value }))}
-              placeholder="Kế hoạch"
-            />
+          <div className="flex gap-1.5 pt-0.5">
+            <button
+              type="button"
+              onClick={() => void handleSubmit()}
+              disabled={saving}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              {editingId ? 'Lưu' : 'Thêm'}
+            </button>
+            {editingId && (
+              <button
+                type="button"
+                onClick={resetForm}
+                disabled={saving}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-rule bg-paper-2 px-2.5 text-xs font-medium text-ink-2 hover:bg-secondary hover:text-ink disabled:opacity-50"
+              >
+                Hủy
+              </button>
+            )}
           </div>
         </div>
-        <div className="px-5 pb-4 flex gap-2">
-          <Button variant="blue" onClick={() => void handleSubmit()} disabled={saving}>
-            <Plus className="w-4 h-4" />
-            {editingId ? 'Lưu thay đổi' : 'Thêm'}
-          </Button>
-          {editingId && (
-            <Button variant="outline" onClick={resetForm} disabled={saving}>
-              Hủy
-            </Button>
+      </section>
+
+      <section>
+        <h2 className="text-sm font-semibold text-ink tracking-tight mb-2">
+          Danh sách ({people.length})
+        </h2>
+        <div className="app-surface overflow-hidden">
+          {people.length === 0 ? (
+            <p className="px-4 py-3 text-xs text-ink-2">
+              Chưa có người nói. Thêm họ tên ở form trên.
+            </p>
+          ) : (
+            <ul className="divide-y divide-rule">
+              {people.map((person) => {
+                const meta = [person.title, person.department].filter(Boolean).join(', ');
+                return (
+                  <li key={person.id} className="px-4 py-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-ink truncate">{person.fullName}</p>
+                      {meta ? (
+                        <p className="text-xs text-ink-2 mt-0.5 truncate">{meta}</p>
+                      ) : null}
+                    </div>
+                    <div className="flex shrink-0 gap-0.5">
+                      <button
+                        type="button"
+                        title="Sửa"
+                        onClick={() => handleEdit(person)}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ink-2 hover:bg-secondary hover:text-ink"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        title="Xóa"
+                        onClick={() => void handleDelete(person.id)}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ink-2 hover:bg-destructive/10 hover:text-destructive"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </div>
-      </div>
-
-      <div className="app-surface overflow-hidden">
-        <div className="px-5 py-4 border-b border-rule flex items-center gap-2">
-          <Users className="w-4 h-4 text-ink-2" />
-          <h3 className="text-base font-semibold text-ink">
-            Danh sách ({people.length})
-          </h3>
-        </div>
-        {people.length === 0 ? (
-          <p className="px-5 py-8 text-sm text-ink-2 text-center">
-            Chưa có người nói. Thêm họ tên ở form trên.
-          </p>
-        ) : (
-          <ul className="divide-y divide-rule">
-            {people.map((person) => {
-              const meta = [person.title, person.department].filter(Boolean).join(' · ');
-              return (
-                <li key={person.id} className="px-5 py-3 flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-ink truncate">{person.fullName}</p>
-                    {meta ? (
-                      <p className="text-xs text-ink-2 mt-0.5 truncate">{meta}</p>
-                    ) : null}
-                  </div>
-                  <div className="flex shrink-0 gap-1">
-                    <button
-                      type="button"
-                      title="Sửa"
-                      onClick={() => handleEdit(person)}
-                      className="p-1.5 rounded-md text-ink-2 hover:bg-secondary hover:text-ink"
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </button>
-                    <button
-                      type="button"
-                      title="Xóa"
-                      onClick={() => void handleDelete(person.id)}
-                      className="p-1.5 rounded-md text-ink-2 hover:bg-destructive/10 hover:text-destructive"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
+      </section>
     </div>
   );
 }

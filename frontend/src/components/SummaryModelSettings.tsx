@@ -4,7 +4,6 @@ import { useRef, useState, useCallback } from 'react';
 import { toast } from 'sonner';
 import { ModelConfig, ModelSettingsModal, ModelSettingsModalRef } from '@/components/ModelSettingsModal';
 import { Switch } from './ui/switch';
-import { Button } from './ui/button';
 import { useConfig } from '@/contexts/ConfigContext';
 import { persistSummaryModelConfig } from '@/lib/summaryModelConfigSync';
 
@@ -34,29 +33,29 @@ export function SummaryModelSettings() {
   }, []);
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="app-surface overflow-hidden">
-        <div className="px-5 py-4 border-b border-rule">
-          <h3 className="text-base font-semibold text-ink">Tóm tắt tự động</h3>
-          <p className="text-sm text-ink-2 mt-1">Tự động tạo tóm tắt sau khi kết thúc cuộc họp.</p>
-        </div>
-        <div
-          className="flex items-center justify-between px-5 py-4"
-        >
-          <div>
-            <p className="text-base font-medium text-ink">Bật tóm tắt tự động</p>
-            <p className="text-sm text-ink-2 mt-0.5">Tạo tóm tắt ngay khi dừng ghi âm</p>
+    <div className="max-w-xl space-y-6">
+      <section>
+        <h2 className="text-sm font-semibold text-ink tracking-tight">Tóm tắt tự động</h2>
+        <p className="text-xs text-ink-2 mt-0.5 mb-2">
+          Tạo tóm tắt sau khi cuộc họp kết thúc.
+        </p>
+        <div className="app-surface overflow-hidden">
+          <div className="flex items-center justify-between gap-4 px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-ink">Bật tóm tắt tự động</p>
+              <p className="mt-0.5 text-xs text-ink-2">Tạo tóm tắt ngay khi dừng ghi âm</p>
+            </div>
+            <Switch checked={isAutoSummary} onCheckedChange={toggleIsAutoSummary} />
           </div>
-          <Switch checked={isAutoSummary} onCheckedChange={toggleIsAutoSummary} />
         </div>
-      </div>
+      </section>
 
-      <div className="app-surface overflow-hidden">
-        <div className="px-5 py-4 border-b border-rule">
-          <h3 className="text-base font-semibold text-ink">Cấu hình mô hình tóm tắt</h3>
-          <p className="text-sm text-ink-2 mt-1">Chọn mô hình AI dùng để tạo tóm tắt cuộc họp.</p>
-        </div>
-        <div className="px-5 py-5">
+      <section>
+        <h2 className="text-sm font-semibold text-ink tracking-tight">Mô hình</h2>
+        <p className="text-xs text-ink-2 mt-0.5 mb-2">
+          Nhà cung cấp và mô hình dùng để tóm tắt.
+        </p>
+        <div className="app-surface overflow-hidden px-4 py-3 space-y-3">
           <ModelSettingsModal
             ref={modelSettingsRef}
             embedded
@@ -65,18 +64,18 @@ export function SummaryModelSettings() {
             onSave={handleSaveModelConfig}
             skipInitialFetch={true}
           />
-          <div className="mt-6 flex justify-end border-t border-rule pt-4">
-            <Button
+          <div className="flex items-center pt-0.5">
+            <button
               type="button"
-              onClick={handleSaveClick}
+              onClick={() => void handleSaveClick()}
               disabled={isSaving}
-              className="bg-primary hover:bg-primary-hover text-primary-foreground px-4"
+              className="inline-flex h-8 items-center rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
             >
-              {isSaving ? 'Đang lưu…' : 'Lưu'}
-            </Button>
+              {isSaving ? 'Đang lưu...' : 'Lưu'}
+            </button>
           </div>
         </div>
-      </div>
+      </section>
     </div>
   );
 }

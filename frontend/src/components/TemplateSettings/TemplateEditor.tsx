@@ -1,8 +1,7 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Plus, Save, Trash2, Copy, ArrowLeft } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { SectionEditor } from './SectionEditor';
@@ -26,6 +25,13 @@ interface TemplateEditorProps {
   onBack: () => void;
 }
 
+const btnPrimary =
+  'inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground hover:bg-primary-hover disabled:opacity-50';
+const btnOutline =
+  'inline-flex h-8 items-center gap-1.5 rounded-md border border-rule bg-paper-2 px-2.5 text-xs font-medium text-ink-2 hover:bg-secondary hover:text-ink disabled:opacity-50';
+const btnDanger =
+  'inline-flex h-8 items-center gap-1.5 rounded-md bg-destructive px-2.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50';
+
 export function TemplateEditor({
   mode,
   data,
@@ -43,148 +49,136 @@ export function TemplateEditor({
   onCancel,
   onBack,
 }: TemplateEditorProps) {
+  const descriptionRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const el = descriptionRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [data?.description]);
+
   if (!data) return null;
 
   const canSave = data.name.trim() && data.description.trim() && data.sections.length > 0;
 
   return (
-    <div className="flex-1 flex flex-col app-surface overflow-hidden min-w-0">
-      {/* Header */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-rule shrink-0">
-        <div className="flex items-center gap-2">
+    <div className="space-y-6">
+      <section>
+        <div className="flex items-center gap-1.5">
           <button
             type="button"
             onClick={onBack}
-            className="p-1 rounded-md hover:bg-secondary transition-colors"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ink-2 hover:bg-secondary hover:text-ink"
             title="Quay lại danh sách"
           >
-            <ArrowLeft className="w-4 h-4 text-ink-2" />
+            <ArrowLeft className="h-3.5 w-3.5" />
           </button>
-          <h3 className="text-sm font-semibold text-ink">
+          <h2 className="text-sm font-semibold text-ink tracking-tight">
             {mode === 'new' ? 'Tạo mẫu mới' : 'Chỉnh sửa mẫu'}
-          </h3>
+          </h2>
         </div>
-
-        {/* Action bar */}
-        <div className="flex items-center gap-2">
-          {mode === 'new' && (
-            <>
-              <Button variant="ghost" size="sm" onClick={onCancel} className="text-xs">
-                Huỷ
-              </Button>
-              <Button
-                variant="blue"
-                size="sm"
-                onClick={onSave}
-                disabled={!canSave || isSaving}
-                className="text-xs gap-1"
-              >
-                <Save className="w-3.5 h-3.5" />
-                {isSaving ? 'Đang lưu...' : 'Tạo mẫu'}
-              </Button>
-            </>
-          )}
-
-          {mode === 'edit' && (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => selectedInfo && onClone(selectedInfo.id)}
-                className="text-xs gap-1"
-              >
-                <Copy className="w-3.5 h-3.5" />
-                Sao chép
-              </Button>
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => selectedInfo && onDelete(selectedInfo.id)}
-                disabled={isDeleting}
-                className="text-xs gap-1"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                {isDeleting ? 'Đang xóa...' : 'Xóa'}
-              </Button>
-              <Button
-                variant="blue"
-                size="sm"
-                onClick={onSave}
-                disabled={!canSave || isSaving}
-                className="text-xs gap-1"
-              >
-                <Save className="w-3.5 h-3.5" />
-                {isSaving ? 'Đang lưu...' : 'Lưu'}
-              </Button>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Form */}
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        <div className="px-5 py-4 space-y-4">
-          {/* Name */}
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-ink-2">Tên mẫu</label>
+        <p className="text-xs text-ink-2 mt-0.5 mb-2">
+          {mode === 'new'
+            ? 'Đặt tên, mô tả và thêm các phần trước khi lưu.'
+            : 'Sửa tên, mô tả và các phần của mẫu.'}
+        </p>
+        <div className="app-surface overflow-hidden px-4 py-3 space-y-3">
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium text-ink">Tên mẫu</label>
             <Input
               value={data.name}
               onChange={e => onUpdateMeta('name', e.target.value)}
               placeholder="VD: Mẫu kết luận giao ban ACT"
-              className="text-sm"
+              className="h-9 text-sm"
             />
           </div>
-
-          {/* Description */}
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-ink-2">Mô tả</label>
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium text-ink">Mô tả</label>
             <Textarea
+              ref={descriptionRef}
               value={data.description}
               onChange={e => onUpdateMeta('description', e.target.value)}
               placeholder="Mô tả ngắn về mục đích của mẫu này..."
-              className="text-sm min-h-[60px] resize-y"
+              rows={1}
+              className="text-sm min-h-9 resize-none overflow-hidden"
             />
           </div>
-
-          {/* Sections */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-medium text-ink-2">
-                Các phần ({data.sections.length})
-              </label>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onAddSection}
-                className="text-xs h-7 px-2 gap-1"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Thêm phần
-              </Button>
-            </div>
-
-            <div className="space-y-2">
-              {data.sections.map((section, idx) => (
-                <SectionEditor
-                  key={section._key ?? idx}
-                  section={section}
-                  index={idx}
-                  total={data.sections.length}
-                  onChange={(field, value) => onUpdateSection(idx, field, value)}
-                  onMoveUp={() => onMoveSection(idx, 'up')}
-                  onMoveDown={() => onMoveSection(idx, 'down')}
-                  onRemove={() => onRemoveSection(idx)}
-                />
-              ))}
-            </div>
-
-            {data.sections.length === 0 && (
-              <p className="text-xs text-ink-2 text-center py-4">
-                Chưa có phần nào. Thêm phần đầu tiên.
-              </p>
-            )}
-          </div>
         </div>
+      </section>
+
+      <section>
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold text-ink tracking-tight">
+            Các phần ({data.sections.length})
+          </h2>
+          <button type="button" onClick={onAddSection} className={btnOutline}>
+            <Plus className="h-3.5 w-3.5" />
+            Thêm phần
+          </button>
+        </div>
+        <p className="text-xs text-ink-2 mt-0.5 mb-2">
+          Mỗi phần có tiêu đề, chỉ dẫn cho AI và định dạng.
+        </p>
+        <div className="app-surface overflow-hidden divide-y divide-rule">
+          {data.sections.length === 0 ? (
+            <p className="px-4 py-3 text-xs text-ink-2">
+              Chưa có phần nào. Thêm phần đầu tiên.
+            </p>
+          ) : (
+            data.sections.map((section, idx) => (
+              <SectionEditor
+                key={section._key ?? idx}
+                section={section}
+                index={idx}
+                total={data.sections.length}
+                onChange={(field, value) => onUpdateSection(idx, field, value)}
+                onMoveUp={() => onMoveSection(idx, 'up')}
+                onMoveDown={() => onMoveSection(idx, 'down')}
+                onRemove={() => onRemoveSection(idx)}
+              />
+            ))
+          )}
+        </div>
+      </section>
+
+      <div className="flex items-center justify-end gap-1.5">
+        {mode === 'new' && (
+          <>
+            <button type="button" onClick={onCancel} className={btnOutline}>
+              Huỷ
+            </button>
+            <button type="button" onClick={onSave} disabled={!canSave || isSaving} className={btnPrimary}>
+              <Save className="h-3.5 w-3.5" />
+              {isSaving ? 'Đang lưu...' : 'Tạo mẫu'}
+            </button>
+          </>
+        )}
+        {mode === 'edit' && (
+          <>
+            <button
+              type="button"
+              onClick={() => selectedInfo && onClone(selectedInfo.id)}
+              className={btnOutline}
+            >
+              <Copy className="h-3.5 w-3.5" />
+              Sao chép
+            </button>
+            <button
+              type="button"
+              onClick={() => selectedInfo && onDelete(selectedInfo.id)}
+              disabled={isDeleting}
+              className={btnDanger}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {isDeleting ? 'Đang xóa...' : 'Xóa'}
+            </button>
+            <button type="button" onClick={onSave} disabled={!canSave || isSaving} className={btnPrimary}>
+              <Save className="h-3.5 w-3.5" />
+              {isSaving ? 'Đang lưu...' : 'Lưu'}
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

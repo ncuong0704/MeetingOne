@@ -17,11 +17,9 @@ export function AsrVariantNotice({
 
   return (
     <>
-      <p className="text-xs text-gray-500 dark:text-gray-400">{notice.description}</p>
+      <p className="text-xs text-ink-2 leading-snug">{notice.description}</p>
       {notice.warning ? (
-        <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 rounded-md">
-          {notice.warning}
-        </p>
+        <p className="text-xs text-ink-2 leading-snug">{notice.warning}</p>
       ) : null}
     </>
   );

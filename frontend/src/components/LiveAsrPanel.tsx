@@ -164,35 +164,38 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
   const currentStatus = variantStatuses[effectiveVariant];
   const { downloading, progress, error } = downloadState;
 
+  const selectClass =
+    'w-full h-9 px-3 text-sm rounded-md border border-rule bg-paper-2 text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50';
+  const saveClass =
+    'inline-flex h-8 items-center rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground hover:bg-primary-hover disabled:opacity-50';
+  const outlineClass =
+    'inline-flex h-8 items-center rounded-md border border-rule bg-paper-2 px-2.5 text-xs font-medium text-ink hover:bg-secondary disabled:opacity-50';
+
   return (
-    <div className="space-y-4">
-      <p className="text-xs text-ink-2">
-        Dấu câu/viết hoa (CAPU) chỉ áp dụng sau khi kết thúc cuộc họp.
-      </p>
-      <div>
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-ink">Hotkey người nói</p>
+          <p className="mt-0.5 text-xs text-ink-2">Phím 1-9 khi cửa sổ app đang focus.</p>
+        </div>
         <button
           type="button"
           onClick={() => setHotkeyOpen(true)}
           disabled={disabled}
-          className="px-3 py-1.5 text-xs rounded-md border border-input text-ink hover:bg-secondary disabled:opacity-50"
+          className={outlineClass}
         >
-          Cấu hình hotkey người nói
+          Cấu hình
         </button>
-        <p className="mt-1 text-xs text-gray-400">
-          Lúc ghi âm, bấm phím 1–9 (cửa sổ app đang focus) để gán người đang nói.
-        </p>
       </div>
       <SpeakerHotkeyDialog open={hotkeyOpen} onOpenChange={setHotkeyOpen} />
 
-      <div className="space-y-2">
-        <label className="block text-sm font-medium text-ink">
-          Model ASR (ghi âm trực tiếp)
-        </label>
+      <div className="space-y-1.5">
+        <label className="block text-sm font-medium text-ink">Model ASR</label>
         <select
           value={selectedFamily}
           onChange={(e) => setSelectedFamily(e.target.value as AsrModelFamily)}
           disabled={disabled}
-          className="w-full px-3 py-2 text-sm rounded-md border border-input bg-paper-2 text-ink focus:outline-none focus:ring-2 focus-visible:ring-ring disabled:opacity-50"
+          className={selectClass}
         >
           {ASR_MODELS.map((m) => (
             <option key={m.id} value={m.id}>{m.label}</option>
@@ -200,13 +203,13 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
         </select>
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         <label className="block text-sm font-medium text-ink">Biến thể</label>
         <select
           value={effectiveVariant}
           onChange={(e) => setSelectedVariant(e.target.value as ModelVariant)}
           disabled={disabled || availableVariantOptions.length <= 1}
-          className="w-full px-3 py-2 text-sm rounded-md border border-input bg-paper-2 text-ink focus:outline-none focus:ring-2 focus-visible:ring-ring disabled:opacity-50"
+          className={selectClass}
         >
           {availableVariantOptions.map((v) => {
             const size = v.id === 'int8' ? selectedModelInfo?.int8Size : selectedModelInfo?.fullSize;
@@ -216,59 +219,45 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
           })}
         </select>
         <AsrVariantNotice family={selectedFamily} variant={effectiveVariant} path="live" />
-        <div className="flex items-center justify-between p-3 rounded-md border border-rule bg-paper">
-          <div className="flex items-center gap-2">
-            <span className="text-base">🇻🇳</span>
-            <div>
-              {currentStatus.isLoaded && (
-                <span className="text-xs text-green-600 dark:text-green-400 font-medium">✓ Đang dùng</span>
-              )}
-              {currentStatus.hasFiles && !currentStatus.isLoaded && (
-                <span className="text-xs text-yellow-600 dark:text-yellow-400">Đã tải, chưa load</span>
-              )}
-              {!currentStatus.hasFiles && !downloading && (
-                <span className="text-xs text-gray-400">Chưa tải</span>
-              )}
-            </div>
-          </div>
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-xs text-ink-2">
+            {currentStatus.isLoaded && 'Đang dùng'}
+            {currentStatus.hasFiles && !currentStatus.isLoaded && 'Đã tải, chưa load'}
+            {!currentStatus.hasFiles && !downloading && 'Chưa tải'}
+          </span>
           {!currentStatus.hasFiles && !downloading && (
-            <button
-              onClick={handleDownload}
-              disabled={disabled}
-              className="px-3 py-1.5 text-xs rounded-md bg-primary hover:bg-primary-hover disabled:opacity-50 text-primary-foreground font-medium"
-            >
+            <button type="button" onClick={handleDownload} disabled={disabled} className={saveClass}>
               Tải xuống
             </button>
           )}
         </div>
         {downloading && (
           <div className="space-y-1">
-            <div className="flex justify-between text-xs text-gray-500">
-              <span>Đang tải xuống...</span>
-              <span>{progress}%</span>
+            <div className="flex justify-between text-xs text-ink-2">
+              <span>Đang tải</span>
+              <span className="font-mono">{progress}%</span>
             </div>
-            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
-              <div className="bg-primary h-1.5 rounded-full transition-all" style={{ width: `${progress}%` }} />
+            <div className="h-1.5 w-full rounded-full bg-paper-3">
+              <div className="h-1.5 rounded-full bg-primary" style={{ width: `${progress}%` }} />
             </div>
           </div>
         )}
-        {error && <p className="text-xs text-red-500">{error}</p>}
+        {error && <p className="text-xs text-destructive">{error}</p>}
       </div>
 
-      <div className="space-y-2">
-        <label className="block text-sm font-medium text-ink">
-          Phương pháp giải mã
-        </label>
-        <div className="flex gap-2">
+      <div className="space-y-1.5">
+        <label className="block text-sm font-medium text-ink">Phương pháp giải mã</label>
+        <div className="flex gap-1.5">
           {(['greedy_search', 'modified_beam_search'] as DecodingMethod[]).map((m) => (
             <button
               key={m}
+              type="button"
               onClick={() => setDecodingMethod(m)}
               disabled={disabled}
-              className={`px-3 py-1.5 text-sm rounded-md border disabled:opacity-50 ${
+              className={`h-8 px-2.5 text-xs rounded-md border disabled:opacity-50 ${
                 decodingMethod === m
-                  ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/20 text-orange-700'
-                  : 'border-gray-300 dark:border-gray-600 text-gray-600'
+                  ? 'border-primary bg-paper text-ink'
+                  : 'border-rule text-ink-2 hover:bg-secondary'
               }`}
             >
               {m}
@@ -278,12 +267,10 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
       </div>
 
       {decodingMethod === 'modified_beam_search' && (
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           <div className="flex items-center justify-between">
-            <label className="text-sm font-medium text-ink">
-              Số đường giải mã
-            </label>
-            <span className="text-sm font-mono">{numActivePaths}</span>
+            <label className="text-sm font-medium text-ink">Số đường giải mã</label>
+            <span className="text-xs font-mono text-ink-2">{numActivePaths}</span>
           </div>
           <input
             type="range"
@@ -292,17 +279,15 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
             value={numActivePaths}
             onChange={(e) => setNumActivePaths(Number(e.target.value))}
             disabled={disabled}
-            className="w-full accent-orange-500 disabled:opacity-50"
+            className="w-full accent-primary disabled:opacity-50"
           />
         </div>
       )}
 
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         <div className="flex items-center justify-between">
-          <label className="text-sm font-medium text-ink">
-            Độ dài tối đa mỗi đoạn
-          </label>
-          <span className="text-sm font-mono">{maxSegmentSeconds}s</span>
+          <label className="text-sm font-medium text-ink">Độ dài tối đa mỗi đoạn</label>
+          <span className="text-xs font-mono text-ink-2">{maxSegmentSeconds}s</span>
         </div>
         <input
           type="range"
@@ -311,20 +296,16 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
           value={maxSegmentSeconds}
           onChange={(e) => setMaxSegmentSeconds(Number(e.target.value))}
           disabled={disabled}
-          className="w-full accent-blue-500 disabled:opacity-50"
+          className="w-full accent-primary disabled:opacity-50"
         />
       </div>
 
-      <div className="flex items-center gap-3 pt-1">
-        <button
-          onClick={handleSave}
-          disabled={isSaving || disabled}
-          className="px-4 py-2 text-sm rounded-md bg-primary hover:bg-primary-hover disabled:opacity-50 text-primary-foreground font-medium"
-        >
-          {isSaving ? 'Đang lưu...' : 'Lưu cấu hình ghi trực tiếp'}
+      <div className="flex items-center gap-3 pt-0.5">
+        <button type="button" onClick={handleSave} disabled={isSaving || disabled} className={saveClass}>
+          {isSaving ? 'Đang lưu...' : 'Lưu'}
         </button>
         {saveMessage && (
-          <span className={`text-xs ${saveMessage.startsWith('Lỗi') ? 'text-red-500' : 'text-green-600'}`}>
+          <span className={`text-xs ${saveMessage.startsWith('Lỗi') ? 'text-destructive' : 'text-ink-2'}`}>
             {saveMessage}
           </span>
         )}

@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { Plus, X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { buildItemFormat, parseTableColumns } from './tableItemFormat';
 
@@ -39,7 +38,7 @@ export function TableColumnsEditor({ value, onChange, disabled = false }: TableC
   };
 
   return (
-    <div className="space-y-2 rounded-md border border-rule bg-paper p-3">
+    <div className="space-y-2">
       {columns.length === 0 ? (
         <p className="text-xs text-ink-2">
           Chưa có cột nào. Bấm &quot;Thêm cột&quot; để định nghĩa tiêu đề bảng.
@@ -53,34 +52,32 @@ export function TableColumnsEditor({ value, onChange, disabled = false }: TableC
                 value={column}
                 onChange={e => updateColumn(index, e.target.value)}
                 placeholder={`Tiêu đề cột ${index + 1}`}
-                className="text-sm flex-1"
+                className="h-9 text-sm flex-1"
                 disabled={disabled}
               />
               <button
                 type="button"
                 onClick={() => removeColumn(index)}
                 disabled={disabled}
-                className="p-1.5 rounded-md text-ink-2 hover:text-destructive hover:bg-destructive/10 disabled:opacity-40 transition-colors"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ink-2 hover:text-destructive hover:bg-destructive/10 disabled:opacity-40"
                 title="Xóa cột"
               >
-                <X className="w-3.5 h-3.5" />
+                <X className="h-3.5 w-3.5" />
               </button>
             </div>
           ))}
         </div>
       )}
 
-      <Button
+      <button
         type="button"
-        variant="outline"
-        size="sm"
         onClick={addColumn}
         disabled={disabled}
-        className="text-xs h-8 gap-1"
+        className="inline-flex h-8 items-center gap-1.5 rounded-md border border-rule bg-paper-2 px-2.5 text-xs font-medium text-ink-2 hover:bg-secondary hover:text-ink disabled:opacity-50"
       >
-        <Plus className="w-3.5 h-3.5" />
+        <Plus className="h-3.5 w-3.5" />
         Thêm cột
-      </Button>
+      </button>
     </div>
   );
 }

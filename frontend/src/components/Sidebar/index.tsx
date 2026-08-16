@@ -19,10 +19,12 @@ import { useImportDialog } from '@/contexts/ImportDialogContext';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
+  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { VisuallyHidden } from "@/components/ui/visually-hidden"
+import { Button } from '../ui/button';
 
 import { MessageToast } from '../MessageToast';
 import Logo from '../Logo';
@@ -855,49 +857,45 @@ const Sidebar: React.FC = () => {
       <Dialog open={editModalState.isOpen} onOpenChange={(open) => {
         if (!open) handleEditCancel();
       }}>
-        <DialogContent className="sm:max-w-[425px]">
-          <VisuallyHidden>
-            <DialogTitle>Chỉnh sửa tiêu đề cuộc họp</DialogTitle>
-          </VisuallyHidden>
-          <div className="py-4">
-            <h3 className="text-lg font-semibold mb-4">Chỉnh sửa tiêu đề cuộc họp</h3>
-            <div className="space-y-4">
-              <div>
-                <label htmlFor="meeting-title" className="block text-sm font-medium text-foreground mb-2">
-                  Tiêu đề cuộc họp
-                </label>
-                <input
-                  id="meeting-title"
-                  type="text"
-                  value={editingTitle}
-                  onChange={(e) => setEditingTitle(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      handleEditConfirm();
-                    } else if (e.key === 'Escape') {
-                      handleEditCancel();
-                    }
-                  }}
-                  className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  placeholder="Nhập tiêu đề cuộc họp"
-                  autoFocus
-                />
-              </div>
-            </div>
+        <DialogContent className="min-w-0 w-full max-w-md gap-0 overflow-hidden p-0">
+          <DialogHeader className="space-y-0 px-5 pb-4 pt-5 pr-12 text-left">
+            <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-2">
+              Cuộc họp
+            </p>
+            <DialogTitle className="mt-1 text-base font-semibold tracking-[-0.02em] text-ink">
+              Chỉnh sửa tiêu đề cuộc họp
+            </DialogTitle>
+            <DialogDescription className="mt-1.5 text-xs text-ink-2">
+              Tên này hiện trên danh sách và trang chi tiết.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="px-5 pb-4">
+            <Input
+              id="meeting-title"
+              type="text"
+              value={editingTitle}
+              aria-label="Tiêu đề cuộc họp"
+              onChange={(e) => setEditingTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  handleEditConfirm();
+                } else if (e.key === 'Escape') {
+                  handleEditCancel();
+                }
+              }}
+              placeholder="Nhập tiêu đề cuộc họp"
+              autoFocus
+            />
           </div>
-          <DialogFooter>
-            <button
-              onClick={handleEditCancel}
-              className="px-4 py-2 text-sm font-medium text-foreground bg-secondary hover:bg-muted rounded-md transition-colors"
-            >
+
+          <DialogFooter className="border-t border-rule bg-paper px-5 py-3">
+            <Button variant="outline" size="sm" onClick={handleEditCancel}>
               Hủy
-            </button>
-            <button
-              onClick={handleEditConfirm}
-              className="px-4 py-2 text-sm font-medium text-primary-foreground bg-primary hover:bg-primary-hover rounded-md transition-colors"
-            >
+            </Button>
+            <Button size="sm" onClick={handleEditConfirm}>
               Lưu
-            </button>
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
