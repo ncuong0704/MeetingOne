@@ -7,7 +7,6 @@ import { Switch } from './ui/switch';
 import { Button } from './ui/button';
 import { useConfig } from '@/contexts/ConfigContext';
 import { persistSummaryModelConfig } from '@/lib/summaryModelConfigSync';
-import { TOUR_TARGETS } from '@/components/UserGuide/tourTargets';
 
 export function SummaryModelSettings() {
   const { modelConfig, setModelConfig, isAutoSummary, toggleIsAutoSummary } = useConfig();
@@ -43,7 +42,6 @@ export function SummaryModelSettings() {
         </div>
         <div
           className="flex items-center justify-between px-5 py-4"
-          data-tour={TOUR_TARGETS.SETTINGS_AUTO_SUMMARY}
         >
           <div>
             <p className="text-base font-medium text-gray-800">Bật tóm tắt tự động</p>

@@ -69,7 +69,6 @@ interface SectionInstructionEditorProps {
   value: string;
   onChange: (markdown: string) => void;
   disabled?: boolean;
-  dataTour?: string;
 }
 
 function TemplateRemoveBlockItem(props: DragHandleMenuProps) {
@@ -92,12 +91,10 @@ function InnerEditor({
   initialBlocks,
   onChange,
   disabled,
-  dataTour,
 }: {
   initialBlocks: EditorBlock[];
   onChange: (markdown: string) => void;
   disabled?: boolean;
-  dataTour?: string;
 }) {
   const editor = useCreateBlockNote({
     schema,
@@ -126,10 +123,7 @@ function InnerEditor({
   }, [editor]);
 
   return (
-    <div
-      className="template-settings-blocknote border border-gray-200 rounded-md min-h-[80px] text-sm overflow-visible [&_.bn-editor]:px-2 [&_.bn-editor]:py-1.5"
-      data-tour={dataTour}
-    >
+    <div className="template-settings-blocknote border border-gray-200 rounded-md min-h-[80px] text-sm overflow-visible [&_.bn-editor]:px-2 [&_.bn-editor]:py-1.5">
       <BlockNoteView
         editor={editor}
         editable={!disabled}
@@ -189,7 +183,6 @@ export default function SectionInstructionEditor({
   value,
   onChange,
   disabled = false,
-  dataTour,
 }: SectionInstructionEditorProps) {
   // Parser-only editor — never rendered, only used to turn the stored markdown
   // string into blocks once, the same pattern BlockNoteSummaryView.tsx uses.
@@ -224,5 +217,5 @@ export default function SectionInstructionEditor({
     );
   }
 
-  return <InnerEditor initialBlocks={initialBlocks} onChange={onChange} disabled={disabled} dataTour={dataTour} />;
+  return <InnerEditor initialBlocks={initialBlocks} onChange={onChange} disabled={disabled} />;
 }

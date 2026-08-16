@@ -14,11 +14,6 @@ import { PromptSettings } from '@/components/PromptSettings';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
-import { TOUR_TARGETS } from '@/components/UserGuide/tourTargets';
-import {
-  SETTINGS_TOUR_TAB_EVENT,
-  type SettingsTourTab,
-} from '@/components/UserGuide/settingsTourNavigation';
 
 const TABS = [
   { value: 'general',            label: 'Chung',      icon: Settings2,      desc: 'Ghi âm, lưu trữ & tùy chọn' },
@@ -29,14 +24,6 @@ const TABS = [
 ] as const;
 
 type TabValue = typeof TABS[number]['value'];
-
-function getTabTourTarget(value: TabValue): string | undefined {
-  if (value === 'general') return TOUR_TARGETS.SETTINGS_TAB_GENERAL;
-  if (value === 'summaryModels') return TOUR_TARGETS.SETTINGS_TAB_SUMMARY;
-  if (value === 'templates') return TOUR_TARGETS.SETTINGS_TAB_TEMPLATES;
-  if (value === 'promptSettings') return TOUR_TARGETS.SETTINGS_TAB_PROMPT;
-  return undefined;
-}
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -61,18 +48,6 @@ export default function SettingsPage() {
     };
     loadTranscriptConfig();
   }, [setTranscriptModelConfig]);
-
-  useEffect(() => {
-    const handleTourTab = (event: Event) => {
-      const tab = (event as CustomEvent<{ tab: SettingsTourTab }>).detail?.tab;
-      if (tab) {
-        setActiveTab(tab);
-      }
-    };
-
-    window.addEventListener(SETTINGS_TOUR_TAB_EVENT, handleTourTab);
-    return () => window.removeEventListener(SETTINGS_TOUR_TAB_EVENT, handleTourTab);
-  }, []);
 
   return (
     <div className="h-screen bg-gray-50 flex flex-col overflow-hidden">
@@ -101,7 +76,6 @@ export default function SettingsPage() {
                 <button
                   key={value}
                   onClick={() => setActiveTab(value)}
-                  data-tour={getTabTourTarget(value)}
                   className={cn(
                     'relative flex items-center gap-2 px-5 py-3 text-base font-medium rounded-t-lg transition-colors duration-150 border border-transparent',
                     isActive

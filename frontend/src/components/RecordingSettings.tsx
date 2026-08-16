@@ -5,7 +5,6 @@ import { invoke } from '@tauri-apps/api/core';
 import { DeviceSelection, SelectedDevices } from '@/components/DeviceSelection';
 import Analytics from '@/lib/analytics';
 import { toast } from 'sonner';
-import { TOUR_TARGETS } from '@/components/UserGuide/tourTargets';
 import {
   AUDIO_CAPTURE_SOURCE_OPTIONS,
   AudioCaptureSource,
@@ -220,7 +219,6 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
               <button
                 onClick={handleSelectFolder}
                 disabled={saving}
-                data-tour={TOUR_TARGETS.SETTINGS_SELECT_FOLDER}
                 className="flex items-center justify-center gap-2 px-3.5 py-2 text-sm font-medium text-white bg-[#16478e] border border-[#16478e] rounded-lg hover:bg-[#123a75] transition-colors shadow-sm disabled:opacity-50"
               >
                 <FolderInput className="w-4 h-4" />
@@ -228,7 +226,6 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
               </button>
               <button
                 onClick={handleOpenFolder}
-                data-tour={TOUR_TARGETS.SETTINGS_OPEN_FOLDER}
                 className="flex items-center justify-center gap-2 px-3.5 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors shadow-sm"
               >
                 <FolderOpen className="w-4 h-4" />
@@ -259,7 +256,6 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
 
         <div
           className="flex items-center justify-between px-5 py-4 border-b border-gray-50"
-          data-tour={TOUR_TARGETS.SETTINGS_AUTO_SAVE}
         >
           <div>
             <p className="text-base font-medium text-gray-800">Tự động lưu</p>

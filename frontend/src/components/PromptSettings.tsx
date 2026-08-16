@@ -10,7 +10,6 @@ import {
   savePromptSettings,
   type PromptConfig,
 } from '@/services/promptService';
-import { TOUR_TARGETS } from '@/components/UserGuide/tourTargets';
 
 const PROMPT_PLACEHOLDER_INFO = [
   {
@@ -113,7 +112,7 @@ export function PromptSettings() {
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
       <div className="px-5 py-4 flex items-start justify-between gap-4">
-        <div className="flex-1 min-w-0 space-y-2" data-tour={TOUR_TARGETS.PROMPT_HEADER}>
+        <div className="flex-1 min-w-0 space-y-2">
           <div className="flex items-center gap-2 flex-wrap">
             <h3 className="text-base font-semibold text-gray-900">Prompt AI</h3>
             <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-100">
@@ -161,7 +160,7 @@ export function PromptSettings() {
         </div>
       </div>
 
-      <div className="px-5 pb-5 min-h-[200px]" data-tour={TOUR_TARGETS.PROMPT_EDITOR}>
+      <div className="px-5 pb-5 min-h-[200px]">
         <PromptBlockNoteEditor
           key={`systemPromptFinalTemplate-${editorVersion}`}
           value={config.systemPromptFinalTemplate}

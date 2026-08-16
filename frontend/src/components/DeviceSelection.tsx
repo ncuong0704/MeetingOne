@@ -8,7 +8,6 @@ import { AudioBackendSelector } from './AudioBackendSelector';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import Analytics from '@/lib/analytics';
-import { TOUR_TARGETS } from '@/components/UserGuide/tourTargets';
 import { AudioCaptureSource, wantsMicrophone, wantsSystem } from '@/lib/audioCaptureSource';
 
 export interface AudioDevice {
@@ -269,7 +268,7 @@ export function DeviceSelection({
         </div>
       )}
 
-      <div className="space-y-3" data-tour={TOUR_TARGETS.SETTINGS_DEVICES}>
+      <div className="space-y-3">
         {/* Microphone Selection */}
         <div className="space-y-2">
           <div className="flex items-center gap-2">
@@ -278,28 +277,30 @@ export function DeviceSelection({
               Micro
             </Label>
           </div>
-          <div className="flex items-center gap-2">
-            <Select
-              value={selectedDevices.micDevice || 'default'}
-              onValueChange={handleMicDeviceChange}
-              disabled={disabled || !wantsMicrophone(audioSource)}
-            >
-              <SelectTrigger id="mic-selection" className="w-full">
-                <SelectValue placeholder="Chọn micro" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="default">Micro mặc định</SelectItem>
-                {inputDevices.map((device) => (
-                  <SelectItem
-                    key={device.name}
-                    value={`${device.name} (${device.device_type.toLowerCase()})`}
+              <div className="flex items-center gap-2">
+                <div className="min-w-0 flex-1">
+                  <Select
+                    value={selectedDevices.micDevice || 'default'}
+                    onValueChange={handleMicDeviceChange}
+                    disabled={disabled || !wantsMicrophone(audioSource)}
                   >
-                    {device.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <button
+                    <SelectTrigger id="mic-selection" className="w-full">
+                      <SelectValue placeholder="Chọn micro" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="default">Micro mặc định</SelectItem>
+                      {inputDevices.map((device) => (
+                        <SelectItem
+                          key={device.name}
+                          value={`${device.name} (${device.device_type.toLowerCase()})`}
+                        >
+                          {device.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <button
               type="button"
               onClick={() => setQualityOpen(true)}
               disabled={disabled || !wantsMicrophone(audioSource)}

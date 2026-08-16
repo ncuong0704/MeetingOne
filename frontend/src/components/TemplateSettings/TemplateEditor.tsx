@@ -7,7 +7,6 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { SectionEditor } from './SectionEditor';
 import type { TemplateData, TemplateInfo, TemplateSection } from './types';
-import { TOUR_TARGETS } from '@/components/UserGuide/tourTargets';
 
 interface TemplateEditorProps {
   mode: 'edit' | 'new';
@@ -56,7 +55,6 @@ export function TemplateEditor({
           <button
             type="button"
             onClick={onBack}
-            data-tour={TOUR_TARGETS.TEMPLATE_BACK}
             className="p-1 rounded hover:bg-gray-100 transition-colors"
             title="Quay lại danh sách"
           >
@@ -79,7 +77,6 @@ export function TemplateEditor({
                 size="sm"
                 onClick={onSave}
                 disabled={!canSave || isSaving}
-                data-tour={TOUR_TARGETS.TEMPLATE_SAVE_NEW}
                 className="text-xs gap-1"
               >
                 <Save className="w-3.5 h-3.5" />
@@ -94,7 +91,6 @@ export function TemplateEditor({
                 variant="outline"
                 size="sm"
                 onClick={() => selectedInfo && onClone(selectedInfo.id)}
-                data-tour={TOUR_TARGETS.TEMPLATE_CLONE}
                 className="text-xs gap-1"
               >
                 <Copy className="w-3.5 h-3.5" />
@@ -115,7 +111,6 @@ export function TemplateEditor({
                 size="sm"
                 onClick={onSave}
                 disabled={!canSave || isSaving}
-                data-tour={TOUR_TARGETS.TEMPLATE_SAVE_NEW}
                 className="text-xs gap-1"
               >
                 <Save className="w-3.5 h-3.5" />
@@ -130,7 +125,7 @@ export function TemplateEditor({
       <div className="flex-1 min-h-0 overflow-y-auto">
         <div className="px-5 py-4 space-y-4">
           {/* Name */}
-          <div className="space-y-1" data-tour={TOUR_TARGETS.TEMPLATE_NAME}>
+          <div className="space-y-1">
             <label className="text-xs font-medium text-gray-600">Tên mẫu</label>
             <Input
               value={data.name}
@@ -141,7 +136,7 @@ export function TemplateEditor({
           </div>
 
           {/* Description */}
-          <div className="space-y-1" data-tour={TOUR_TARGETS.TEMPLATE_DESCRIPTION}>
+          <div className="space-y-1">
             <label className="text-xs font-medium text-gray-600">Mô tả</label>
             <Textarea
               value={data.description}
@@ -161,7 +156,6 @@ export function TemplateEditor({
                 variant="outline"
                 size="sm"
                 onClick={onAddSection}
-                data-tour={TOUR_TARGETS.TEMPLATE_ADD_SECTION}
                 className="text-xs h-7 px-2 gap-1"
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -176,18 +170,6 @@ export function TemplateEditor({
                   section={section}
                   index={idx}
                   total={data.sections.length}
-                  tourTargets={
-                    idx === 0
-                      ? {
-                          section: TOUR_TARGETS.TEMPLATE_SECTION_FIRST,
-                          title: TOUR_TARGETS.TEMPLATE_SECTION_TITLE,
-                          instruction: TOUR_TARGETS.TEMPLATE_SECTION_INSTRUCTION,
-                          format: TOUR_TARGETS.TEMPLATE_SECTION_FORMAT,
-                        }
-                      : idx === 1
-                        ? { section: TOUR_TARGETS.TEMPLATE_SECTION_SECOND }
-                        : undefined
-                  }
                   onChange={(field, value) => onUpdateSection(idx, field, value)}
                   onMoveUp={() => onMoveSection(idx, 'up')}
                   onMoveDown={() => onMoveSection(idx, 'down')}

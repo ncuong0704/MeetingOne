@@ -28,7 +28,6 @@ import { MessageToast } from '../MessageToast';
 import Logo from '../Logo';
 import Info from '../Info';
 import { UserGuideButton } from '../UserGuide';
-import { TOUR_TARGETS } from '../UserGuide/tourTargets';
 import { ComplianceNotification } from '../ComplianceNotification';
 import { Input } from '../ui/input';
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '../ui/input-group';
@@ -527,7 +526,6 @@ const Sidebar: React.FC = () => {
             <TooltipTrigger asChild>
               <button
                 onClick={() => router.push('/settings')}
-                data-tour={TOUR_TARGETS.SETTINGS_SIDEBAR_BUTTON}
                 className={`p-2 rounded-lg transition-colors duration-150 ${isSettingsPage ? 'bg-gray-100' : 'hover:bg-gray-100'
                   }`}
               >
@@ -672,7 +670,6 @@ const Sidebar: React.FC = () => {
         onClick={toggleCollapse}
         className="absolute -right-6 top-20 z-50 p-1 bg-white hover:bg-gray-100 rounded-full shadow-lg border"
         style={{ transform: 'translateX(50%)' }}
-        data-tour={TOUR_TARGETS.SIDEBAR_TOGGLE}
         aria-label={isCollapsed ? 'Mở rộng sidebar' : 'Thu gọn sidebar'}
       >
         {isCollapsed ? (
@@ -685,7 +682,6 @@ const Sidebar: React.FC = () => {
       <div
         className={`h-screen bg-white border-r shadow-sm flex flex-col transition-all duration-300 ${isCollapsed ? 'w-16' : 'w-64'
           }`}
-        data-tour={TOUR_TARGETS.SIDEBAR}
       >
         {/*  Header with traffic light spacing */}
         <div className="flex-shrink-0 h-22 flex items-center">
@@ -700,7 +696,7 @@ const Sidebar: React.FC = () => {
                 {/* Logo thương hiệu trong Logo.tsx (ACT MeetingOne) */}
                 <Logo isCollapsed={isCollapsed} />
 
-                <div className="relative mb-1" data-tour={TOUR_TARGETS.SIDEBAR_SEARCH}>
+                <div className="relative mb-1">
                   <InputGroup >
                     <InputGroupInput placeholder='Tìm kiếm nội dung cuộc họp...' value={searchQuery}
                       onChange={(e) => handleSearchChange(e.target.value)}
@@ -747,7 +743,6 @@ const Sidebar: React.FC = () => {
             {/* Meeting Notes folder header - fixed */}
             {!isCollapsed && (
               <div
-                data-tour={TOUR_TARGETS.MEETING_LIST}
                 className="flex-1 flex flex-col min-h-0"
               >
                 <div className="flex-shrink-0">
@@ -784,7 +779,6 @@ const Sidebar: React.FC = () => {
         {!isCollapsed && (
           <div
             className="flex-shrink-0 p-2.5 border-t border-gray-100 space-y-1"
-            data-tour={TOUR_TARGETS.SIDEBAR_ACTIONS}
           >
             {/* Primary: Recording */}
             <button
@@ -815,7 +809,6 @@ const Sidebar: React.FC = () => {
             {/* Settings */}
             <button
               onClick={() => router.push('/settings')}
-              data-tour={TOUR_TARGETS.SETTINGS_SIDEBAR_BUTTON}
               className={`w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
                 pathname === '/settings'
                   ? 'bg-gray-200 text-gray-800'

@@ -10,7 +10,6 @@ import { usePermissionCheck } from '@/hooks/usePermissionCheck';
 import { ModalType } from '@/hooks/useModalState';
 import { useIsLinux } from '@/hooks/usePlatform';
 import { useMemo, useCallback, useState } from 'react';
-import { TOUR_TARGETS } from '@/components/UserGuide/tourTargets';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import { SpeakerHotkeyDialog } from '@/components/SpeakerHotkeyDialog';
@@ -122,7 +121,6 @@ export function TranscriptPanel({
       <div className="pb-20 flex justify-center px-4">
         <div
           className="w-full max-w-[750px] min-h-[200px]"
-          data-tour={TOUR_TARGETS.MAIN_CONTENT}
         >
           {!isRecording && !isChecking && !isLinux && (
             <div className="flex justify-center pt-4">

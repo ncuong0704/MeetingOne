@@ -30,12 +30,6 @@ interface SectionEditorProps {
   index: number;
   total: number;
   disabled?: boolean;
-  tourTargets?: {
-    section?: string;
-    title?: string;
-    instruction?: string;
-    format?: string;
-  };
   onChange: (field: keyof TemplateSection, value: string) => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
@@ -47,17 +41,13 @@ export function SectionEditor({
   index,
   total,
   disabled = false,
-  tourTargets,
   onChange,
   onMoveUp,
   onMoveDown,
   onRemove,
 }: SectionEditorProps) {
   return (
-    <div
-      className="border border-gray-200 rounded-lg p-4 bg-white space-y-3"
-      data-tour={tourTargets?.section}
-    >
+    <div className="border border-gray-200 rounded-lg p-4 bg-white space-y-3">
       {/* Header row */}
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
@@ -108,7 +98,7 @@ export function SectionEditor({
       </div>
 
       {/* Title */}
-      <div className="space-y-1" data-tour={tourTargets?.title}>
+      <div className="space-y-1">
         <label className="text-xs font-medium text-gray-600">Tiêu đề</label>
         <Input
           value={section.title}
@@ -126,7 +116,6 @@ export function SectionEditor({
           value={section.instruction}
           onChange={md => onChange('instruction', md)}
           disabled={disabled}
-          dataTour={tourTargets?.instruction}
         />
       </div>
 
@@ -138,7 +127,7 @@ export function SectionEditor({
           onValueChange={val => onChange('format', val)}
           disabled={disabled}
         >
-          <SelectTrigger className="text-sm h-9" data-tour={tourTargets?.format}>
+          <SelectTrigger className="text-sm h-9">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

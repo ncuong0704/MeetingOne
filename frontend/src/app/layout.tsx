@@ -26,7 +26,6 @@ import { isAudioExtension, getAudioFormatsDisplayList } from '@/constants/audioF
 import { getBrowserOnboardingCompleted, isTauriRuntime } from '@/lib/tauriRuntime'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import { LoginPage } from '@/components/auth/LoginPage'
-import { UserGuideProvider } from '@/contexts/UserGuideContext'
 
 
 const sourceSans3 = Source_Sans_3({
@@ -254,7 +253,6 @@ function AppRoot({ children }: { children: React.ReactNode }) {
             <OnboardingProvider>
               <SidebarProvider>
                 <TooltipProvider>
-                  <UserGuideProvider>
                   <RecordingPostProcessingProvider>
                     <ImportDialogProvider onOpen={handleOpenImportDialog}>
                         <DownloadProgressToastProvider />
@@ -287,7 +285,6 @@ function AppRoot({ children }: { children: React.ReactNode }) {
                         />
                     </ImportDialogProvider>
                   </RecordingPostProcessingProvider>
-                  </UserGuideProvider>
                 </TooltipProvider>
               </SidebarProvider>
             </OnboardingProvider>

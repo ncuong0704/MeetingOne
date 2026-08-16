@@ -6,11 +6,6 @@ import { Button } from '@/components/ui/button';
 import { TemplateList } from './TemplateList';
 import { TemplateEditor } from './TemplateEditor';
 import { useTemplateSettings } from './useTemplateSettings';
-import {
-  TEMPLATE_TOUR_EVENT,
-  type TemplateTourAction,
-  type TemplateTourEventDetail,
-} from '@/components/UserGuide/templateTourNavigation';
 
 function DeleteConfirmDialog({
   templateName,
@@ -50,69 +45,11 @@ function DeleteConfirmDialog({
 export function TemplateSettings() {
   const state = useTemplateSettings();
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
-  const {
-    loadTemplates,
-    closeEditor,
-    startNewTemplate,
-    addSection,
-    ensureMinSections,
-    openTemplate,
-    cloneTemplate,
-    saveTemplate,
-  } = state;
+  const { loadTemplates } = state;
 
   useEffect(() => {
     loadTemplates();
   }, [loadTemplates]);
-
-  useEffect(() => {
-    const handleTourAction = async (event: Event) => {
-      const detail = (event as CustomEvent<TemplateTourEventDetail>).detail;
-      if (!detail?.action) return;
-
-      try {
-        switch (detail.action.type) {
-          case 'showList':
-            closeEditor();
-            break;
-          case 'startNew':
-            startNewTemplate();
-            break;
-          case 'addSection':
-            addSection();
-            break;
-          case 'ensureMinSections':
-            ensureMinSections(detail.action.count);
-            break;
-          case 'openTemplate':
-            await openTemplate(detail.action.templateId);
-            break;
-          case 'cloneTemplate':
-            await cloneTemplate(detail.action.templateId);
-            break;
-          case 'saveTemplate':
-            await saveTemplate();
-            break;
-          case 'closeEditor':
-            closeEditor();
-            break;
-        }
-      } finally {
-        detail.resolve?.();
-      }
-    };
-
-    window.addEventListener(TEMPLATE_TOUR_EVENT, handleTourAction);
-    return () => window.removeEventListener(TEMPLATE_TOUR_EVENT, handleTourAction);
-  }, [
-    addSection,
-    cloneTemplate,
-    saveTemplate,
-    closeEditor,
-    ensureMinSections,
-    openTemplate,
-    startNewTemplate,
-  ]);
 
   const deleteTargetInfo = deleteTargetId
     ? state.templates.find(t => t.id === deleteTargetId)

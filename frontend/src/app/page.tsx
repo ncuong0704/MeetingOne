@@ -19,7 +19,6 @@ import { useRecordingStop } from '@/hooks/useRecordingStop';
 import { useTranscriptRecovery } from '@/hooks/useTranscriptRecovery';
 import { TranscriptRecovery } from '@/components/TranscriptRecovery';
 import { indexedDBService } from '@/services/indexedDBService';
-import { TOUR_TARGETS } from '@/components/UserGuide/tourTargets';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 
@@ -233,7 +232,6 @@ export default function Home() {
                 <div className="w-2/3 max-w-[750px] flex justify-center pointer-events-auto">
                   <div
                     className="bg-white rounded-full shadow-lg flex items-center"
-                    data-tour={TOUR_TARGETS.RECORDING_CONTROLS}
                   >
                     <RecordingControls
                       isRecording={recordingState.isRecording}
