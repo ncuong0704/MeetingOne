@@ -6,6 +6,13 @@ import { Popover, PopoverAnchor, PopoverContent } from './ui/popover';
 import { usePlaybackFollowScroll } from '@/hooks/usePlaybackFollowScroll';
 import { DiarizationAPI } from '@/lib/asr';
 import { cleanStopWords, endsSentence, groupBySpeaker } from '@/lib/transcriptDisplay';
+import {
+    directoryFilterQuery,
+    formatDirectorySpeakerLabel,
+    getSpeakerDirectory,
+    type DirectorySpeaker,
+} from '@/lib/speakerDirectory';
+import { SpeakerNameCombobox } from './SpeakerNameCombobox';
 
 export interface FlowingTranscriptViewProps {
     segments: TranscriptSegmentData[];
@@ -169,13 +176,21 @@ function SpeakerLabel({
     const [open, setOpen] = useState(false);
     const [value, setValue] = useState(name);
     const [busy, setBusy] = useState(false);
+    const [people, setPeople] = useState<DirectorySpeaker[]>([]);
 
     useEffect(() => {
         setValue(name);
     }, [name]);
 
-    const saveRename = async () => {
-        const trimmed = value.trim();
+    useEffect(() => {
+        if (!open) return;
+        getSpeakerDirectory()
+            .then(setPeople)
+            .catch(() => setPeople([]));
+    }, [open]);
+
+    const saveRename = async (raw = value) => {
+        const trimmed = raw.trim();
         if (!trimmed || trimmed === name) {
             setOpen(false);
             return;
@@ -222,18 +237,28 @@ function SpeakerLabel({
                         {name}
                     </button>
                 </PopoverAnchor>
-                <PopoverContent className="w-56 p-2">
-                    <input
+                <PopoverContent
+                    className="w-72 p-2"
+                    onPointerDownOutside={(event) => {
+                        if ((event.target as HTMLElement | null)?.closest('[data-speaker-suggestions]')) {
+                            event.preventDefault();
+                        }
+                    }}
+                    onFocusOutside={(event) => {
+                        if ((event.target as HTMLElement | null)?.closest('[data-speaker-suggestions]')) {
+                            event.preventDefault();
+                        }
+                    }}
+                >
+                    <SpeakerNameCombobox
                         value={value}
-                        onChange={(e) => setValue(e.target.value)}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                                e.preventDefault();
-                                void saveRename();
-                            }
-                        }}
-                        className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                        people={people}
                         disabled={busy}
+                        placeholder="Gõ tên hoặc chọn từ danh sách"
+                        filterQuery={directoryFilterQuery(value, name, people)}
+                        onChange={setValue}
+                        onCommit={() => void saveRename()}
+                        onSelectPerson={(person) => void saveRename(formatDirectorySpeakerLabel(person))}
                     />
                     <button
                         type="button"

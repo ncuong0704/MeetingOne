@@ -5,6 +5,7 @@
 pub mod asr_provider;
 pub mod engine;
 pub mod live_speaker;
+pub mod speaker_directory;
 pub mod provider;
 pub mod streaming_worker;
 pub mod worker;

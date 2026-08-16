@@ -16,6 +16,8 @@ import {
   saveSpeakerHotkeys,
   SpeakerHotkeys,
 } from '@/lib/speakerHotkeys';
+import { getSpeakerDirectory, type DirectorySpeaker } from '@/lib/speakerDirectory';
+import { SpeakerNameCombobox } from '@/components/SpeakerNameCombobox';
 
 interface SpeakerHotkeyDialogProps {
   open: boolean;
@@ -24,6 +26,7 @@ interface SpeakerHotkeyDialogProps {
 
 export function SpeakerHotkeyDialog({ open, onOpenChange }: SpeakerHotkeyDialogProps) {
   const [slots, setSlots] = useState<SpeakerHotkeys>(emptySpeakerHotkeys);
+  const [people, setPeople] = useState<DirectorySpeaker[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,6 +36,9 @@ export function SpeakerHotkeyDialog({ open, onOpenChange }: SpeakerHotkeyDialogP
     getSpeakerHotkeys()
       .then(setSlots)
       .catch((e) => setError(String(e)));
+    getSpeakerDirectory()
+      .then(setPeople)
+      .catch(() => setPeople([]));
   }, [open]);
 
   const handleSave = async () => {
@@ -51,7 +57,24 @@ export function SpeakerHotkeyDialog({ open, onOpenChange }: SpeakerHotkeyDialogP
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent
+        className="max-w-md"
+        onPointerDownOutside={(event) => {
+          if ((event.target as HTMLElement | null)?.closest('[data-speaker-suggestions]')) {
+            event.preventDefault();
+          }
+        }}
+        onFocusOutside={(event) => {
+          if ((event.target as HTMLElement | null)?.closest('[data-speaker-suggestions]')) {
+            event.preventDefault();
+          }
+        }}
+        onInteractOutside={(event) => {
+          if ((event.target as HTMLElement | null)?.closest('[data-speaker-suggestions]')) {
+            event.preventDefault();
+          }
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Cấu hình phím tắt người nói</DialogTitle>
           <DialogDescription>
@@ -68,14 +91,13 @@ export function SpeakerHotkeyDialog({ open, onOpenChange }: SpeakerHotkeyDialogP
             <div key={key} className="grid grid-cols-[2.5rem_3.5rem_1fr] gap-2 items-center">
               <span className="text-center text-sm text-gray-600">{key}</span>
               <span className="text-center text-sm font-semibold text-blue-600">Num {key}</span>
-              <input
-                type="text"
+              <SpeakerNameCombobox
                 value={slots[key] ?? ''}
                 placeholder={`Nhập tên cho phím ${key}...`}
-                onChange={(e) =>
-                  setSlots((prev) => ({ ...prev, [key]: e.target.value }))
+                people={people}
+                onChange={(next) =>
+                  setSlots((prev) => ({ ...prev, [key]: next }))
                 }
-                className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           ))}

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Settings2, Database as DatabaseIcon, SparkleIcon, LayoutTemplate, MessageSquareText } from 'lucide-react';
+import { ArrowLeft, Settings2, Database as DatabaseIcon, SparkleIcon, LayoutTemplate, MessageSquareText, Users } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { invoke } from '@tauri-apps/api/core';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -11,12 +11,14 @@ import { TranscriptSettings } from '@/components/TranscriptSettings';
 import { SummaryModelSettings } from '@/components/SummaryModelSettings';
 import { TemplateSettings } from '@/components/TemplateSettings';
 import { PromptSettings } from '@/components/PromptSettings';
+import { SpeakerDirectorySettings } from '@/components/SpeakerDirectorySettings';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 
 const TABS = [
   { value: 'general',            label: 'Chung',      icon: Settings2,      desc: 'Ghi âm, lưu trữ & tùy chọn' },
+  { value: 'directory',          label: 'Danh sách',  icon: Users,          desc: 'Người nói gợi ý khi gán tên' },
   { value: 'Transcriptionmodels',label: 'Nhận dạng',  icon: DatabaseIcon,   desc: 'Mô hình giọng nói' },
   { value: 'summaryModels',      label: 'Tóm tắt AI', icon: SparkleIcon,    desc: 'Mô hình tóm tắt' },
   { value: 'templates',          label: 'Mẫu',        icon: LayoutTemplate,      desc: 'Tùy chỉnh mẫu tóm tắt' },
@@ -111,6 +113,7 @@ export default function SettingsPage() {
               transition={{ duration: 0.18, ease: 'easeOut' }}
             >
               {activeTab === 'general'             && <RecordingSettings />}
+              {activeTab === 'directory'           && <SpeakerDirectorySettings />}
               {activeTab === 'Transcriptionmodels' && (
                 <TranscriptSettings
                   transcriptModelConfig={transcriptModelConfig}

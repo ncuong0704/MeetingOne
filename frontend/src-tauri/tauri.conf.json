@@ -101,7 +101,8 @@
             "templates/*.json",
             "resources/itn-vi/*",
             "resources/hotwords.txt",
-            "resources/zipformer-streaming-tokens.txt"
+            "resources/zipformer-streaming-tokens.txt",
+            "resources/speaker_directory.defaults.json"
         ],
         "externalBin": [
             "binaries/ffmpeg"

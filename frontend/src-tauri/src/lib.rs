@@ -528,6 +528,8 @@ pub fn run() {
             audio::transcription::live_speaker::get_speaker_hotkeys,
             audio::transcription::live_speaker::save_speaker_hotkeys,
             audio::transcription::live_speaker::insert_live_speaker,
+            audio::transcription::speaker_directory::get_speaker_directory,
+            audio::transcription::speaker_directory::save_speaker_directory,
             audio::mic_quality::mic_quality_is_model_ready,
             audio::mic_quality::mic_quality_download_model,
             audio::mic_quality::mic_quality_analyze,
