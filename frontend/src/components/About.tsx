@@ -1,8 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import Image from 'next/image';
-import { BRAND_NAME, BRAND_LOGO_PATH } from '@/constants/brand';
+import { BRAND_NAME } from '@/constants/brand';
 import {
   checkForAppUpdate,
   clearPendingAppUpdate,
@@ -11,36 +10,32 @@ import {
   openReleaseUrl,
   resolveAppVersion,
 } from '@/lib/appUpdate';
-import { Lock, Cpu, Banknote, Globe, Shield, RefreshCw } from 'lucide-react';
+import { Lock, Cpu, Banknote, Globe, RefreshCw } from 'lucide-react';
 
 const features = [
   {
     icon: Lock,
     title: 'Ưu tiên quyền riêng tư',
-    desc: 'Dữ liệu và quy trình xử lý AI giữ trong phạm vi của bạn — không phụ thuộc đám mây.',
-    color: 'text-blue-600',
-    bg: 'bg-blue-50',
+    desc: 'Dữ liệu và xử lý AI giữ trong phạm vi của bạn — không phụ thuộc đám mây.',
+    color: 'text-primary',
   },
   {
     icon: Cpu,
     title: 'Linh hoạt mô hình',
-    desc: 'Dùng mô hình mã nguồn mở cục bộ hay API bên ngoài đều được — không bị khóa nhà cung cấp.',
-    color: 'text-violet-600',
-    bg: 'bg-violet-50',
+    desc: 'Mô hình mã nguồn mở cục bộ hay API bên ngoài — không khóa nhà cung cấp.',
+    color: 'text-sky-700',
   },
   {
     icon: Banknote,
     title: 'Tiết kiệm chi phí',
-    desc: 'Giảm chi phí bằng cách chạy mô hình cục bộ hoặc chỉ trả cho các lần gọi bạn chọn.',
+    desc: 'Chạy mô hình cục bộ, hoặc chỉ trả cho các lần gọi bạn chọn.',
     color: 'text-emerald-600',
-    bg: 'bg-emerald-50',
   },
   {
     icon: Globe,
     title: 'Làm việc mọi nơi',
-    desc: 'Google Meet, Zoom, Teams — trực tuyến hay ngoại tuyến đều hoạt động.',
-    color: 'text-orange-600',
-    bg: 'bg-orange-50',
+    desc: 'Google Meet, Zoom, Teams — trực tuyến hay ngoại tuyến đều dùng được.',
+    color: 'text-amber-600',
   },
 ];
 
@@ -138,126 +133,115 @@ export function About() {
       ? Math.min(100, Math.round((check.downloaded / check.total) * 100))
       : null;
 
+  const busy = check.status === 'loading' || check.status === 'updater_downloading';
+
   return (
-    <div className="flex flex-col h-[80vh] overflow-y-auto bg-gray-50">
-      <div className="bg-white border-b border-gray-100 px-6 pb-8 text-center space-y-4">
-        <Image
-          src={BRAND_LOGO_PATH}
-          alt={BRAND_NAME}
-          width={100}
-          height={100}
-          className="mx-auto object-contain"
-        />
+    <div className="flex flex-col max-h-[min(34rem,calc(100vh-6rem))] text-left">
+      <header className="shrink-0 px-6 pt-7 pb-5 pr-12 border-b border-rule text-center">
+        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-2 mb-3">
+          Thư ký cuộc họp
+        </p>
+        <h1 className="text-2xl font-semibold tracking-tight text-primary">{BRAND_NAME}</h1>
+        <p className="text-sm text-ink-2 mt-2 max-w-[40ch] mx-auto leading-relaxed">
+          Tóm tắt và phân tích nội dung sau cuộc họp, chạy trên máy của bạn.
+        </p>
+      </header>
 
-        <div className="space-y-1">
-          <h1 className="text-2xl font-bold text-gray-900">{BRAND_NAME}</h1>
-          <p className="text-sm text-gray-500 max-w-sm mx-auto leading-relaxed">
-            AI thư ký cuộc họp — tự động tóm tắt và phân tích nội dung sau khi cuộc họp kết thúc.
-          </p>
-        </div>
-
-        <div className="flex items-center justify-center gap-2 flex-wrap">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-600">
-            <Shield className="w-3 h-3" />
-            Ưu tiên quyền riêng tư
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-600">
-            <Cpu className="w-3 h-3" />
-            Sẵn sàng ngoại tuyến
-          </span>
-        </div>
-      </div>
-
-      <div className="px-5 pt-5">
-        <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">
-                Phiên bản
-              </p>
-              <p className="text-sm font-medium text-gray-900 tabular-nums">{appVersion || '…'}</p>
-            </div>
+      <section className="shrink-0 px-6 py-4 border-b border-rule space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-2">
+              Phiên bản
+            </p>
+            <p className="text-sm font-medium text-amber-600 font-mono tabular-nums mt-0.5">
+              {appVersion || '…'}
+            </p>
           </div>
           <button
             type="button"
             onClick={handleCheck}
-            disabled={check.status === 'loading' || check.status === 'updater_downloading'}
-            className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-gray-900 px-3 py-2 text-xs font-medium text-white hover:bg-gray-800 disabled:opacity-60 disabled:pointer-events-none"
+            disabled={busy}
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary-hover disabled:opacity-60 disabled:pointer-events-none"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${check.status === 'loading' ? 'animate-spin' : ''}`} />
             Kiểm tra cập nhật
           </button>
-
-          {check.status === 'updater_available' && (
-            <div className="space-y-2">
-              <p className="text-xs text-amber-800">
-                Có bản mới <span className="font-semibold">{check.version}</span> (đang chạy {appVersion}).
-              </p>
-              {check.notes ? (
-                <p className="text-[11px] text-gray-600 leading-relaxed whitespace-pre-wrap max-h-24 overflow-y-auto">
-                  {check.notes}
-                </p>
-              ) : null}
-              <button
-                type="button"
-                onClick={handleDownloadAndInstall}
-                className="w-full rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900 hover:bg-amber-100"
-              >
-                Tải và cài đặt (khởi động lại)
-              </button>
-            </div>
-          )}
-
-          {check.status === 'updater_downloading' && (
-            <p className="text-xs text-gray-700">
-              Đang tải và cài đặt…
-              {downloadPct !== null ? ` ${downloadPct}%` : ''}
-            </p>
-          )}
-
-          {check.status === 'uptodate' && (
-            <p className="text-xs text-emerald-700">
-              Bạn đang dùng phiên bản mới nhất (version: {check.latestTag}).
-            </p>
-          )}
-          {check.status === 'available' && (
-            <div className="space-y-2">
-              <p className="text-xs text-amber-800">
-                Trên GitHub có tag mới hơn: <span className="font-semibold">{check.latestTag}</span> (đang chạy{' '}
-                {appVersion}). Nếu không thấy nút tự cập nhật, hãy tải thủ công.
-              </p>
-              <button
-                type="button"
-                onClick={() => openReleaseUrl(check.releaseUrl)}
-                className="w-full rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900 hover:bg-amber-100"
-              >
-                Mở trang tải bản phát hành
-              </button>
-            </div>
-          )}
-          {check.status === 'error' && (
-            <p className="text-xs text-red-600 leading-relaxed">{check.message}</p>
-          )}
         </div>
-      </div>
 
-      <div className="px-5 py-5 space-y-2.5">
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 px-1">Tính năng nổi bật</p>
-        <div className="grid grid-cols-2 gap-2.5">
-          {features.map(({ icon: Icon, title, desc, color, bg }) => (
-            <div
-              key={title}
-              className="bg-white rounded-xl border border-gray-100 p-3.5 shadow-sm hover:shadow-md hover:border-gray-200 transition-all"
+        {check.status === 'updater_available' && (
+          <div className="space-y-2 rounded-md border border-rule bg-paper-3 p-3">
+            <p className="text-sm text-ink">
+              Có bản mới <span className="font-medium">{check.version}</span>
+              {appVersion ? ` (đang chạy ${appVersion})` : ''}.
+            </p>
+            {check.notes ? (
+              <p className="text-xs text-ink-2 leading-relaxed whitespace-pre-wrap max-h-24 overflow-y-auto">
+                {check.notes}
+              </p>
+            ) : null}
+            <button
+              type="button"
+              onClick={handleDownloadAndInstall}
+              className="w-full rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover"
             >
-              <div className={`w-7 h-7 rounded-lg ${bg} flex items-center justify-center mb-2.5`}>
-                <Icon className={`w-3.5 h-3.5 ${color}`} />
+              Tải và cài đặt (khởi động lại)
+            </button>
+          </div>
+        )}
+
+        {check.status === 'updater_downloading' && (
+          <p className="text-sm text-ink-2">
+            Đang tải và cài đặt…
+            {downloadPct !== null ? ` ${downloadPct}%` : ''}
+          </p>
+        )}
+
+        {check.status === 'uptodate' && (
+          <p className="text-sm text-ink-2">
+            Đang dùng phiên bản mới nhất ({check.latestTag}).
+          </p>
+        )}
+
+        {check.status === 'available' && (
+          <div className="space-y-2 rounded-md border border-rule bg-paper-3 p-3">
+            <p className="text-sm text-ink">
+              Trên GitHub có tag mới hơn: <span className="font-medium">{check.latestTag}</span>
+              {appVersion ? ` (đang chạy ${appVersion})` : ''}. Nếu không thấy nút tự cập nhật, hãy tải thủ công.
+            </p>
+            <button
+              type="button"
+              onClick={() => openReleaseUrl(check.releaseUrl)}
+              className="w-full rounded-md border border-primary px-3 py-2 text-sm font-medium text-primary hover:bg-secondary"
+            >
+              Mở trang tải bản phát hành
+            </button>
+          </div>
+        )}
+
+        {check.status === 'error' && (
+          <p className="text-sm text-destructive leading-relaxed">{check.message}</p>
+        )}
+      </section>
+
+      <section className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+        <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-2 mb-1">
+          Đặc điểm
+        </p>
+        <ul>
+          {features.map(({ icon: Icon, title, desc, color }, index) => (
+            <li
+              key={title}
+              className={`flex gap-3 py-3 ${index < features.length - 1 ? 'border-b border-rule' : ''}`}
+            >
+              <Icon className={`w-4 h-4 mt-0.5 shrink-0 ${color}`} aria-hidden />
+              <div className="min-w-0">
+                <h3 className="text-sm font-medium text-ink">{title}</h3>
+                <p className="text-xs text-ink-2 mt-0.5 leading-relaxed">{desc}</p>
               </div>
-              <h3 className="text-xs font-semibold text-gray-800 mb-1 leading-snug">{title}</h3>
-              <p className="text-[11px] text-gray-500 leading-relaxed">{desc}</p>
-            </div>
+            </li>
           ))}
-        </div>
-      </div>
+        </ul>
+      </section>
     </div>
   );
 }

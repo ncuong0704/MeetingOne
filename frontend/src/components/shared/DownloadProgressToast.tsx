@@ -93,7 +93,7 @@ function DownloadToastContent({
             {/* Progress bar */}
             <div className="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden mb-1.5">
               <div
-                className="h-full bg-gray-900 rounded-full transition-all duration-300"
+                className="h-full bg-primary rounded-full transition-all duration-[var(--dur-short)] ease-[var(--ease-out)]"
                 style={{ width: `${download.progress}%` }}
               />
             </div>

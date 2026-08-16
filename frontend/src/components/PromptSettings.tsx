@@ -35,7 +35,7 @@ const PromptBlockNoteEditor = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="text-xs text-gray-400 px-3 py-2 border border-gray-200 rounded-md min-h-[200px]">
+      <div className="text-xs text-ink-2 px-3 py-2 border border-rule rounded-md min-h-[200px] bg-paper">
         Đang tải trình soạn thảo...
       </div>
     ),
@@ -101,7 +101,7 @@ export function PromptSettings() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-16 text-gray-400 text-sm">
+      <div className="flex items-center justify-center py-16 text-sm text-ink-2">
         Đang tải cài đặt prompt…
       </div>
     );
@@ -110,41 +110,24 @@ export function PromptSettings() {
   if (!config) return null;
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-      <div className="px-5 py-4 flex items-start justify-between gap-4">
-        <div className="flex-1 min-w-0 space-y-2">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="text-base font-semibold text-gray-900">Prompt AI</h3>
-            <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-100">
-              Tất cả provider
+    <div className="overflow-hidden rounded-md border border-rule bg-paper-2">
+      <div className="flex items-center justify-between gap-3 border-b border-rule px-5 h-12">
+        <div className="flex items-center gap-2 min-w-0">
+          <h3 className="text-sm font-semibold text-ink tracking-tight">Prompt hệ thống</h3>
+          <span className="text-[11px] px-1.5 py-0.5 rounded-md bg-primary/10 text-primary border border-primary/20">
+            Tất cả provider
+          </span>
+          {isDirty && (
+            <span className="text-[11px] px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200">
+              Đã sửa
             </span>
-            {isDirty && (
-              <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-100">
-                Đã sửa
-              </span>
-            )}
-          </div>
-          <p className="text-sm text-gray-500">
-            Bạn có thể chỉnh prompt hệ thống để AI tạo báo cáo cuối cùng theo yêu cầu của bạn, nhưng bạn không được xoá các biến bên dưới:
-          </p>
-          <ul className="text-sm text-gray-500 space-y-1">
-            {PROMPT_PLACEHOLDER_INFO.map(({ token, description }) => (
-              <li key={token} className="flex gap-1.5">
-                <code className="bg-gray-100 px-1 rounded text-xs shrink-0">{token}</code>
-                <span>— {description}</span>
-              </li>
-            ))}
-          </ul>
-          <p className="text-xs text-gray-400">
-            Các biến trên là của hệ thống AI nên bắt buộc phải giữ nguyên trong prompt.
-          </p>
+          )}
         </div>
-
         <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={handleResetAll}
             disabled={isResetting || isSaving}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-ink-2 border border-rule rounded-md hover:bg-secondary disabled:opacity-50 transition-colors"
           >
             <RotateCcw className="w-3.5 h-3.5" />
             {isResetting ? 'Đang khôi phục…' : 'Khôi phục mặc định'}
@@ -152,7 +135,7 @@ export function PromptSettings() {
           <button
             onClick={handleSave}
             disabled={!isDirty || isSaving || isResetting}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-white bg-[#16478e] rounded-lg hover:bg-[#123d7a] disabled:opacity-40 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-primary-foreground bg-primary rounded-md hover:bg-primary-hover disabled:opacity-40 transition-colors"
           >
             <Save className="w-3.5 h-3.5" />
             {isSaving ? 'Đang lưu…' : 'Lưu'}
@@ -160,7 +143,21 @@ export function PromptSettings() {
         </div>
       </div>
 
-      <div className="px-5 pb-5 min-h-[200px]">
+      <div className="px-5 py-2.5 border-b border-rule">
+        <p className="text-xs text-ink-2 mb-1.5">
+          Có thể chỉnh prompt, nhưng bắt buộc giữ nguyên các biến hệ thống:
+        </p>
+        <div className="flex flex-col gap-1">
+          {PROMPT_PLACEHOLDER_INFO.map(({ token, description }) => (
+            <div key={token} className="flex items-baseline gap-2 min-w-0">
+              <code className="font-mono text-[11px] text-ink shrink-0">{token}</code>
+              <span className="text-xs text-ink-2 leading-snug">{description}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="px-5 py-4 min-h-[200px]">
         <PromptBlockNoteEditor
           key={`systemPromptFinalTemplate-${editorVersion}`}
           value={config.systemPromptFinalTemplate}

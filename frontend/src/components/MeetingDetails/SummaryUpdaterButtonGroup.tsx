@@ -38,7 +38,7 @@ export function SummaryUpdaterButtonGroup({
         variant="outline"
         size="sm"
         className={isDirty
-          ? 'bg-[#16478e] text-white border-[#16478e] hover:bg-[#1a55ab] hover:border-[#1a55ab]'
+          ? 'bg-primary text-primary-foreground border-primary hover:bg-primary-hover hover:border-primary-hover'
           : ''}
         title={isSaving ? 'Đang lưu' : isDirty ? 'Có thay đổi chưa lưu' : 'Lưu thay đổi'}
         onClick={() => {
@@ -84,7 +84,7 @@ export function SummaryUpdaterButtonGroup({
             }}
             className="gap-2 cursor-pointer"
           >
-            <FileDown className="h-4 w-4 text-blue-600" />
+            <FileDown className="h-4 w-4 text-primary" />
             <span>Xuất DOCX</span>
           </DropdownMenuItem>
 

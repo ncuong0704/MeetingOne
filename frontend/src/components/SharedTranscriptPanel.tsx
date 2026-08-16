@@ -75,7 +75,7 @@ export default function SharedTranscriptPanel({
           disabled={disabled}
           rows={6}
           placeholder={'ỦY BAN NHÂN DÂN :2.5\nCHUYỂN ĐỔI SỐ\n# Tên riêng\nANH MINH'}
-          className="w-full px-3 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+          className="w-full px-3 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white font-mono focus:outline-none focus:ring-2 focus-visible:ring-ring disabled:opacity-50"
         />
       </div>
 
@@ -83,7 +83,7 @@ export default function SharedTranscriptPanel({
         <button
           onClick={handleSave}
           disabled={isSaving || disabled}
-          className="px-4 py-2 text-sm rounded-md bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium transition-colors"
+          className="px-4 py-2 text-sm rounded-md bg-primary hover:bg-primary-hover disabled:opacity-50 text-primary-foreground font-medium transition-colors"
         >
           {isSaving ? 'Đang lưu...' : 'Lưu cấu hình chung'}
         </button>

@@ -1,7 +1,7 @@
 'use client'
 
 import './globals.css'
-import { Source_Sans_3 } from 'next/font/google'
+import { IBM_Plex_Sans, IBM_Plex_Mono } from 'next/font/google'
 import Sidebar from '@/components/Sidebar'
 import { SidebarProvider } from '@/components/Sidebar/SidebarProvider'
 import MainContent from '@/components/MainContent'
@@ -28,10 +28,16 @@ import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import { LoginPage } from '@/components/auth/LoginPage'
 
 
-const sourceSans3 = Source_Sans_3({
-  subsets: ['latin'],
+const ibmPlexSans = IBM_Plex_Sans({
+  subsets: ['latin', 'vietnamese'],
   weight: ['400', '500', '600', '700'],
-  variable: '--font-source-sans-3',
+  variable: '--font-ibm-plex-sans',
+})
+
+const ibmPlexMono = IBM_Plex_Mono({
+  subsets: ['latin', 'latin-ext'],
+  weight: ['400', '500'],
+  variable: '--font-ibm-plex-mono',
 })
 
 // Module-level component — stable reference across RootLayout re-renders.
@@ -64,7 +70,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="vi">
-      <body className={`${sourceSans3.variable} font-sans antialiased`}>
+      <body className={`${ibmPlexSans.variable} ${ibmPlexMono.variable} font-sans antialiased`}>
         <AuthProvider>
           <AppRoot>{children}</AppRoot>
         </AuthProvider>
@@ -252,20 +258,26 @@ function AppRoot({ children }: { children: React.ReactNode }) {
           <ConfigProvider>
             <OnboardingProvider>
               <SidebarProvider>
-                <TooltipProvider>
+                <TooltipProvider delayDuration={800} skipDelayDuration={0}>
                   <RecordingPostProcessingProvider>
                     <ImportDialogProvider onOpen={handleOpenImportDialog}>
                         <DownloadProgressToastProvider />
 
                         {loading ? (
                           <div className="login-page">
-                            <div className="login-card">Đang tải ứng dụng…</div>
+                            <aside className="login-rail" aria-hidden="true" />
+                            <div className="login-body">
+                              <div className="login-card">Đang tải ứng dụng…</div>
+                            </div>
                           </div>
                         ) : authRequired && !user ? (
                           <LoginPage />
                         ) : !onboardingReady ? (
                           <div className="login-page">
-                            <div className="login-card">Đang tải ứng dụng…</div>
+                            <aside className="login-rail" aria-hidden="true" />
+                            <div className="login-body">
+                              <div className="login-card">Đang tải ứng dụng…</div>
+                            </div>
                           </div>
                         ) : showOnboarding ? (
                           <OnboardingFlow onComplete={handleOnboardingComplete} />

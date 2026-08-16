@@ -114,11 +114,11 @@ function FlowingSegment({
                     className={`rounded transition-colors ${onSeek || onEdit ? 'cursor-pointer' : ''} ${
                         isActive
                             ? 'bg-[rgba(255,215,0,0.35)]'
-                            : 'hover:bg-gray-100'
-                    } ${isSaving ? 'text-gray-400' : ''}`}
+                            : 'hover:bg-secondary'
+                    } ${isSaving ? 'text-ink-2' : ''}`}
                 >
                     {shownText}
-                    {isSaving && <span className="ml-1 text-xs text-gray-400">Đang lưu...</span>}
+                    {isSaving && <span className="ml-1 text-xs text-ink-2">Đang lưu...</span>}
                     {' '}
                     {isLastInParagraph && <br />}
                 </span>
@@ -133,20 +133,20 @@ function FlowingSegment({
                     value={editValue}
                     onChange={(e) => setEditValue(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    className="w-full resize-none rounded-md border border-[rgba(22,71,142,0.3)] bg-[rgba(22,71,142,0.03)] px-3 py-2 text-sm text-gray-800 leading-relaxed focus:outline-none focus:ring-2 focus:ring-[rgba(22,71,142,0.2)]"
+                    className="w-full resize-none rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-ink leading-relaxed focus:outline-none focus:ring-2 focus:ring-primary/20"
                     rows={3}
                 />
                 <div className="mt-2 flex items-center justify-end gap-1">
-                    <span className="mr-auto text-[10px] text-gray-400">Enter để lưu · Esc để huỷ</span>
+                    <span className="mr-auto text-[10px] text-ink-2">Enter để lưu · Esc để huỷ</span>
                     <button
                         onClick={handleCancel}
-                        className="rounded-md px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+                        className="rounded-md px-2 py-1 text-xs text-ink-2 hover:bg-secondary hover:text-ink"
                     >
                         Huỷ
                     </button>
                     <button
                         onClick={handleSave}
-                        className="rounded-md bg-[#16478e] px-2 py-1 text-xs text-white hover:bg-[#1a55ab]"
+                        className="rounded-md bg-primary px-2 py-1 text-xs text-primary-foreground hover:bg-primary-hover"
                     >
                         Lưu
                     </button>
@@ -226,7 +226,7 @@ function SpeakerLabel({
                     <button
                         type="button"
                         onClick={() => setOpen(true)}
-                        className="inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs font-semibold hover:bg-gray-100"
+                        className="inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs font-semibold hover:bg-secondary"
                         style={{ color }}
                     >
                         <span
@@ -264,7 +264,7 @@ function SpeakerLabel({
                         type="button"
                         onClick={() => void saveRename()}
                         disabled={busy}
-                        className="mt-2 w-full rounded bg-[#16478e] px-2 py-1 text-xs text-white disabled:opacity-50"
+                        className="mt-2 w-full rounded bg-primary px-2 py-1 text-xs text-primary-foreground disabled:opacity-50"
                     >
                         Đổi tên
                     </button>
@@ -275,7 +275,7 @@ function SpeakerLabel({
                     type="button"
                     onClick={() => void merge()}
                     disabled={busy}
-                    className="text-[10px] text-gray-400 opacity-0 transition-opacity group-hover:opacity-100 hover:text-gray-700 disabled:opacity-40"
+                    className="text-[10px] text-ink-2 opacity-0 transition-opacity group-hover:opacity-100 hover:text-ink disabled:opacity-40"
                     title="Gộp với người nói trước"
                 >
                     Gộp với trước
@@ -336,7 +336,7 @@ export function FlowingTranscriptView({
 
     if (segments.length === 0) {
         return (
-            <div className="mt-8 text-center text-gray-500">
+            <div className="mt-8 text-center text-ink-2">
                 <p className="text-lg font-semibold">Chào mừng đến ACT MeetingOne!</p>
             </div>
         );
@@ -359,7 +359,7 @@ export function FlowingTranscriptView({
                                     onMerged={onSpeakersChanged}
                                 />
                             )}
-                            <p className="text-base leading-relaxed text-gray-800">
+                            <p className="text-base leading-relaxed text-ink">
                                 {block.segments.map((segment, i) => (
                                     <FlowingSegment
                                         key={segment.id}
@@ -382,7 +382,7 @@ export function FlowingTranscriptView({
                     ))}
                 </div>
             ) : (
-                <p className="text-base leading-relaxed text-gray-800">
+                <p className="text-base leading-relaxed text-ink">
                     {segments.map((segment, i) => (
                         <FlowingSegment
                             key={segment.id}
@@ -399,12 +399,12 @@ export function FlowingTranscriptView({
             {(hasMore || isLoadingMore) && (
                 <div ref={loadMoreTriggerRef} className="flex items-center justify-center py-4">
                     {isLoadingMore ? (
-                        <div className="flex items-center gap-2 text-gray-500">
-                            <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />
+                        <div className="flex items-center gap-2 text-ink-2">
+                            <div className="h-4 w-4 animate-spin rounded-full border-2 border-rule border-t-ink" />
                             <span className="text-sm">Đang tải thêm...</span>
                         </div>
                     ) : hasMore && totalCount > 0 ? (
-                        <span className="text-sm text-gray-400">
+                        <span className="text-sm text-ink-2">
                             Hiển thị {loadedCount} / {totalCount} đoạn
                         </span>
                     ) : null}

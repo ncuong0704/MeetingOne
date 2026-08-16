@@ -129,13 +129,12 @@ export function TranscriptPanel({
   }, []);
 
   return (
-    <div className="relative flex h-full min-h-0 w-full min-w-0 flex-col bg-white">
-      {/* Header */}
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-gray-100 px-4 py-3 min-w-0">
+    <div className="relative flex h-full min-h-0 w-full min-w-0 flex-col bg-paper-2">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-rule h-11 px-4 min-w-0">
         <div className="flex items-center gap-2 shrink-0">
-          <span className="text-sm font-semibold text-gray-800">Bản ghi</span>
+          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-2">Bản ghi</span>
           {segmentCount > 0 && (
-            <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">
+            <span className="inline-flex items-center rounded-md bg-paper px-1.5 py-0.5 font-mono text-[11px] tabular-nums text-ink-2">
               {segmentCount}
             </span>
           )}
@@ -148,8 +147,8 @@ export function TranscriptPanel({
               title={showAudioPlayer ? 'Ẩn trình phát audio' : 'Phát audio ghi âm'}
               className={`flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
                 showAudioPlayer
-                  ? 'border-[rgba(22,71,142,0.35)] bg-[rgba(22,71,142,0.12)] text-[#16478e]'
-                  : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-700'
+                  ? 'border-primary/35 bg-primary/10 text-primary'
+                  : 'border-rule bg-paper-2 text-muted-foreground hover:bg-secondary hover:text-foreground'
               }`}
             >
               <Headphones className="h-3.5 w-3.5" />

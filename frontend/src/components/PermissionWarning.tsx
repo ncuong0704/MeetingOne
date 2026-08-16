@@ -56,15 +56,15 @@ export function PermissionWarning({
   if (canRecordWithSystemOnly) {
     return (
       <div className="max-w-md mb-4 space-y-3">
-        <Alert className="border-blue-300 bg-blue-50">
-          <Info className="h-5 w-5 text-blue-600" />
-          <AlertTitle className="text-blue-900 font-semibold">
+        <Alert className="border-primary/30 bg-primary/5">
+          <Info className="h-5 w-5 text-primary" />
+          <AlertTitle className="text-foreground font-semibold">
             <div className="flex items-center gap-2">
               <Speaker className="h-4 w-4" />
               Ghi âm chỉ âm thanh hệ thống
             </div>
           </AlertTitle>
-          <AlertDescription className="text-blue-800 mt-2">
+          <AlertDescription className="text-foreground/80 mt-2">
             <p className="mb-3">
               {hasMicrophone
                 ? 'Micro chưa sẵn sàng hoặc chưa được cấp quyền. Bạn vẫn có thể ghi âm và phiên âm âm thanh phát từ máy (cuộc gọi, video, v.v.).'
@@ -75,7 +75,7 @@ export function PermissionWarning({
                 {isMacOS && (
                   <button
                     onClick={openMicrophoneSettings}
-                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors"
+                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-primary-foreground bg-primary hover:bg-primary-hover rounded-md transition-colors"
                   >
                     <Mic className="h-4 w-4" />
                     Mở cài đặt micro
@@ -84,7 +84,7 @@ export function PermissionWarning({
                 <button
                   onClick={onRecheck}
                   disabled={isRechecking}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-900 bg-blue-100 hover:bg-blue-200 rounded-md transition-colors disabled:opacity-50"
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-foreground bg-secondary hover:bg-muted rounded-md transition-colors disabled:opacity-50"
                 >
                   <RefreshCw className={`h-4 w-4 ${isRechecking ? 'animate-spin' : ''}`} />
                   Kiểm tra lại
@@ -125,7 +125,7 @@ export function PermissionWarning({
           {isMacOS && !hasSystemAudio && (
             <button
               onClick={openScreenRecordingSettings}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-primary-foreground bg-primary hover:bg-primary-hover rounded-md transition-colors"
             >
               <Speaker className="h-4 w-4" />
               Mở cài đặt ghi màn hình

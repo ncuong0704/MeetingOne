@@ -60,15 +60,15 @@ export function SettingsModals({
   return <>
     {/* Legacy Settings Modal */}
     {modals.modelSettings && (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+      <div className="fixed inset-0 app-modal-overlay flex items-center justify-center z-[var(--z-modal)] p-4">
+        <div className="app-surface max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
           {/* Header */}
           <div className="flex justify-between items-center p-6 border-b">
-            <h3 className="text-xl font-semibold text-gray-900">Tùy chọn</h3>
+            <h3 className="text-xl font-semibold text-ink">Tùy chọn</h3>
             <button
               onClick={() => onClose("modelSettings")
               }
-              className="text-gray-500 hover:text-gray-700"
+              className="text-ink-2 hover:text-ink"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -83,15 +83,15 @@ export function SettingsModals({
 
             {/* Divider */}
             <div className="border-t pt-8">
-              <h4 className="text-lg font-semibold text-gray-900 mb-4">Cấu hình mô hình AI</h4>
+              <h4 className="text-lg font-semibold text-ink mb-4">Cấu hình mô hình AI</h4>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-ink mb-1">
                     Mô hình tóm tắt
                   </label>
                   <div className="flex space-x-2">
                     <select
-                      className="px-3 py-2 text-sm bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-[#16478e] focus:border-[#16478e]"
+                      className="px-3 py-2 text-sm bg-paper-2 border border-input rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       value={modelConfig.provider}
                       onChange={(e) => {
                         const provider = e.target.value as ModelConfig['provider'];
@@ -108,7 +108,7 @@ export function SettingsModals({
                     </select>
 
                     <select
-                      className="flex-1 px-3 py-2 text-sm bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-[#16478e] focus:border-[#16478e]"
+                      className="flex-1 px-3 py-2 text-sm bg-paper-2 border border-input rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       value={modelConfig.model}
                       onChange={(e) => setModelConfig((prev: ModelConfig) => ({ ...prev, model: e.target.value }))}
                     >
@@ -128,7 +128,7 @@ export function SettingsModals({
           <div className="border-t p-6 flex justify-end">
             <button
               onClick={() => onClose('modelSettings')}
-              className="px-4 py-2 text-sm font-medium text-white bg-[#16478e] rounded-md hover:bg-[#1a55ab] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#16478e]"
+              className="px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-md hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-ring"
             >
               Xong
             </button>
@@ -139,13 +139,13 @@ export function SettingsModals({
 
     {/* Device Settings Modal */}
     {modals.deviceSettings && (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+      <div className="fixed inset-0 app-modal-overlay flex items-center justify-center z-[var(--z-modal)]">
+        <div className="app-surface p-6 max-w-md w-full mx-4">
           <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">Thiết bị âm thanh</h3>
+            <h3 className="text-lg font-semibold text-ink">Thiết bị âm thanh</h3>
             <button
               onClick={() => onClose('deviceSettings')}
-              className="text-gray-500 hover:text-gray-700"
+              className="text-ink-2 hover:text-ink"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -170,7 +170,7 @@ export function SettingsModals({
                 });
                 onClose('deviceSettings');
               }}
-              className="px-4 py-2 text-sm font-medium text-white bg-[#16478e] rounded-md hover:bg-[#1a55ab] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#16478e]"
+              className="px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-md hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-ring"
             >
               Done
             </button>
@@ -181,13 +181,13 @@ export function SettingsModals({
 
     {/* Language Settings Modal */}
     {modals.languageSettings && (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+      <div className="fixed inset-0 app-modal-overlay flex items-center justify-center z-[var(--z-modal)]">
+        <div className="app-surface p-6 max-w-md w-full mx-4">
           <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">Cài đặt ngôn ngữ</h3>
+            <h3 className="text-lg font-semibold text-ink">Cài đặt ngôn ngữ</h3>
             <button
               onClick={() => onClose('languageSettings')}
-              className="text-gray-500 hover:text-gray-700"
+              className="text-ink-2 hover:text-ink"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -205,7 +205,7 @@ export function SettingsModals({
           <div className="mt-6 flex justify-end">
             <button
               onClick={() => onClose('languageSettings')}
-              className="px-4 py-2 text-sm font-medium text-white bg-[#16478e] rounded-md hover:bg-[#1a55ab] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#16478e]"
+              className="px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-md hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-ring"
             >
               Done
             </button>
@@ -216,16 +216,16 @@ export function SettingsModals({
 
     {/* Model Selection Modal */}
     {modals.modelSelector && (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div className="bg-white rounded-lg max-w-4xl w-full mx-4 shadow-xl max-h-[90vh] flex flex-col">
+      <div className="fixed inset-0 app-modal-overlay flex items-center justify-center z-[var(--z-modal)]">
+        <div className="app-surface max-w-4xl w-full mx-4 max-h-[90vh] flex flex-col">
           {/* Fixed Header */}
-          <div className="flex justify-between items-center p-6 pb-4 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900">
+          <div className="flex justify-between items-center p-6 pb-4 border-b border-rule">
+            <h3 className="text-lg font-semibold text-ink">
               {messages.modelSelector ? 'Cần cài đặt nhận dạng giọng nói' : 'Cài đặt nhận dạng tiếng Việt'}
             </h3>
             <button
               onClick={() => onClose('modelSelector')}
-              className="text-gray-500 hover:text-gray-700"
+              className="text-ink-2 hover:text-ink"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -243,7 +243,7 @@ export function SettingsModals({
           </div>
 
           {/* Fixed Footer */}
-          <div className="p-6 pt-4 border-t border-gray-200 flex items-center justify-between">
+          <div className="p-6 pt-4 border-t border-rule flex items-center justify-between">
             {/* Confidence Indicator Toggle */}
             <div className="flex items-center gap-3">
               <label className="relative inline-flex items-center cursor-pointer">
@@ -253,17 +253,17 @@ export function SettingsModals({
                   onChange={(e) => toggleConfidenceIndicator(e.target.checked)}
                   className="sr-only peer"
                 />
-                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-[rgba(22,71,142,0.3)] rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#16478e]"></div>
+                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-primary/30 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
               </label>
               <div>
-                <p className="text-sm font-medium text-gray-700">Hiển thị chỉ số độ tin cậy</p>
-                <p className="text-xs text-gray-500">Hiển thị dấu chấm màu thể hiện chất lượng nhận dạng</p>
+                <p className="text-sm font-medium text-ink">Hiển thị chỉ số độ tin cậy</p>
+                <p className="text-xs text-ink-2">Hiển thị dấu chấm màu thể hiện chất lượng nhận dạng</p>
               </div>
             </div>
 
             <button
               onClick={() => onClose('modelSelector')}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+              className="px-4 py-2 text-sm font-medium text-ink bg-secondary rounded-md hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {messages.modelSelector ? 'Hủy' : 'Xong'}
             </button>
@@ -274,8 +274,8 @@ export function SettingsModals({
 
     {/* Error Alert Modal */}
     {modals.errorAlert && (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <Alert className="max-w-md mx-4 border-red-200 bg-white shadow-xl">
+      <div className="fixed inset-0 app-modal-overlay flex items-center justify-center z-[var(--z-modal)]">
+        <Alert className="max-w-md mx-4 border-red-200 bg-paper-2">
           <AlertTitle className="text-red-800">Ghi âm đã dừng</AlertTitle>
           <AlertDescription className="text-red-700">
             {messages.errorAlert}
@@ -292,8 +292,8 @@ export function SettingsModals({
 
     {/* Chunk Drop Warning Modal */}
     {modals.chunkDropWarning && (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <Alert className="max-w-lg mx-4 border-yellow-200 bg-white shadow-xl">
+      <div className="fixed inset-0 app-modal-overlay flex items-center justify-center z-[var(--z-modal)]">
+        <Alert className="max-w-lg mx-4 border-yellow-200 bg-paper-2">
           <AlertTitle className="text-yellow-800">Cảnh báo hiệu suất nhận dạng</AlertTitle>
           <AlertDescription className="text-yellow-700">
             {messages.chunkDropWarning}

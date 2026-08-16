@@ -166,7 +166,7 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-gray-500 dark:text-gray-400">
+      <p className="text-xs text-ink-2">
         Dấu câu/viết hoa (CAPU) chỉ áp dụng sau khi kết thúc cuộc họp.
       </p>
       <div>
@@ -174,7 +174,7 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
           type="button"
           onClick={() => setHotkeyOpen(true)}
           disabled={disabled}
-          className="px-3 py-1.5 text-xs rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+          className="px-3 py-1.5 text-xs rounded-md border border-input text-ink hover:bg-secondary disabled:opacity-50"
         >
           Cấu hình hotkey người nói
         </button>
@@ -185,14 +185,14 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
       <SpeakerHotkeyDialog open={hotkeyOpen} onOpenChange={setHotkeyOpen} />
 
       <div className="space-y-2">
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+        <label className="block text-sm font-medium text-ink">
           Model ASR (ghi âm trực tiếp)
         </label>
         <select
           value={selectedFamily}
           onChange={(e) => setSelectedFamily(e.target.value as AsrModelFamily)}
           disabled={disabled}
-          className="w-full px-3 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+          className="w-full px-3 py-2 text-sm rounded-md border border-input bg-paper-2 text-ink focus:outline-none focus:ring-2 focus-visible:ring-ring disabled:opacity-50"
         >
           {ASR_MODELS.map((m) => (
             <option key={m.id} value={m.id}>{m.label}</option>
@@ -201,12 +201,12 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
       </div>
 
       <div className="space-y-2">
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Biến thể</label>
+        <label className="block text-sm font-medium text-ink">Biến thể</label>
         <select
           value={effectiveVariant}
           onChange={(e) => setSelectedVariant(e.target.value as ModelVariant)}
           disabled={disabled || availableVariantOptions.length <= 1}
-          className="w-full px-3 py-2 text-sm rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+          className="w-full px-3 py-2 text-sm rounded-md border border-input bg-paper-2 text-ink focus:outline-none focus:ring-2 focus-visible:ring-ring disabled:opacity-50"
         >
           {availableVariantOptions.map((v) => {
             const size = v.id === 'int8' ? selectedModelInfo?.int8Size : selectedModelInfo?.fullSize;
@@ -216,7 +216,7 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
           })}
         </select>
         <AsrVariantNotice family={selectedFamily} variant={effectiveVariant} path="live" />
-        <div className="flex items-center justify-between p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+        <div className="flex items-center justify-between p-3 rounded-md border border-rule bg-paper">
           <div className="flex items-center gap-2">
             <span className="text-base">🇻🇳</span>
             <div>
@@ -235,7 +235,7 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
             <button
               onClick={handleDownload}
               disabled={disabled}
-              className="px-3 py-1.5 text-xs rounded-md bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium"
+              className="px-3 py-1.5 text-xs rounded-md bg-primary hover:bg-primary-hover disabled:opacity-50 text-primary-foreground font-medium"
             >
               Tải xuống
             </button>
@@ -248,7 +248,7 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
               <span>{progress}%</span>
             </div>
             <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
-              <div className="bg-blue-500 h-1.5 rounded-full transition-all" style={{ width: `${progress}%` }} />
+              <div className="bg-primary h-1.5 rounded-full transition-all" style={{ width: `${progress}%` }} />
             </div>
           </div>
         )}
@@ -256,7 +256,7 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
       </div>
 
       <div className="space-y-2">
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+        <label className="block text-sm font-medium text-ink">
           Phương pháp giải mã
         </label>
         <div className="flex gap-2">
@@ -280,7 +280,7 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
       {decodingMethod === 'modified_beam_search' && (
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label className="text-sm font-medium text-ink">
               Số đường giải mã
             </label>
             <span className="text-sm font-mono">{numActivePaths}</span>
@@ -299,7 +299,7 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
 
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label className="text-sm font-medium text-ink">
             Độ dài tối đa mỗi đoạn
           </label>
           <span className="text-sm font-mono">{maxSegmentSeconds}s</span>
@@ -319,7 +319,7 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
         <button
           onClick={handleSave}
           disabled={isSaving || disabled}
-          className="px-4 py-2 text-sm rounded-md bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-medium"
+          className="px-4 py-2 text-sm rounded-md bg-primary hover:bg-primary-hover disabled:opacity-50 text-primary-foreground font-medium"
         >
           {isSaving ? 'Đang lưu...' : 'Lưu cấu hình ghi trực tiếp'}
         </button>

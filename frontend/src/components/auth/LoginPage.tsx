@@ -48,7 +48,9 @@ export function LoginPage() {
 
   return (
     <div className="login-page">
-      <div className="login-card">
+      <aside className="login-rail" aria-hidden="true" />
+      <div className="login-body">
+        <div className="login-card">
         <div className="login-logo-wrap">
           <Image
             src={BRAND_LOGO_PATH}
@@ -63,13 +65,19 @@ export function LoginPage() {
 
         {error && <div className="login-error">{error}</div>}
 
-        <button className="login-btn" onClick={handleLogin} disabled={loading}>
+        <button
+          className={`login-btn${loading ? ' is-loading' : ''}`}
+          onClick={handleLogin}
+          disabled={loading}
+          data-state={loading ? 'loading' : error ? 'error' : 'default'}
+        >
           {loading ? 'Đang chờ đăng nhập AMS...' : 'Đăng nhập bằng AMS SSO'}
         </button>
 
         <p className="login-hint">
           Trình duyệt sẽ mở để bạn đăng nhập. Sau khi xong, quay lại app này.
         </p>
+        </div>
       </div>
     </div>
   );

@@ -50,9 +50,9 @@ export function AudioPlayer({ meetingFolderPath, seekRef, onTimeUpdate }: AudioP
 
   if (error === 'FILE_NOT_FOUND') {
     return (
-      <div className="flex items-center gap-2 border-b border-gray-100 bg-gray-50 px-4 py-2.5">
-        <MicOff className="h-3.5 w-3.5 shrink-0 text-gray-400" />
-        <span className="text-xs text-gray-500">Cuộc họp này chưa có file ghi âm được lưu</span>
+      <div className="flex items-center gap-2 border-b border-rule bg-paper px-4 py-2.5">
+        <MicOff className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="text-xs text-muted-foreground">Cuộc họp này chưa có file ghi âm được lưu</span>
       </div>
     );
   }
@@ -67,13 +67,13 @@ export function AudioPlayer({ meetingFolderPath, seekRef, onTimeUpdate }: AudioP
   }
 
   return (
-    <div className="flex items-center gap-3 border-b border-gray-100 bg-gray-50/60 px-4 py-2.5">
+    <div className="flex items-center gap-3 border-b border-rule bg-paper px-4 py-2.5">
       {/* Play / Pause / Loading */}
       <button
         onClick={handleToggle}
         disabled={!isLoaded}
         title={isPlaying ? 'Tạm dừng' : 'Phát audio'}
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#16478e] text-white shadow-sm transition-colors hover:bg-[#1a55ab] disabled:cursor-not-allowed disabled:opacity-40"
+        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-40"
       >
         {!isLoaded ? (
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -102,14 +102,14 @@ export function AudioPlayer({ meetingFolderPath, seekRef, onTimeUpdate }: AudioP
         {/* Track */}
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-gray-200 group-hover:bg-gray-300 transition-colors">
           <div
-            className="h-full rounded-full bg-[#16478e] transition-none"
+            className="h-full rounded-full bg-primary transition-none"
             style={{ width: `${progress}%` }}
           />
         </div>
         {/* Thumb */}
         {isLoaded && (
           <div
-            className="pointer-events-none absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-[#16478e] shadow opacity-0 transition-opacity group-hover:opacity-100"
+            className="pointer-events-none absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-primary shadow opacity-0 transition-opacity group-hover:opacity-100"
             style={{ left: `${progress}%` }}
           />
         )}

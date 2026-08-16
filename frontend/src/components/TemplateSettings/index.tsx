@@ -17,13 +17,13 @@ function DeleteConfirmDialog({
   onCancel: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
+    <div className="fixed inset-0 z-[var(--z-modal)] flex items-center justify-center app-modal-overlay">
+      <div className="app-surface p-6 max-w-sm w-full mx-4 space-y-4 shadow-[var(--shadow-modal)]">
         <div className="flex items-start gap-3">
-          <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+          <AlertTriangle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
           <div>
-            <h4 className="text-sm font-semibold text-gray-800">Xác nhận xóa mẫu</h4>
-            <p className="text-sm text-gray-500 mt-1">
+            <h4 className="text-sm font-semibold text-ink">Xác nhận xóa mẫu</h4>
+            <p className="text-sm text-ink-2 mt-1">
               Bạn có chắc muốn xóa mẫu <strong>&quot;{templateName}&quot;</strong>?
               {' '}Hành động này không thể hoàn tác.
             </p>

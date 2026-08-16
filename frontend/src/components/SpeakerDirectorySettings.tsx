@@ -88,12 +88,12 @@ export function SpeakerDirectorySettings() {
 
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-50">
-          <h3 className="text-base font-semibold text-gray-900">
+      <div className="app-surface overflow-hidden">
+        <div className="px-5 py-4 border-b border-rule">
+          <h3 className="text-base font-semibold text-ink">
             {editingId ? 'Sửa người nói' : 'Thêm người nói'}
           </h3>
-          <p className="text-sm text-gray-500 mt-1">
+          <p className="text-sm text-ink-2 mt-1">
             Danh sách dùng để gợi ý khi gán tên trong «Người nói 1–9».
           </p>
         </div>
@@ -139,27 +139,27 @@ export function SpeakerDirectorySettings() {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-50 flex items-center gap-2">
-          <Users className="w-4 h-4 text-gray-500" />
-          <h3 className="text-base font-semibold text-gray-900">
+      <div className="app-surface overflow-hidden">
+        <div className="px-5 py-4 border-b border-rule flex items-center gap-2">
+          <Users className="w-4 h-4 text-ink-2" />
+          <h3 className="text-base font-semibold text-ink">
             Danh sách ({people.length})
           </h3>
         </div>
         {people.length === 0 ? (
-          <p className="px-5 py-8 text-sm text-gray-500 text-center">
+          <p className="px-5 py-8 text-sm text-ink-2 text-center">
             Chưa có người nói. Thêm họ tên ở form trên.
           </p>
         ) : (
-          <ul className="divide-y divide-gray-50">
+          <ul className="divide-y divide-rule">
             {people.map((person) => {
               const meta = [person.title, person.department].filter(Boolean).join(' · ');
               return (
                 <li key={person.id} className="px-5 py-3 flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">{person.fullName}</p>
+                    <p className="text-sm font-medium text-ink truncate">{person.fullName}</p>
                     {meta ? (
-                      <p className="text-xs text-gray-500 mt-0.5 truncate">{meta}</p>
+                      <p className="text-xs text-ink-2 mt-0.5 truncate">{meta}</p>
                     ) : null}
                   </div>
                   <div className="flex shrink-0 gap-1">
@@ -167,7 +167,7 @@ export function SpeakerDirectorySettings() {
                       type="button"
                       title="Sửa"
                       onClick={() => handleEdit(person)}
-                      className="p-1.5 rounded-md text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+                      className="p-1.5 rounded-md text-ink-2 hover:bg-secondary hover:text-ink"
                     >
                       <Pencil className="w-4 h-4" />
                     </button>
@@ -175,7 +175,7 @@ export function SpeakerDirectorySettings() {
                       type="button"
                       title="Xóa"
                       onClick={() => void handleDelete(person.id)}
-                      className="p-1.5 rounded-md text-gray-500 hover:bg-red-50 hover:text-red-600"
+                      className="p-1.5 rounded-md text-ink-2 hover:bg-destructive/10 hover:text-destructive"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>

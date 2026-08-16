@@ -10,7 +10,15 @@ module.exports = {
   	extend: {
   		fontFamily: {
   			sans: [
-  				'var(--font-source-sans-3)'
+  				'var(--font-ibm-plex-sans)',
+  				'ui-sans-serif',
+  				'system-ui',
+  				'sans-serif'
+  			],
+  			mono: [
+  				'var(--font-ibm-plex-mono)',
+  				'ui-monospace',
+  				'monospace'
   			]
   		},
   		colors: {
@@ -19,9 +27,18 @@ module.exports = {
   			border: 'hsl(var(--border))',
   			input: 'hsl(var(--input))',
   			ring: 'hsl(var(--ring))',
+  			paper: 'var(--color-paper)',
+  			'paper-2': 'var(--color-paper-2)',
+  			'paper-3': 'var(--color-paper-3)',
+  			rail: 'var(--color-rail)',
+  			ink: 'var(--color-ink)',
+  			'ink-2': 'var(--color-ink-2)',
+  			rule: 'var(--color-rule)',
+  			overlay: 'var(--color-overlay)',
   			primary: {
   				DEFAULT: 'hsl(var(--primary))',
-  				foreground: 'hsl(var(--primary-foreground))'
+  				foreground: 'hsl(var(--primary-foreground))',
+  				hover: 'hsl(var(--primary-hover))'
   			},
   			secondary: {
   				DEFAULT: 'hsl(var(--secondary))',

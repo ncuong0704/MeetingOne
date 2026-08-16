@@ -235,7 +235,7 @@ export function ImportAudioDialog({
           <DialogTitle className="flex items-center gap-2">
             {isProcessing ? (
               <>
-                <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
                 Đang nhập âm thanh...
               </>
             ) : error ? (
@@ -250,7 +250,7 @@ export function ImportAudioDialog({
               </>
             ) : (
               <>
-                <Upload className="h-5 w-5 text-blue-600" />
+                <Upload className="h-5 w-5 text-primary" />
                 Nhập file âm thanh
               </>
             )}
@@ -269,12 +269,12 @@ export function ImportAudioDialog({
           {!isProcessing && !error && (
             <>
               {fileInfo ? (
-                <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                <div className="bg-paper rounded-md border border-rule p-4 space-y-3">
                   <div className="flex items-start gap-3">
-                    <FileAudio className="h-8 w-8 text-blue-600 flex-shrink-0" />
+                    <FileAudio className="h-8 w-8 text-primary flex-shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <p className="font-medium text-gray-900">{fileInfo.filename}</p>
-                      <div className="flex items-center gap-4 text-sm text-gray-500 mt-1">
+                      <p className="font-medium text-ink">{fileInfo.filename}</p>
+                      <div className="flex items-center gap-4 text-sm text-ink-2 mt-1">
                         <span className="flex items-center gap-1">
                           <Clock className="h-3.5 w-3.5" />
                           {formatDuration(fileInfo.duration_seconds)}
@@ -283,14 +283,14 @@ export function ImportAudioDialog({
                           <HardDrive className="h-3.5 w-3.5" />
                           {formatFileSize(fileInfo.size_bytes)}
                         </span>
-                        <span className="text-blue-600 font-medium">{fileInfo.format}</span>
+                        <span className="text-primary font-medium">{fileInfo.format}</span>
                       </div>
                     </div>
                   </div>
 
                   {/* Editable title */}
                   <div className="space-y-1">
-                    <label className="text-sm font-medium text-gray-700">Tiêu đề cuộc họp</label>
+                    <label className="text-sm font-medium text-ink">Tiêu đề cuộc họp</label>
                     <Textarea
                       value={title}
                       onChange={(e) => {
@@ -307,8 +307,8 @@ export function ImportAudioDialog({
                   </Button>
                 </div>
               ) : (
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
-                  <FileAudio className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <div className="border-2 border-dashed border-rule rounded-md p-8 text-center">
+                  <FileAudio className="h-12 w-12 text-ink-2 mx-auto mb-4" />
                   <Button onClick={handleSelectFile} disabled={status === 'validating'}>
                     {status === 'validating' ? (
                       <>
@@ -322,7 +322,7 @@ export function ImportAudioDialog({
                       </>
                     )}
                   </Button>
-                  <p className="text-sm text-gray-500 mt-2">MP4, WAV, MP3, FLAC, OGG, MKV, WebM, WMA</p>
+                  <p className="text-sm text-ink-2 mt-2">MP4, WAV, MP3, FLAC, OGG, MKV, WebM, WMA</p>
                 </div>
               )}
 
@@ -335,17 +335,17 @@ export function ImportAudioDialog({
                     className="mt-1 accent-blue-600"
                   />
                   <span>
-                    <span className="block text-sm font-medium text-gray-700">
+                    <span className="block text-sm font-medium text-ink">
                       Phân biệt người nói
                     </span>
-                    <span className="block text-xs text-gray-500 mt-0.5">
+                    <span className="block text-xs text-ink-2 mt-0.5">
                       Dùng Senko CAM++. Chỉ áp dụng cho file này.
                     </span>
                   </span>
                 </label>
                 {diarizationEnabled && (
                   <div className="space-y-1 pl-6">
-                    <label className="block text-sm font-medium text-gray-700">
+                    <label className="block text-sm font-medium text-ink">
                       Số người nói (tuỳ chọn)
                     </label>
                     <input
@@ -355,9 +355,9 @@ export function ImportAudioDialog({
                       value={diarizationNumSpeakers}
                       onChange={(e) => setDiarizationNumSpeakers(e.target.value)}
                       placeholder="Tự đoán"
-                      className="w-28 px-3 py-1.5 text-sm rounded-md border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-28 px-3 py-1.5 text-sm rounded-md border border-input bg-paper-2 text-ink focus:outline-none focus:ring-2 focus-visible:ring-ring"
                     />
-                    <p className="text-xs text-gray-500">Để trống để tự đoán (1–20).</p>
+                    <p className="text-xs text-ink-2">Để trống để tự đoán (1–20).</p>
                   </div>
                 )}
               </div>
@@ -368,15 +368,15 @@ export function ImportAudioDialog({
           {isProcessing && (
             <div className="space-y-2">
               <div className="relative">
-                <div className="w-full bg-gray-200 rounded-full h-3">
+                <div className="w-full bg-paper-3 rounded-md h-3">
                   <div
-                    className="bg-[#16478e] h-3 rounded-full transition-all duration-300 ease-out"
+                    className="bg-primary h-3 rounded-md transition-all duration-300 ease-out"
                     style={{
                       width: `${Math.min(progress?.progress_percentage ?? 5, 100)}%`,
                     }}
                   />
                 </div>
-                <div className="flex justify-between text-xs text-gray-600 mt-1">
+                <div className="flex justify-between text-xs text-ink-2 mt-1">
                   <span>{progress?.stage ?? 'processing'}</span>
                   <span>{Math.round(progress?.progress_percentage ?? 0)}%</span>
                 </div>
@@ -403,7 +403,7 @@ export function ImportAudioDialog({
               </Button>
               <Button
                 onClick={handleStartImport}
-                className="bg-[#16478e] hover:bg-[#1a55ab]"
+                className="bg-primary hover:bg-primary-hover"
                 disabled={!fileInfo}
               >
                 <Upload className="h-4 w-4 mr-2" />

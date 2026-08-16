@@ -79,73 +79,68 @@ export function TranscriptPanel({
   );
 
   return (
-    <div
-      ref={transcriptContainerRef}
-      className="w-full border-r border-gray-200 bg-white flex flex-col overflow-y-auto"
-    >
-      {/* Title area - Sticky header */}
-      <div className="sticky top-0 z-10 bg-white p-4 border-gray-200">
-        <div className="flex flex-col space-y-3">
-          <div className="flex  flex-col space-y-2">
-            <div className="flex justify-center  items-center space-x-2">
-              <ButtonGroup>
-                {transcripts?.length > 0 && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={copyTranscript}
-                    title="Sao chép bản ghi"
-                  >
-                    <Copy />
-                    <span className='hidden md:inline'>
-                      Sao chép
-                    </span>
-                  </Button>
-                )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setHotkeyOpen(true)}
-                  title="Cấu hình phím tắt người nói"
-                >
-                  <span className='hidden md:inline'>Người nói 1–9</span>
-                  <span className='md:hidden'>1–9</span>
-                </Button>
-              </ButtonGroup>
-            </div>
-          </div>
+    <div className="flex-1 min-h-0 w-full bg-paper flex flex-col">
+      <div className="shrink-0 flex items-center justify-between gap-3 h-11 px-5 border-b border-rule bg-paper-2">
+        <div className="min-w-0">
+          <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-2">Bản ghi trực tiếp</p>
         </div>
+        <ButtonGroup>
+          {transcripts?.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={copyTranscript}
+              title="Sao chép bản ghi"
+            >
+              <Copy />
+              <span className='hidden md:inline'>
+                Sao chép
+              </span>
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setHotkeyOpen(true)}
+            title="Cấu hình phím tắt người nói"
+          >
+            <span className='hidden md:inline'>Người nói 1–9</span>
+            <span className='md:hidden'>1–9</span>
+          </Button>
+        </ButtonGroup>
       </div>
 
-      {/* Transcript content */}
-      <div className="pb-20 flex justify-center px-4">
-        <div
-          className="w-full max-w-[750px] min-h-[200px]"
-        >
-          {!isRecording && !isChecking && !isLinux && (
-            <div className="flex justify-center pt-4">
-              <PermissionWarning
-                hasMicrophone={hasMicrophone}
-                hasMicrophoneAccess={hasMicrophoneAccess}
-                hasSystemAudio={hasSystemAudio}
-                onRecheck={checkPermissions}
-                isRechecking={isChecking}
-              />
-            </div>
-          )}
+      <div
+        ref={transcriptContainerRef}
+        className="flex-1 overflow-y-auto"
+      >
+        <div className="flex justify-center px-6 py-5">
+          <div className="w-full max-w-[42rem] min-h-[200px]">
+            {!isRecording && !isChecking && !isLinux && (
+              <div className="flex justify-center pt-4">
+                <PermissionWarning
+                  hasMicrophone={hasMicrophone}
+                  hasMicrophoneAccess={hasMicrophoneAccess}
+                  hasSystemAudio={hasSystemAudio}
+                  onRecheck={checkPermissions}
+                  isRechecking={isChecking}
+                />
+              </div>
+            )}
 
-          <VirtualizedTranscriptView
-            segments={segments}
-            onSegmentEdit={handleSegmentEdit}
-            isRecording={isRecording}
-            isPaused={isPaused}
-            isProcessing={isProcessingStop}
-            isStopping={isStopping}
-            enableStreaming={isRecording}
-            showConfidence={true}
-            pendingSpeakerName={pendingName}
-            pendingSpeakerColor={pendingColor}
-          />
+            <VirtualizedTranscriptView
+              segments={segments}
+              onSegmentEdit={handleSegmentEdit}
+              isRecording={isRecording}
+              isPaused={isPaused}
+              isProcessing={isProcessingStop}
+              isStopping={isStopping}
+              enableStreaming={isRecording}
+              showConfidence={true}
+              pendingSpeakerName={pendingName}
+              pendingSpeakerColor={pendingColor}
+            />
+          </div>
         </div>
       </div>
       <SpeakerHotkeyDialog

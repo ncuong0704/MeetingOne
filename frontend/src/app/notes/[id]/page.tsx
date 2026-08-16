@@ -162,7 +162,7 @@ Quarterly product review session with stakeholders.
 
         <div className="flex gap-2 mt-4">
           {note.tags.map((tag) => (
-            <div key={tag} className="flex items-center gap-1 bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-sm">
+            <div key={tag} className="flex items-center gap-1 bg-primary/10 text-primary px-2 py-1 rounded-full text-sm">
               <Tag className="w-3 h-3" />
               {tag}
             </div>

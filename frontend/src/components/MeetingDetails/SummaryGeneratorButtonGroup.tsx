@@ -101,7 +101,7 @@ export function SummaryGeneratorButtonGroup({
         <Paperclip />
         <span className="hidden lg:inline">Tài liệu</span>
         {documents.length > 0 && (
-          <div className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-[#16478e] text-[10px] font-medium text-white">
+          <div className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-md bg-primary text-[10px] font-medium text-primary-foreground">
             {documents.length}
           </div>
         )}
@@ -127,7 +127,7 @@ export function SummaryGeneratorButtonGroup({
         <Button
           variant="outline"
           size="sm"
-          className="bg-[rgba(230,48,39,0.08)] hover:bg-[rgba(230,48,39,0.15)] border-[rgba(230,48,39,0.3)] text-[#e63027] xl:px-4"
+          className="bg-destructive/10 hover:bg-destructive/15 border-destructive/30 text-destructive xl:px-4"
           onClick={() => {
             Analytics.trackButtonClick('stop_summary_generation', 'meeting_details');
             onStopGeneration();
@@ -141,7 +141,7 @@ export function SummaryGeneratorButtonGroup({
         <Button
           variant="outline"
           size="sm"
-          className="bg-[rgba(22,71,142,0.08)] hover:bg-[rgba(22,71,142,0.15)] border-[rgba(22,71,142,0.3)] text-[#16478e] xl:px-4"
+          className="bg-primary/10 hover:bg-primary/15 border-primary/30 text-primary xl:px-4"
           onClick={() => {
             Analytics.trackButtonClick('generate_summary', 'meeting_details');
             onGenerateSummary(customPrompt);

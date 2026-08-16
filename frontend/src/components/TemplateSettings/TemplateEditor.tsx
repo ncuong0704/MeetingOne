@@ -48,19 +48,19 @@ export function TemplateEditor({
   const canSave = data.name.trim() && data.description.trim() && data.sections.length > 0;
 
   return (
-    <div className="flex-1 flex flex-col border border-gray-200 rounded-xl overflow-hidden bg-white min-w-0">
+    <div className="flex-1 flex flex-col app-surface overflow-hidden min-w-0">
       {/* Header */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 shrink-0">
+      <div className="flex items-center justify-between px-5 py-3 border-b border-rule shrink-0">
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={onBack}
-            className="p-1 rounded hover:bg-gray-100 transition-colors"
+            className="p-1 rounded-md hover:bg-secondary transition-colors"
             title="Quay lại danh sách"
           >
-            <ArrowLeft className="w-4 h-4 text-gray-500" />
+            <ArrowLeft className="w-4 h-4 text-ink-2" />
           </button>
-          <h3 className="text-sm font-semibold text-gray-800">
+          <h3 className="text-sm font-semibold text-ink">
             {mode === 'new' ? 'Tạo mẫu mới' : 'Chỉnh sửa mẫu'}
           </h3>
         </div>
@@ -126,7 +126,7 @@ export function TemplateEditor({
         <div className="px-5 py-4 space-y-4">
           {/* Name */}
           <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-600">Tên mẫu</label>
+            <label className="text-xs font-medium text-ink-2">Tên mẫu</label>
             <Input
               value={data.name}
               onChange={e => onUpdateMeta('name', e.target.value)}
@@ -137,7 +137,7 @@ export function TemplateEditor({
 
           {/* Description */}
           <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-600">Mô tả</label>
+            <label className="text-xs font-medium text-ink-2">Mô tả</label>
             <Textarea
               value={data.description}
               onChange={e => onUpdateMeta('description', e.target.value)}
@@ -149,7 +149,7 @@ export function TemplateEditor({
           {/* Sections */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-medium text-gray-600">
+              <label className="text-xs font-medium text-ink-2">
                 Các phần ({data.sections.length})
               </label>
               <Button
@@ -179,7 +179,7 @@ export function TemplateEditor({
             </div>
 
             {data.sections.length === 0 && (
-              <p className="text-xs text-gray-400 text-center py-4">
+              <p className="text-xs text-ink-2 text-center py-4">
                 Chưa có phần nào. Thêm phần đầu tiên.
               </p>
             )}

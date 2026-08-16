@@ -100,3 +100,5 @@ venv/
 .worktrees/
 
 diarization-fixture/
+.codegraph/
+frontend/src-tauri/target_debug2/

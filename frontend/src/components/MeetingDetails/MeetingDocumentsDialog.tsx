@@ -57,7 +57,7 @@ export function MeetingDocumentsDialog({
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Paperclip className="h-5 w-5 text-blue-600" />
+            <Paperclip className="h-5 w-5 text-primary" />
             Tài liệu tham khảo
           </DialogTitle>
           <DialogDescription>
@@ -68,7 +68,7 @@ export function MeetingDocumentsDialog({
 
         <div className="space-y-3 py-2">
           {status === 'loading' ? (
-            <div className="flex items-center justify-center py-8 text-gray-400 text-sm">
+            <div className="flex items-center justify-center py-8 text-ink-2 text-sm">
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               Đang tải...
             </div>
@@ -77,17 +77,17 @@ export function MeetingDocumentsDialog({
               {documents.map((doc) => (
                 <li
                   key={doc.id}
-                  className="flex items-center gap-2 text-sm text-gray-700 bg-gray-50 rounded-lg px-3 py-2"
+                  className="flex items-center gap-2 text-sm text-ink bg-paper rounded-md px-3 py-2"
                 >
-                  <FileText className="h-4 w-4 text-blue-600 shrink-0" />
+                  <FileText className="h-4 w-4 text-primary shrink-0" />
                   <span className="truncate flex-1">{doc.filename}</span>
-                  <span className="text-xs text-gray-400 shrink-0">
+                  <span className="text-xs text-ink-2 shrink-0">
                     {doc.char_count.toLocaleString()} ký tự
                   </span>
                   <button
                     onClick={() => handleRemove(doc.id)}
                     disabled={isBusy}
-                    className="text-gray-400 hover:text-red-600 disabled:opacity-40 shrink-0"
+                    className="text-ink-2 hover:text-destructive disabled:opacity-40 shrink-0"
                     title="Xóa tài liệu"
                     aria-label="Xóa tài liệu"
                   >
@@ -97,7 +97,7 @@ export function MeetingDocumentsDialog({
               ))}
             </ul>
           ) : (
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center text-sm text-gray-500">
+            <div className="border-2 border-dashed border-rule rounded-md p-6 text-center text-sm text-ink-2">
               Chưa có tài liệu nào được đính kèm
             </div>
           )}
@@ -110,7 +110,7 @@ export function MeetingDocumentsDialog({
           <Button
             onClick={handleAttach}
             disabled={isBusy}
-            className="bg-[#16478e] hover:bg-[#1a55ab]"
+            className="bg-primary hover:bg-primary-hover"
           >
             {status === 'attaching' ? (
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />

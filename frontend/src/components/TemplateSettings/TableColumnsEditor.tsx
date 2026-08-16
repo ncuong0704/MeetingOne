@@ -39,16 +39,16 @@ export function TableColumnsEditor({ value, onChange, disabled = false }: TableC
   };
 
   return (
-    <div className="space-y-2 rounded-lg border border-gray-200 bg-gray-50/50 p-3">
+    <div className="space-y-2 rounded-md border border-rule bg-paper p-3">
       {columns.length === 0 ? (
-        <p className="text-xs text-gray-400">
+        <p className="text-xs text-ink-2">
           Chưa có cột nào. Bấm &quot;Thêm cột&quot; để định nghĩa tiêu đề bảng.
         </p>
       ) : (
         <div className="space-y-2">
           {columns.map((column, index) => (
             <div key={index} className="flex items-center gap-2">
-              <span className="text-xs text-gray-400 w-5 shrink-0 text-right">{index + 1}.</span>
+              <span className="text-xs text-ink-2 w-5 shrink-0 text-right">{index + 1}.</span>
               <Input
                 value={column}
                 onChange={e => updateColumn(index, e.target.value)}
@@ -60,7 +60,7 @@ export function TableColumnsEditor({ value, onChange, disabled = false }: TableC
                 type="button"
                 onClick={() => removeColumn(index)}
                 disabled={disabled}
-                className="p-1.5 rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50 disabled:opacity-40 transition-colors"
+                className="p-1.5 rounded-md text-ink-2 hover:text-destructive hover:bg-destructive/10 disabled:opacity-40 transition-colors"
                 title="Xóa cột"
               >
                 <X className="w-3.5 h-3.5" />

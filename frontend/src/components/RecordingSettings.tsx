@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Switch } from '@/components/ui/switch';
-import { FolderOpen, HardDrive, Bell, Info, AlertTriangle, FolderInput } from 'lucide-react';
+import { FolderOpen, HardDrive, Info, AlertTriangle, FolderInput } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { DeviceSelection, SelectedDevices } from '@/components/DeviceSelection';
 import Analytics from '@/lib/analytics';
@@ -39,7 +39,6 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [showRecordingNotification, setShowRecordingNotification] = useState(true);
 
   useEffect(() => {
     const loadPreferences = async () => {
@@ -63,20 +62,6 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
     };
 
     loadPreferences();
-  }, []);
-
-  useEffect(() => {
-    const loadNotificationPref = async () => {
-      try {
-        const { Store } = await import('@tauri-apps/plugin-store');
-        const store = await Store.load('preferences.json');
-        const show = await store.get<boolean>('show_recording_notification') ?? true;
-        setShowRecordingNotification(show);
-      } catch (error) {
-        console.error('Failed to load notification preference:', error);
-      }
-    };
-    loadNotificationPref();
   }, []);
 
   const handleAutoSaveToggle = async (enabled: boolean) => {
@@ -146,23 +131,6 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
     }
   };
 
-  const handleNotificationToggle = async (enabled: boolean) => {
-    try {
-      setShowRecordingNotification(enabled);
-      const { Store } = await import('@tauri-apps/plugin-store');
-      const store = await Store.load('preferences.json');
-      await store.set('show_recording_notification', enabled);
-      await store.save();
-      toast.success('Đã lưu tùy chọn');
-      await Analytics.track('recording_notification_preference_changed', {
-        enabled: enabled.toString()
-      });
-    } catch (error) {
-      console.error('Failed to save notification preference:', error);
-      toast.error('Không lưu được tùy chọn');
-    }
-  };
-
   const savePreferences = async (
     prefs: RecordingPreferences,
     successMessage: string,
@@ -196,22 +164,22 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
     <div className="space-y-4">
 
       {/* ── Thư mục lưu trữ ──────────────────────────────────────────── */}
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-50">
-          <h3 className="text-base font-semibold text-gray-900">Thư mục lưu trữ</h3>
-          <p className="text-sm text-gray-500 mt-1">
+      <div className="app-surface overflow-hidden">
+        <div className="px-5 py-4 border-b border-rule">
+          <h3 className="text-base font-semibold text-ink">Thư mục lưu trữ</h3>
+          <p className="text-sm text-ink-2 mt-1">
             Chọn nơi lưu file ghi âm, transcript và metadata của mỗi cuộc họp.
           </p>
         </div>
 
         <div className="px-5 py-4 space-y-3">
-          <div className="flex items-start gap-3 p-4 rounded-lg bg-gray-50 border border-gray-100">
-            <div className="w-9 h-9 rounded-lg bg-white border border-gray-200 flex items-center justify-center shrink-0 shadow-sm">
-              <HardDrive className="w-4.5 h-4.5 text-gray-500" />
+          <div className="flex items-start gap-3 p-4 rounded-md bg-secondary border border-rule">
+            <div className="w-9 h-9 rounded-md bg-paper-2 border border-rule flex items-center justify-center shrink-0">
+              <HardDrive className="w-4.5 h-4.5 text-muted-foreground" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-base font-medium text-gray-700 mb-1">Thư mục lưu</p>
-              <p className="text-sm text-gray-500 font-mono break-all leading-relaxed">
+              <p className="text-base font-medium text-ink mb-1">Thư mục lưu</p>
+              <p className="text-sm text-ink-2 font-mono break-all leading-relaxed">
                 {preferences.save_folder || 'Thư mục mặc định'}
               </p>
             </div>
@@ -219,14 +187,14 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
               <button
                 onClick={handleSelectFolder}
                 disabled={saving}
-                className="flex items-center justify-center gap-2 px-3.5 py-2 text-sm font-medium text-white bg-[#16478e] border border-[#16478e] rounded-lg hover:bg-[#123a75] transition-colors shadow-sm disabled:opacity-50"
+                className="flex items-center justify-center gap-2 px-3.5 py-2 text-sm font-medium text-primary-foreground bg-primary border border-primary rounded-md hover:bg-primary-hover transition-colors disabled:opacity-50"
               >
                 <FolderInput className="w-4 h-4" />
                 Chọn thư mục
               </button>
               <button
                 onClick={handleOpenFolder}
-                className="flex items-center justify-center gap-2 px-3.5 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-colors shadow-sm"
+                className="flex items-center justify-center gap-2 px-3.5 py-2 text-sm font-medium text-muted-foreground bg-paper-2 border border-input rounded-md hover:bg-secondary transition-colors"
               >
                 <FolderOpen className="w-4 h-4" />
                 Mở
@@ -234,9 +202,9 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
             </div>
           </div>
 
-          <div className="flex items-start gap-3 bg-blue-50 border border-blue-100 rounded-lg px-4 py-3">
-            <Info className="w-4 h-4 text-[#16478e] shrink-0 mt-0.5" />
-            <p className="text-sm text-[#16478e] leading-relaxed">
+          <div className="flex items-start gap-3 bg-primary/10 border border-primary/20 rounded-md px-4 py-3">
+            <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+            <p className="text-sm text-primary leading-relaxed">
               Mỗi cuộc họp được lưu trong một thư mục riêng, chứa <span className="font-semibold">transcripts.json</span>
               {preferences.auto_save && (
                 <> và file âm thanh <span className="font-mono">audio.{preferences.file_format}</span></>
@@ -248,18 +216,18 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
       </div>
 
       {/* ── Lưu file âm thanh ────────────────────────────────────────── */}
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-50">
-          <h3 className="text-base font-semibold text-gray-900">Lưu file ghi âm</h3>
-          <p className="text-sm text-gray-500 mt-1">Cấu hình cách lưu file âm thanh sau cuộc họp.</p>
+      <div className="app-surface overflow-hidden">
+        <div className="px-5 py-4 border-b border-rule">
+          <h3 className="text-base font-semibold text-ink">Lưu file ghi âm</h3>
+          <p className="text-sm text-ink-2 mt-1">Cấu hình cách lưu file âm thanh sau cuộc họp.</p>
         </div>
 
         <div
-          className="flex items-center justify-between px-5 py-4 border-b border-gray-50"
+          className="flex items-center justify-between px-5 py-4 border-b border-rule"
         >
           <div>
-            <p className="text-base font-medium text-gray-800">Tự động lưu</p>
-            <p className="text-sm text-gray-500 mt-0.5">Tự động lưu file âm thanh khi dừng ghi (transcript luôn được lưu)</p>
+            <p className="text-base font-medium text-ink">Tự động lưu</p>
+            <p className="text-sm text-ink-2 mt-0.5">Tự động lưu file âm thanh khi dừng ghi (transcript luôn được lưu)</p>
           </div>
           <Switch
             checked={preferences.auto_save}
@@ -280,39 +248,17 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
         )}
       </div>
 
-      {/* ── Thông báo ghi ────────────────────────────────────────────── */}
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-50">
-          <h3 className="text-base font-semibold text-gray-900">Thông báo</h3>
-        </div>
-        <div className="flex items-center justify-between px-5 py-4">
-          <div className="flex items-start gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center shrink-0 mt-0.5">
-              <Bell className="w-4 h-4 text-gray-500" />
-            </div>
-            <div>
-              <p className="text-base font-medium text-gray-800">Thông báo khi bắt đầu ghi</p>
-              <p className="text-sm text-gray-500 mt-0.5">Nhắc nhở mọi người trong cuộc họp khi bắt đầu ghi âm</p>
-            </div>
-          </div>
-          <Switch
-            checked={showRecordingNotification}
-            onCheckedChange={handleNotificationToggle}
-          />
-        </div>
-      </div>
-
       {/* ── Thiết bị âm thanh ────────────────────────────────────────── */}
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-50">
-          <h3 className="text-base font-semibold text-gray-900">Thiết bị âm thanh mặc định</h3>
-          <p className="text-sm text-gray-500 mt-1">
+      <div className="app-surface overflow-hidden">
+        <div className="px-5 py-4 border-b border-rule">
+          <h3 className="text-base font-semibold text-ink">Thiết bị âm thanh mặc định</h3>
+          <p className="text-sm text-ink-2 mt-1">
             Micro và âm thanh hệ thống ưu tiên — được chọn sẵn khi bắt đầu ghi mới.
           </p>
         </div>
         <div className="px-5 py-4 space-y-4">
           <div className="space-y-2">
-            <Label className="text-sm font-medium text-gray-700">Nguồn ghi âm</Label>
+            <Label className="text-sm font-medium text-ink">Nguồn ghi âm</Label>
             <Select
               value={parseAudioCaptureSource(preferences.audio_source)}
               onValueChange={(value) => handleAudioSourceChange(value as AudioCaptureSource)}
@@ -329,7 +275,7 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-ink-2">
               Chỉ thu micro, chỉ âm thanh hệ thống, hoặc cả hai. Áp dụng cho lần bấm Ghi kế tiếp.
             </p>
           </div>

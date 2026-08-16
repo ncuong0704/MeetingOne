@@ -39,13 +39,13 @@ const UserGuideButton = React.forwardRef<HTMLButtonElement, UserGuideButtonProps
     const [open, setOpen] = useState(false);
 
     const triggerClassName = isCollapsed
-      ? 'flex items-center justify-center mb-2 cursor-pointer border-none transition-colors bg-transparent p-2 hover:bg-gray-100 rounded-lg'
-      : 'flex items-center justify-center w-full px-3 py-1.5 mt-1 text-sm font-medium text-gray-700 bg-gray-200 hover:bg-gray-200 rounded-lg shadow-sm border-none cursor-pointer transition-colors';
+      ? 'flex items-center justify-center mb-2 cursor-pointer border-none transition-colors bg-transparent p-2 hover:bg-secondary rounded-md'
+      : 'flex items-center justify-center w-full px-3 py-1.5 mt-1 text-sm font-medium text-muted-foreground bg-transparent hover:bg-secondary rounded-md border-none cursor-pointer transition-colors';
 
     const triggerButton = (
       <button ref={ref} type="button" className={triggerClassName}>
-        <BookOpen className={`text-gray-600 ${isCollapsed ? 'w-5 h-5' : 'w-4 h-4'}`} />
-        {!isCollapsed && <span className="ml-2 text-sm text-gray-700">Hướng dẫn</span>}
+        <BookOpen className={`text-muted-foreground ${isCollapsed ? 'w-5 h-5' : 'w-4 h-4'}`} />
+        {!isCollapsed && <span className="ml-2 text-sm text-muted-foreground">Hướng dẫn</span>}
       </button>
     );
 
@@ -68,14 +68,14 @@ const UserGuideButton = React.forwardRef<HTMLButtonElement, UserGuideButtonProps
                 key={item.id}
                 type="button"
                 onClick={() => void openGuideVideo(item)}
-                className="flex items-center gap-3 w-full p-3 rounded-lg border border-gray-200 text-left hover:bg-gray-50 hover:border-[#16478e]/30 transition-colors group"
+                className="flex items-center gap-3 w-full p-3 rounded-md border border-rule text-left hover:bg-secondary hover:border-primary/30 transition-colors group"
               >
-                <div className="flex-shrink-0 flex items-center justify-center w-9 h-9 rounded-lg bg-[rgba(22,71,142,0.08)]">
-                  <Play className="w-4 h-4 text-[#16478e]" />
+                <div className="flex-shrink-0 flex items-center justify-center w-9 h-9 rounded-md bg-primary/10">
+                  <Play className="w-4 h-4 text-primary" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900">{item.title}</p>
-                  <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{item.description}</p>
+                  <p className="text-sm font-medium text-foreground">{item.title}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{item.description}</p>
                 </div>
               </button>
             ))

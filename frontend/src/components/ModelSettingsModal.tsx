@@ -779,7 +779,7 @@ export const ModelSettingsModal = forwardRef<ModelSettingsModalRef, ModelSetting
                             : prev.filter((m) => m !== model)
                         )
                       }
-                      className="h-3.5 w-3.5 cursor-pointer accent-[#16478e]"
+                      className="h-3.5 w-3.5 cursor-pointer accent-primary"
                     />
                     <label
                       htmlFor={`fallback-${model}`}
@@ -975,8 +975,8 @@ export const ModelSettingsModal = forwardRef<ModelSettingsModalRef, ModelSetting
         <div className="mt-6 flex justify-end">
           <Button
             className={cn(
-              'px-4 text-sm font-medium text-white rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#16478e]',
-              isDoneDisabled ? 'bg-gray-400 cursor-not-allowed' : 'bg-[#16478e] hover:bg-[#1a55ab]'
+              'px-4 text-sm font-medium text-primary-foreground rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-ring',
+              isDoneDisabled ? 'bg-gray-400 cursor-not-allowed' : 'bg-primary hover:bg-primary-hover'
             )}
             onClick={handleSave}
             disabled={isDoneDisabled}

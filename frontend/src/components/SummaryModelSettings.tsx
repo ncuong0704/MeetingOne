@@ -35,26 +35,26 @@ export function SummaryModelSettings() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-50">
-          <h3 className="text-base font-semibold text-gray-900">Tóm tắt tự động</h3>
-          <p className="text-sm text-gray-500 mt-1">Tự động tạo tóm tắt sau khi kết thúc cuộc họp.</p>
+      <div className="app-surface overflow-hidden">
+        <div className="px-5 py-4 border-b border-rule">
+          <h3 className="text-base font-semibold text-ink">Tóm tắt tự động</h3>
+          <p className="text-sm text-ink-2 mt-1">Tự động tạo tóm tắt sau khi kết thúc cuộc họp.</p>
         </div>
         <div
           className="flex items-center justify-between px-5 py-4"
         >
           <div>
-            <p className="text-base font-medium text-gray-800">Bật tóm tắt tự động</p>
-            <p className="text-sm text-gray-500 mt-0.5">Tạo tóm tắt ngay khi dừng ghi âm</p>
+            <p className="text-base font-medium text-ink">Bật tóm tắt tự động</p>
+            <p className="text-sm text-ink-2 mt-0.5">Tạo tóm tắt ngay khi dừng ghi âm</p>
           </div>
           <Switch checked={isAutoSummary} onCheckedChange={toggleIsAutoSummary} />
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-gray-50">
-          <h3 className="text-base font-semibold text-gray-900">Cấu hình mô hình tóm tắt</h3>
-          <p className="text-sm text-gray-500 mt-1">Chọn mô hình AI dùng để tạo tóm tắt cuộc họp.</p>
+      <div className="app-surface overflow-hidden">
+        <div className="px-5 py-4 border-b border-rule">
+          <h3 className="text-base font-semibold text-ink">Cấu hình mô hình tóm tắt</h3>
+          <p className="text-sm text-ink-2 mt-1">Chọn mô hình AI dùng để tạo tóm tắt cuộc họp.</p>
         </div>
         <div className="px-5 py-5">
           <ModelSettingsModal
@@ -65,12 +65,12 @@ export function SummaryModelSettings() {
             onSave={handleSaveModelConfig}
             skipInitialFetch={true}
           />
-          <div className="mt-6 flex justify-end border-t border-gray-100 pt-4">
+          <div className="mt-6 flex justify-end border-t border-rule pt-4">
             <Button
               type="button"
               onClick={handleSaveClick}
               disabled={isSaving}
-              className="bg-[#16478e] hover:bg-[#1a55ab] text-white px-4"
+              className="bg-primary hover:bg-primary-hover text-primary-foreground px-4"
             >
               {isSaving ? 'Đang lưu…' : 'Lưu'}
             </Button>

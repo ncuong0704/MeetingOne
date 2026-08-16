@@ -174,7 +174,7 @@ const TranscriptSegment = memo(function TranscriptSegment({
             id={`segment-${id}`}
             className={`mb-3 group/seg rounded-md transition-colors ${
                 isActive ? 'bg-[rgba(255,215,0,0.25)]' : ''
-            } ${onRowClick && !isEditing ? 'cursor-pointer hover:bg-gray-50' : ''}`}
+            } ${onRowClick && !isEditing ? 'cursor-pointer hover:bg-secondary' : ''}`}
             onClick={() => {
                 if (!isEditing) onRowClick?.();
             }}
@@ -186,7 +186,7 @@ const TranscriptSegment = memo(function TranscriptSegment({
                     <TooltipTrigger>
                         <span
                             className={`text-xs mt-1 flex-shrink-0 min-w-[50px] tabular-nums ${
-                                isActive ? 'text-[#16478e] font-semibold' : 'text-gray-400'
+                                isActive ? 'text-primary font-semibold' : 'text-ink-2'
                             }`}
                         >
                             {formatRecordingTime(timestamp)}
@@ -215,7 +215,7 @@ const TranscriptSegment = memo(function TranscriptSegment({
                     )}
                     {isEditing ? (
                         // Edit mode
-                        <div className="rounded-lg border border-[rgba(22,71,142,0.4)] bg-[rgba(22,71,142,0.05)] ring-2 ring-[rgba(22,71,142,0.2)] overflow-hidden">
+                        <div className="rounded-lg border border-primary/40 bg-primary/5 ring-2 ring-primary/20 overflow-hidden">
                             <textarea
                                 ref={textareaRef}
                                 value={editValue}
@@ -225,20 +225,20 @@ const TranscriptSegment = memo(function TranscriptSegment({
                                     e.target.style.height = `${e.target.scrollHeight}px`;
                                 }}
                                 onKeyDown={handleKeyDown}
-                                className="w-full px-3 py-2 text-base text-gray-800 leading-relaxed bg-transparent resize-none focus:outline-none"
+                                className="w-full px-3 py-2 text-base text-ink leading-relaxed bg-transparent resize-none focus:outline-none"
                                 rows={1}
                             />
                             <div className="flex items-center justify-end gap-1 px-2 pb-1.5 pt-0">
-                                <span className="text-[10px] text-gray-400 mr-auto">Enter để lưu · Esc để huỷ</span>
+                                <span className="text-[10px] text-ink-2 mr-auto">Enter để lưu · Esc để huỷ</span>
                                 <button
                                     onClick={handleCancel}
-                                    className="flex items-center gap-1 px-2 py-0.5 text-xs text-gray-500 hover:text-gray-700 rounded-md hover:bg-gray-100 transition-colors"
+                                    className="flex items-center gap-1 px-2 py-0.5 text-xs text-ink-2 hover:text-ink rounded-md hover:bg-secondary transition-colors"
                                 >
                                     <X className="w-3 h-3" /> Huỷ
                                 </button>
                                 <button
                                     onClick={handleSave}
-                                    className="flex items-center gap-1 px-2 py-0.5 text-xs text-white bg-[#16478e] hover:bg-[#1a55ab] rounded-md transition-colors"
+                                    className="flex items-center gap-1 px-2 py-0.5 text-xs text-primary-foreground bg-primary hover:bg-primary-hover rounded-md transition-colors"
                                 >
                                     <Check className="w-3 h-3" /> Lưu
                                 </button>
@@ -246,10 +246,10 @@ const TranscriptSegment = memo(function TranscriptSegment({
                         </div>
                     ) : (
                         // View mode — show edit button on hover, streaming or not
-                        <div className={`flex items-start gap-1.5${isStreaming ? ' bg-gray-100 border border-gray-200 rounded-lg px-3 py-2' : ''}`}>
-                            <p className={`flex-1 text-base leading-relaxed ${isSaving ? 'text-gray-400' : 'text-gray-800'}`}>
+                        <div className={`flex items-start gap-1.5${isStreaming ? ' bg-paper-3 border border-rule rounded-md px-3 py-2' : ''}`}>
+                            <p className={`flex-1 text-base leading-relaxed ${isSaving ? 'text-ink-2' : 'text-ink'}`}>
                                 {shownText}
-                                {isSaving && <span className="ml-1.5 text-xs text-gray-400">Đang lưu...</span>}
+                                {isSaving && <span className="ml-1.5 text-xs text-ink-2">Đang lưu...</span>}
                             </p>
                             {onEdit && (
                                 <button
@@ -258,7 +258,7 @@ const TranscriptSegment = memo(function TranscriptSegment({
                                         handleStartEdit();
                                     }}
                                     title="Chỉnh sửa đoạn này"
-                                    className="opacity-0 group-hover/seg:opacity-100 mt-1 flex-shrink-0 p-1 rounded-md text-gray-400 hover:text-[#16478e] hover:bg-[rgba(22,71,142,0.08)] transition-all"
+                                    className="opacity-0 group-hover/seg:opacity-100 mt-1 flex-shrink-0 p-1 rounded-md text-ink-2 hover:text-primary hover:bg-primary/10 transition-all"
                                 >
                                     <Pencil className="w-3.5 h-3.5" />
                                 </button>
@@ -405,7 +405,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
             {/* Recording Status Bar - Sticky at top, always visible when recording */}
             <AnimatePresence>
                 {isRecording && (
-                    <div className="sticky top-0 z-10 bg-white pb-2">
+                    <div className="sticky top-0 z-10 bg-paper pb-2">
                         <RecordingStatusBar isPaused={isPaused} />
                     </div>
                 )}
@@ -418,17 +418,17 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                 <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    className="text-center text-gray-500 mt-8"
+                    className="text-center text-ink-2 mt-8"
                 >
                     {isRecording ? (
                         <>
                             <div className="flex items-center justify-center mb-3">
-                                <div className={`w-3 h-3 rounded-full ${isPaused ? 'bg-orange-500' : 'bg-blue-500 animate-pulse'}`}></div>
+                                <div className={`w-3 h-3 rounded-full ${isPaused ? 'bg-orange-500' : 'bg-primary animate-pulse'}`}></div>
                             </div>
-                            <p className="text-sm text-gray-600">
+                            <p className="text-sm text-ink-2">
                                 {isPaused ? 'Đã tạm dừng ghi âm' : 'Đang lắng nghe giọng nói...'}
                             </p>
-                            <p className="text-xs mt-1 text-gray-400">
+                            <p className="text-xs mt-1 text-ink-2">
                                 {isPaused ? 'Nhấn tiếp tục để ghi âm lại' : 'Nói để xem bản ghi trực tiếp'}
                             </p>
                             {pendingSpeakerName && (
@@ -509,12 +509,12 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                     {(hasMore || isLoadingMore) && !isRecording && segments.length > 0 && (
                         <div ref={loadMoreTriggerRef} className="flex justify-center items-center py-4 mt-2">
                             {isLoadingMore ? (
-                                <div className="flex items-center gap-2 text-gray-500">
-                                    <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+                                <div className="flex items-center gap-2 text-ink-2">
+                                    <div className="w-4 h-4 border-2 border-rule border-t-ink rounded-full animate-spin" />
                                     <span className="text-sm">Đang tải thêm...</span>
                                 </div>
                             ) : hasMore && totalCount > 0 ? (
-                                <span className="text-sm text-gray-400">
+                                <span className="text-sm text-ink-2">
                                     Hiển thị {loadedCount} / {totalCount} đoạn
                                 </span>
                             ) : null}
@@ -527,9 +527,9 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
-                            className="flex items-center gap-2 mt-4 text-gray-500"
+                            className="flex items-center gap-2 mt-4 text-ink-2"
                         >
-                            <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                            <div className="w-2 h-2 bg-primary rounded-full animate-pulse"></div>
                             <span className="text-sm">Đang lắng nghe...</span>
                         </motion.div>
                     )}
@@ -590,12 +590,12 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                     {(hasMore || isLoadingMore) && !isRecording && segments.length > 0 && (
                         <div ref={loadMoreTriggerRef} className="flex justify-center items-center py-4 mt-2">
                             {isLoadingMore ? (
-                                <div className="flex items-center gap-2 text-gray-500">
-                                    <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
+                                <div className="flex items-center gap-2 text-ink-2">
+                                    <div className="w-4 h-4 border-2 border-rule border-t-ink rounded-full animate-spin" />
                                     <span className="text-sm">Đang tải thêm...</span>
                                 </div>
                             ) : hasMore && totalCount > 0 ? (
-                                <span className="text-sm text-gray-400">
+                                <span className="text-sm text-ink-2">
                                     Hiển thị {loadedCount} / {totalCount} đoạn
                                 </span>
                             ) : null}
@@ -608,9 +608,9 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
-                            className="flex items-center gap-2 mt-4 text-gray-500"
+                            className="flex items-center gap-2 mt-4 text-ink-2"
                         >
-                            <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                            <div className="w-2 h-2 bg-primary rounded-full animate-pulse"></div>
                             <span className="text-sm">Đang lắng nghe...</span>
                         </motion.div>
                     )}

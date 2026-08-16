@@ -24,7 +24,7 @@ const Logo = React.forwardRef<HTMLButtonElement, LogoProps>(({ isCollapsed }, re
         onClick={handleGoHome}
         title="Trang chủ"
         aria-label="Trang chủ"
-        className="flex items-center justify-start mb-2 cursor-pointer bg-transparent border-none p-0 hover:opacity-80 transition-opacity"
+        className="flex items-center justify-start mb-2 cursor-pointer bg-transparent border-none p-0 hover:opacity-80 transition-opacity duration-[var(--dur-micro)] ease-[var(--ease-out)]"
       >
         <Image
           src={BRAND_LOGO_PATH}
@@ -44,7 +44,7 @@ const Logo = React.forwardRef<HTMLButtonElement, LogoProps>(({ isCollapsed }, re
       onClick={handleGoHome}
       title="Trang chủ"
       aria-label="Trang chủ"
-      className="w-full text-left border rounded-lg bg-blue-50/80 border-gray-100 font-semibold text-gray-800 mb-2 flex items-center gap-2 px-2 py-1.5 cursor-pointer hover:opacity-90 transition-opacity"
+      className="w-full text-left bg-transparent border-none font-semibold text-ink mb-1 flex items-center gap-2 px-1 py-1 cursor-pointer hover:opacity-80 transition-opacity duration-[var(--dur-micro)] ease-[var(--ease-out)]"
     >
       <Image
         src={BRAND_LOGO_PATH}

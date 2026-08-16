@@ -12,6 +12,7 @@ import { SummaryPanel } from '@/components/MeetingDetails/SummaryPanel';
 import { ModelConfig } from '@/components/ModelSettingsModal';
 import { persistSummaryModelConfig } from '@/lib/summaryModelConfigSync';
 import { PanelLeft, Columns2, PanelRight } from 'lucide-react';
+import { formatMeetingListDate } from '@/lib/formatMeetingListDate';
 
 // Custom hooks
 import { useMeetingData } from '@/hooks/meeting-details/useMeetingData';
@@ -284,11 +285,22 @@ export default function PageContent({
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, ease: 'easeOut' }}
-      className="flex min-h-0 flex-col h-screen bg-gray-50"
+      transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+      className="flex min-h-0 flex-col h-screen bg-paper"
     >
-      <div className="flex justify-center px-3 pt-3">
-        <div className="inline-flex items-center rounded-full border border-gray-200 bg-white p-0.5 shadow-sm">
+      <header className="shrink-0 border-b border-rule bg-paper-2">
+        <div className="px-4 pt-3 pb-2">
+          <h1 className="text-lg font-semibold tracking-tight text-ink leading-snug break-words">
+            {meetingData.meetingTitle}
+          </h1>
+          {meeting.created_at && (
+            <p className="mt-1 font-mono text-[10px] leading-none tabular-nums tracking-[0.04em] text-ink-2">
+              {formatMeetingListDate(meeting.created_at)}
+            </p>
+          )}
+        </div>
+        <div className="flex items-center justify-center px-4 pb-2">
+        <div className="inline-flex items-center gap-0.5">
           {(
             [
               { mode: 'transcript', icon: PanelLeft,  label: 'Bản ghi',  title: 'Chỉ hiện bản ghi' },
@@ -301,10 +313,10 @@ export default function PageContent({
               type="button"
               onClick={() => setLayoutMode(mode)}
               title={title}
-              className={`inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition-all duration-150 ${
+              className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors duration-150 ${
                 layoutMode === mode
-                  ? 'text-[#16478e] bg-[rgba(22,71,142,0.08)]'
-                  : 'text-gray-500 hover:text-[#16478e] hover:bg-[rgba(22,71,142,0.08)]'
+                  ? 'text-ink font-medium bg-paper border border-rule'
+                  : 'text-muted-foreground border border-transparent hover:text-foreground hover:bg-secondary'
               }`}
             >
               <Icon className="h-3.5 w-3.5" />
@@ -312,15 +324,16 @@ export default function PageContent({
             </button>
           ))}
         </div>
-      </div>
+        </div>
+      </header>
 
       <div
         id="meeting-details-split-container"
-        className="flex min-h-0 flex-1 overflow-hidden p-3 gap-3"
+        className="flex min-h-0 flex-1 overflow-hidden"
       >
         {(layoutMode === 'split' || layoutMode === 'transcript') && (
           <div
-            className="flex min-h-0 h-full min-w-0 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white"
+            className="flex min-h-0 h-full min-w-0 flex-col overflow-hidden bg-paper-2 border-r border-rule"
             style={
               layoutMode === 'split'
                 ? { flexBasis: `${leftPct}%`, flexGrow: 0, flexShrink: 0 }
@@ -356,7 +369,7 @@ export default function PageContent({
           >
             <div
               onMouseDown={() => { isDraggingRef.current = true; }}
-              className="w-1.5 rounded-full bg-gray-200 hover:bg-gray-300 cursor-col-resize transition-colors"
+              className="w-1.5 rounded-sm bg-rule hover:bg-muted-foreground/30 cursor-col-resize transition-colors"
               title="Kéo để thay đổi độ rộng"
             />
           </div>
@@ -364,7 +377,7 @@ export default function PageContent({
 
         {(layoutMode === 'split' || layoutMode === 'summary') && (
           <div
-            className="flex min-h-0 h-full min-w-0 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white"
+            className="flex min-h-0 h-full min-w-0 flex-col overflow-hidden bg-paper-2"
             style={
               layoutMode === 'split'
                 ? { flexBasis: `${100 - leftPct}%`, flexGrow: 1, flexShrink: 1, width: `300px` }

@@ -16,11 +16,11 @@ const AUTO_CHECK_DELAY_MS = 4000;
 const UPDATE_TOAST_ID = 'app-update-available';
 
 const UPDATE_TOAST_ACTION_CLASS =
-  '!bg-blue-600 !text-white hover:!bg-blue-700 !border-blue-600';
+  '!bg-primary !text-primary-foreground hover:!bg-primary-hover !border-primary';
 const UPDATE_TOAST_ACTION_STYLE = {
-  backgroundColor: '#2563eb',
-  color: '#ffffff',
-  borderColor: '#2563eb',
+  backgroundColor: 'var(--color-accent)',
+  color: 'var(--color-accent-ink)',
+  borderColor: 'var(--color-accent)',
 } as const;
 
 function notifyUpdateAvailable(

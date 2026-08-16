@@ -357,11 +357,11 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
   return (
     <TooltipProvider>
       <div className="flex flex-col space-y-2">
-        <div className="flex items-center space-x-2 bg-white rounded-full shadow-lg px-4 py-2">
+        <div className="flex items-center space-x-2 px-3 py-2">
           {isProcessing && !isParentProcessing ? (
             <div className="flex items-center space-x-2">
               <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-900"></div>
-              <span className="text-sm text-gray-600">Đang xử lý bản ghi...</span>
+              <span className="text-sm text-muted-foreground">Đang xử lý bản ghi...</span>
             </div>
           ) : (
             <>
@@ -369,7 +369,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                 <>
                   <button
                     onClick={handleStartRecording}
-                    className="w-10 h-10 flex items-center justify-center bg-red-500 rounded-full text-white hover:bg-red-600 transition-colors"
+                    className="w-10 h-10 flex items-center justify-center bg-destructive rounded-md text-destructive-foreground hover:bg-destructive/90 transition-colors"
                   >
                     <Mic size={16} />
                   </button>
@@ -384,7 +384,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                       className="relative w-24 h-1 bg-gray-200 rounded-full"
                     >
                       <div
-                        className="absolute h-full bg-blue-500 rounded-full"
+                        className="absolute h-full bg-primary rounded-full"
                         style={{ width: `${progress}%` }}
                       />
                     </div>
@@ -411,7 +411,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                         onChange={(event) =>
                           onAudioSourceChange?.(event.target.value as AudioCaptureSource)
                         }
-                        className="h-8 max-w-[11.5rem] shrink-0 rounded-md border border-gray-300 bg-white px-2 text-[11px] font-medium text-gray-700 disabled:opacity-50"
+                        className="h-8 max-w-[11.5rem] shrink-0 rounded-md border border-input bg-paper-2 px-2 text-[11px] font-medium text-foreground disabled:opacity-50"
                         aria-label="Nguồn ghi âm"
                         title="Chọn nguồn ghi âm"
                       >
@@ -429,7 +429,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                               type="button"
                               onClick={() => setQualityOpen(true)}
                               disabled={isStarting || isProcessing || isValidatingModel}
-                              className="h-8 shrink-0 rounded-md bg-blue-600 px-2.5 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                              className="h-8 shrink-0 rounded-md bg-primary px-2.5 text-[11px] font-semibold text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
                             >
                               Đánh giá
                             </button>
@@ -449,16 +449,16 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                                 handleStartRecording();
                               }}
                               disabled={isStarting || isProcessing || isRecordingDisabled || isValidatingModel}
-                              className={`w-12 h-12 flex items-center justify-center rounded-full border-2 transition-colors relative ${isStarting || isProcessing || isValidatingModel || isRecordingDisabled
-                                ? 'bg-gray-100 border-gray-300 cursor-not-allowed'
-                                : 'bg-white border-gray-300 hover:bg-gray-50'
+                              className={`w-12 h-12 flex items-center justify-center rounded-md border transition-colors relative ${isStarting || isProcessing || isValidatingModel || isRecordingDisabled
+                                ? 'bg-secondary border-input cursor-not-allowed'
+                                : 'bg-paper-2 border-input hover:bg-secondary'
                                 }`}
                             >
                               {isValidatingModel ? (
                                 <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-500"></div>
                               ) : (
                                 <span
-                                  className={`absolute inset-[1.5px] rounded-full ${isStarting || isProcessing || isRecordingDisabled ? 'bg-gray-400' : 'bg-red-500'
+                                  className={`absolute inset-[1.5px] rounded-md ${isStarting || isProcessing || isRecordingDisabled ? 'bg-muted-foreground/50' : 'bg-destructive'
                                     }`}
                                 />
                               )}
@@ -482,7 +482,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                       <select
                         value={audioCaptureSource}
                         disabled
-                        className="h-8 max-w-[11.5rem] shrink-0 rounded-md border border-gray-300 bg-gray-50 px-2 text-[11px] font-medium text-gray-500"
+                        className="h-8 max-w-[11.5rem] shrink-0 rounded-md border border-input bg-secondary px-2 text-[11px] font-medium text-muted-foreground"
                         aria-label="Nguồn ghi âm"
                       >
                         {AUDIO_CAPTURE_SOURCE_OPTIONS.map((option) => (
@@ -506,9 +506,9 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                             }}
                             disabled={isPausing || isResuming || isStopping}
                             className={`w-10 h-10 flex items-center justify-center ${isPausing || isResuming || isStopping
-                              ? 'bg-gray-200 border-2 border-gray-300 text-gray-400'
-                              : 'bg-white border-2 border-gray-300 text-gray-600 hover:border-gray-400 hover:bg-gray-50'
-                              } rounded-full transition-colors relative`}
+                              ? 'bg-secondary border border-input text-muted-foreground'
+                              : 'bg-paper-2 border border-input text-foreground hover:bg-secondary'
+                              } rounded-md transition-colors relative`}
                           >
                             {isPaused ? <Play size={16} /> : <Pause size={16} />}
                             {(isPausing || isResuming) && (
@@ -531,8 +531,8 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                               handleStopRecording();
                             }}
                             disabled={isStopping || isPausing || isResuming}
-                            className={`w-10 h-10 flex items-center justify-center ${isStopping || isPausing || isResuming ? 'bg-gray-400' : 'bg-red-500 hover:bg-red-600'
-                              } rounded-full text-white transition-colors relative`}
+                            className={`w-10 h-10 flex items-center justify-center ${isStopping || isPausing || isResuming ? 'bg-muted-foreground' : 'bg-destructive hover:bg-destructive/90'
+                              } rounded-md text-destructive-foreground transition-colors relative`}
                           >
                             <Square size={16} />
                             {isStopping && (
@@ -543,7 +543,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                           </button>
                         </TooltipTrigger>
                         <TooltipContent>
-                          <p>Stop recording</p>
+                          <p>Dừng ghi âm</p>
                         </TooltipContent>
                       </Tooltip>
                     </>
@@ -553,7 +553,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                     {barHeights.map((height, index) => (
                       <div
                         key={index}
-                        className={`w-1 rounded-full transition-all duration-200 ${isPaused ? 'bg-orange-500' : 'bg-red-500'
+                        className={`w-1 rounded-sm transition-all duration-200 ${isPaused ? 'bg-primary' : 'bg-destructive'
                           }`}
                         style={{
                           height: isRecording && !isPaused ? height : '4px',
@@ -570,7 +570,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
 
         {/* Show validation status only */}
         {isValidatingModel && (
-          <div className="text-xs text-gray-600 text-center mt-2">
+          <div className="text-xs text-muted-foreground text-center mt-2">
             Đang kiểm tra nhận dạng giọng nói...
           </div>
         )}

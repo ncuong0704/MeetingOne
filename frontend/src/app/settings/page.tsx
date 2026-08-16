@@ -52,97 +52,88 @@ export default function SettingsPage() {
   }, [setTranscriptModelConfig]);
 
   return (
-    <div className="h-screen bg-gray-50 flex flex-col overflow-hidden">
-
-      {/* ── Header ────────────────────────────────────────────────────────── */}
-      <header className="shrink-0 bg-white border-b border-gray-100">
-        <div className="max-w-6xl mx-auto px-8">
-          {/* Breadcrumb */}
-          <div className="flex items-center gap-2 py-5">
-            <button
-              onClick={() => router.back()}
-              className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-700 transition-colors"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              Quay lại
-            </button>
-            <span className="text-gray-200">/</span>
-            <span className="text-xl font-semibold text-gray-800">Cài đặt</span>
-          </div>
-
-          {/* Horizontal tab bar */}
-          <div className="flex items-end gap-1 -mb-px">
-            {TABS.map(({ value, label, icon: Icon }) => {
-              const isActive = activeTab === value;
-              return (
-                <button
-                  key={value}
-                  onClick={() => setActiveTab(value)}
-                  className={cn(
-                    'relative flex items-center gap-2 px-5 py-3 text-base font-medium rounded-t-lg transition-colors duration-150 border border-transparent',
-                    isActive
-                      ? 'text-gray-900 bg-gray-50 border-gray-100 border-b-gray-50'
-                      : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50/60'
-                  )}
-                >
-                  <Icon className={cn('w-3.5 h-3.5 shrink-0', isActive ? 'text-gray-700' : 'text-gray-400')} />
-                  {label}
-                  {isActive && (
-                    <motion.div
-                      layoutId="tab-indicator"
-                      className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#16478e] rounded-t-full"
-                      transition={{ type: 'spring', stiffness: 500, damping: 40 }}
-                    />
-                  )}
-                </button>
-              );
-            })}
-          </div>
+    <div className="h-screen bg-paper flex flex-col overflow-hidden">
+      <header className="shrink-0 bg-paper-2 border-b border-rule">
+        <div className="flex items-center gap-3 px-5 h-12">
+          <button
+            onClick={() => router.back()}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Quay lại
+          </button>
+          <span className="text-rule">/</span>
+          <span className="text-lg font-semibold text-foreground tracking-tight">Cài đặt</span>
         </div>
       </header>
 
-      {/* ── Content ───────────────────────────────────────────────────────── */}
-      <main className="flex-1 overflow-y-auto">
-        <div className="max-w-6xl mx-auto px-8 py-6">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={activeTab}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              transition={{ duration: 0.18, ease: 'easeOut' }}
-            >
-              {activeTab === 'general'             && <RecordingSettings />}
-              {activeTab === 'directory'           && <SpeakerDirectorySettings />}
-              {activeTab === 'Transcriptionmodels' && (
-                <TranscriptSettings
-                  transcriptModelConfig={transcriptModelConfig}
-                  setTranscriptModelConfig={setTranscriptModelConfig}
-                />
-              )}
-              {activeTab === 'summaryModels'       && <SummaryModelSettings />}
-              {activeTab === 'templates'           && <TemplateSettings />}
-              {activeTab === 'promptSettings'      && <PromptSettings />}
-            </motion.div>
-          </AnimatePresence>
-
-          {authRequired && user && (
-            <div className="mt-8 pt-6 border-t border-gray-100 flex items-center justify-between gap-4">
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-gray-900 truncate">{user.fullName}</p>
-                <p className="text-xs text-gray-500 truncate">{user.email}</p>
-              </div>
+      <div className="flex flex-1 min-h-0">
+        <nav className="w-52 shrink-0 overflow-y-auto border-r border-rule bg-paper-2 py-3 px-2">
+          {TABS.map(({ value, label, desc, icon: Icon }) => {
+            const isActive = activeTab === value;
+            return (
               <button
-                type="button"
-                onClick={() => { void logout(); }}
-                className="shrink-0 px-3 py-1.5 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                key={value}
+                onClick={() => setActiveTab(value)}
+                className={cn(
+                  'w-full flex items-start gap-2.5 rounded-r-md px-3 py-2.5 text-left border-l-2 transition-colors duration-150',
+                  isActive
+                    ? 'border-primary bg-paper text-foreground'
+                    : 'border-transparent text-muted-foreground hover:bg-paper hover:text-foreground'
+                )}
               >
-                Đăng xuất
+                <Icon className={cn('w-3.5 h-3.5 mt-0.5 shrink-0', isActive ? 'text-primary' : 'text-muted-foreground')} />
+                <span className="min-w-0">
+                  <span className={cn('block text-sm', isActive ? 'font-medium' : 'font-normal')}>{label}</span>
+                  <span className="block text-[11px] leading-snug text-ink-2 mt-0.5">{desc}</span>
+                </span>
               </button>
-            </div>
-          )}
-        </div>
-      </main>
+            );
+          })}
+        </nav>
+
+        <main className="flex-1 overflow-y-auto bg-paper">
+          <div className="max-w-3xl px-8 py-6">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeTab}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+              >
+                {activeTab === 'general'             && <RecordingSettings />}
+                {activeTab === 'directory'           && <SpeakerDirectorySettings />}
+                {activeTab === 'Transcriptionmodels' && (
+                  <TranscriptSettings
+                    transcriptModelConfig={transcriptModelConfig}
+                    setTranscriptModelConfig={setTranscriptModelConfig}
+                  />
+                )}
+                {activeTab === 'summaryModels'       && <SummaryModelSettings />}
+                {activeTab === 'templates'           && <TemplateSettings />}
+                {activeTab === 'promptSettings'      && <PromptSettings />}
+              </motion.div>
+            </AnimatePresence>
+
+            {authRequired && user && (
+              <div className="mt-8 pt-6 border-t border-rule flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground truncate">{user.fullName}</p>
+                  <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { void logout(); }}
+                  className="shrink-0 px-3 py-1.5 text-sm text-muted-foreground border border-input rounded-md hover:bg-secondary transition-colors"
+                >
+                  Đăng xuất
+                </button>
+              </div>
+            )}
+          </div>
+        </main>
+      </div>
     </div>
   );
 }

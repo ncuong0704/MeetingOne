@@ -6,7 +6,6 @@ import { useConfig } from '@/contexts/ConfigContext';
 import { useRecordingState, RecordingStatus } from '@/contexts/RecordingStateContext';
 import { recordingService } from '@/services/recordingService';
 import Analytics from '@/lib/analytics';
-import { showRecordingNotification } from '@/lib/recordingNotification';
 import { toast } from 'sonner';
 import {
   AudioCaptureSource,
@@ -68,7 +67,6 @@ interface UseRecordingStartReturn {
  * - Meeting title generation (format: Meeting DD_MM_YY_HH_MM_SS)
  * - Transcript clearing on start
  * - Analytics tracking
- * - Recording notification display
  * - Auto-start from sidebar via sessionStorage flag
  */
 export function useRecordingStart(
@@ -189,9 +187,6 @@ export function useRecordingStart(
       clearTranscripts(); // Clear previous transcripts when starting new recording
       setIsMeetingActive(true);
       Analytics.trackButtonClick('start_recording', 'home_page');
-
-      // Show recording notification if enabled
-      await showRecordingNotification();
     } catch (error) {
       console.error('Failed to start recording:', error);
       setStatus(RecordingStatus.ERROR, error instanceof Error ? error.message : 'Không thể bắt đầu ghi âm');
@@ -266,9 +261,6 @@ export function useRecordingStart(
             clearTranscripts();
             setIsMeetingActive(true);
             Analytics.trackButtonClick('start_recording', 'sidebar_auto');
-
-            // Show recording notification if enabled
-            await showRecordingNotification();
           } catch (error) {
             console.error('Failed to auto-start recording:', error);
             setStatus(RecordingStatus.ERROR, error instanceof Error ? error.message : 'Không thể tự động bắt đầu ghi âm');
@@ -363,9 +355,6 @@ export function useRecordingStart(
         clearTranscripts();
         setIsMeetingActive(true);
         Analytics.trackButtonClick('start_recording', 'sidebar_direct');
-
-        // Show recording notification if enabled
-        await showRecordingNotification();
       } catch (error) {
         console.error('Failed to start recording from sidebar:', error);
         setStatus(RecordingStatus.ERROR, error instanceof Error ? error.message : 'Không thể bắt đầu ghi âm từ thanh bên');

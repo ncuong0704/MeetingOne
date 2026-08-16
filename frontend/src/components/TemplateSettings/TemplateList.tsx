@@ -28,10 +28,10 @@ export function TemplateList({
   onSetDefault,
 }: TemplateListProps) {
   return (
-    <div className="flex flex-col w-full min-h-0 border border-gray-200 rounded-xl overflow-hidden bg-white">
+    <div className="flex flex-col w-full min-h-0 app-surface overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-        <span className="text-sm font-semibold text-gray-700">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-rule">
+        <span className="text-sm font-semibold text-ink">
           Danh sách mẫu
         </span>
         <Button
@@ -48,9 +48,9 @@ export function TemplateList({
       {/* List */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         {isLoading ? (
-          <div className="px-4 py-8 text-center text-sm text-gray-400">Đang tải...</div>
+          <div className="px-4 py-8 text-center text-sm text-ink-2">Đang tải...</div>
         ) : templates.length === 0 ? (
-          <div className="px-4 py-8 text-center text-sm text-gray-400">
+          <div className="px-4 py-8 text-center text-sm text-ink-2">
             Chưa có mẫu nào
           </div>
         ) : (
@@ -66,8 +66,8 @@ export function TemplateList({
                     className={cn(
                       'w-full text-left px-3 py-2.5 rounded-lg transition-colors',
                       isActive
-                        ? 'bg-blue-50 border border-[#16478e]/30'
-                        : 'hover:bg-gray-50 border border-transparent'
+                        ? 'bg-primary/10 border border-primary/30'
+                        : 'hover:bg-secondary border border-transparent'
                     )}
                   >
                     <div className="flex items-start justify-between gap-2">
@@ -78,7 +78,7 @@ export function TemplateList({
                         <span
                           className={cn(
                             'text-sm font-medium leading-snug truncate',
-                            isActive ? 'text-[#16478e]' : 'text-gray-800'
+                            isActive ? 'text-primary' : 'text-ink'
                           )}
                         >
                           {t.name}
@@ -90,7 +90,7 @@ export function TemplateList({
                         Đang dùng làm mặc định
                       </p>
                     )}
-                    <p className="text-xs text-gray-400 mt-0.5 line-clamp-2 leading-relaxed">
+                    <p className="text-xs text-ink-2 mt-0.5 line-clamp-2 leading-relaxed">
                       {t.description}
                     </p>
                   </button>
@@ -106,8 +106,8 @@ export function TemplateList({
                       }}
                       className={cn(
                         'absolute right-2 bottom-2 opacity-0 group-hover/item:opacity-100 transition-opacity z-10',
-                        'text-[10px] px-1.5 py-0.5 rounded-full border border-gray-200',
-                        'bg-white text-gray-500 hover:text-amber-600 hover:border-amber-300',
+                        'text-[10px] px-1.5 py-0.5 rounded-md border border-rule',
+                        'bg-paper-2 text-ink-2 hover:text-amber-700 hover:border-amber-300',
                         'flex items-center gap-1 whitespace-nowrap',
                         isSettingDefault && 'cursor-not-allowed'
                       )}

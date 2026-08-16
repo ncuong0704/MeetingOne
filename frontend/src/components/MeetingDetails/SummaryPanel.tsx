@@ -122,12 +122,12 @@ export function SummaryPanel({
   const isSummaryLoading = summaryStatus === 'processing' || summaryStatus === 'summarizing' || summaryStatus === 'regenerating';
 
   const statusBadge = summaryStatus === 'error'
-    ? <span className="inline-flex items-center rounded-full bg-[rgba(230,48,39,0.08)] border border-[rgba(230,48,39,0.2)] px-2 py-0.5 text-xs font-medium text-[#e63027]">Lỗi</span>
+    ? <span className="inline-flex items-center rounded-md bg-destructive/10 border border-destructive/20 px-2 py-0.5 text-xs font-medium text-destructive">Lỗi</span>
     : summaryStatus === 'completed'
-    ? <span className="inline-flex items-center rounded-full bg-green-50 border border-green-100 px-2 py-0.5 text-xs font-medium text-green-600">Đã tạo</span>
+    ? <span className="inline-flex items-center rounded-md bg-secondary border border-rule px-2 py-0.5 text-xs font-medium text-foreground">Đã tạo</span>
     : isSummaryLoading
-    ? <span className="inline-flex items-center gap-1 rounded-full bg-[rgba(22,71,142,0.10)] border border-[rgba(22,71,142,0.2)] px-2 py-0.5 text-xs font-medium text-[#16478e]">
-        <span className="h-1.5 w-1.5 rounded-full bg-[#16478e] animate-pulse" />
+    ? <span className="inline-flex items-center gap-1 rounded-md bg-primary/10 border border-primary/20 px-2 py-0.5 text-xs font-medium text-primary">
+        <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
         Đang tạo…
       </span>
     : null;
@@ -150,11 +150,10 @@ export function SummaryPanel({
   };
 
   return (
-    <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden bg-white">
-      {/* Unified header — [&_span]:hidden forces icon-only buttons so they fit in narrow split panels */}
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-gray-100 px-4 py-3 min-w-0">
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden bg-paper-2">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-rule h-11 px-4 min-w-0">
         <div className="flex items-center gap-2 shrink-0 min-w-0">
-          <span className="text-sm font-semibold text-gray-800 whitespace-nowrap">Báo cáo AI</span>
+          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-2 whitespace-nowrap">Báo cáo AI</span>
           <span className="hidden sm:block">{statusBadge}</span>
         </div>
         {/* [&_span]:hidden collapses all button text to icon-only — tooltips (title=) remain for discoverability */}

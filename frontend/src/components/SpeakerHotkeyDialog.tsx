@@ -81,7 +81,7 @@ export function SpeakerHotkeyDialog({ open, onOpenChange }: SpeakerHotkeyDialogP
             Trong khi ghi âm trực tiếp, bấm phím số tương ứng để gán người đang nói. Để trống = ẩn phím.
           </DialogDescription>
         </DialogHeader>
-        <div className="grid grid-cols-[2.5rem_3.5rem_1fr] gap-2 items-center text-xs font-medium text-gray-500">
+        <div className="grid grid-cols-[2.5rem_3.5rem_1fr] gap-2 items-center text-xs font-medium text-ink-2">
           <span>STT</span>
           <span>Phím</span>
           <span>Tên người nói</span>
@@ -89,8 +89,8 @@ export function SpeakerHotkeyDialog({ open, onOpenChange }: SpeakerHotkeyDialogP
         <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
           {Array.from({ length: 9 }, (_, i) => String(i + 1)).map((key) => (
             <div key={key} className="grid grid-cols-[2.5rem_3.5rem_1fr] gap-2 items-center">
-              <span className="text-center text-sm text-gray-600">{key}</span>
-              <span className="text-center text-sm font-semibold text-blue-600">Num {key}</span>
+              <span className="text-center text-sm text-ink-2">{key}</span>
+              <span className="text-center text-sm font-semibold text-primary">Num {key}</span>
               <SpeakerNameCombobox
                 value={slots[key] ?? ''}
                 placeholder={`Nhập tên cho phím ${key}...`}

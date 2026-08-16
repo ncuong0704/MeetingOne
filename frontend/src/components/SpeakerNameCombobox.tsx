@@ -135,7 +135,7 @@ export function SpeakerNameCombobox({
             if (!open) setOpen(true);
           }
         }}
-        className="w-full px-3 py-1.5 text-sm rounded-md border border-gray-300 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+        className="w-full px-3 py-1.5 text-sm rounded-md border border-input bg-paper-2 text-ink focus:outline-none focus:ring-2 focus-visible:ring-ring disabled:opacity-50"
       />
       {open && menuBox && createPortal(
         <ul
@@ -143,10 +143,10 @@ export function SpeakerNameCombobox({
           role="listbox"
           style={{ top: menuBox.top, left: menuBox.left, width: menuBox.width }}
           data-speaker-suggestions=""
-          className="pointer-events-auto fixed z-[100] max-h-48 overflow-y-auto rounded-md border border-gray-200 bg-white py-1 shadow-lg"
+          className="pointer-events-auto fixed z-[100] max-h-48 overflow-y-auto rounded-md border border-rule bg-paper-2 py-1"
         >
           {suggestions.length === 0 ? (
-            <li className="px-3 py-2 text-xs text-gray-400">
+            <li className="px-3 py-2 text-xs text-ink-2">
               {people.length === 0
                 ? 'Chưa có danh sách. Thêm trong Cài đặt → Danh sách.'
                 : 'Không khớp. Có thể gõ tên tự do.'}
@@ -163,12 +163,12 @@ export function SpeakerNameCombobox({
                       pick(person);
                     }}
                     className={`w-full px-3 py-1.5 text-left ${
-                      index === highlight ? 'bg-blue-50' : 'hover:bg-gray-50'
+                      index === highlight ? 'bg-primary/10' : 'hover:bg-secondary'
                     }`}
                   >
-                    <span className="block text-sm text-gray-900">{person.fullName}</span>
+                    <span className="block text-sm text-ink">{person.fullName}</span>
                     {meta ? (
-                      <span className="block text-[11px] text-gray-500">{meta}</span>
+                      <span className="block text-[11px] text-ink-2">{meta}</span>
                     ) : null}
                   </button>
                 </li>

@@ -123,7 +123,7 @@ function InnerEditor({
   }, [editor]);
 
   return (
-    <div className="template-settings-blocknote border border-gray-200 rounded-md min-h-[80px] text-sm overflow-visible [&_.bn-editor]:px-2 [&_.bn-editor]:py-1.5">
+    <div className="template-settings-blocknote border border-rule rounded-md min-h-[80px] text-sm overflow-visible [&_.bn-editor]:px-2 [&_.bn-editor]:py-1.5">
       <BlockNoteView
         editor={editor}
         editable={!disabled}
@@ -211,7 +211,7 @@ export default function SectionInstructionEditor({
 
   if (!initialBlocks) {
     return (
-      <div className="text-xs text-gray-400 px-3 py-2 border border-gray-200 rounded-md min-h-[80px]">
+      <div className="text-xs text-ink-2 px-3 py-2 border border-rule rounded-md min-h-[80px]">
         Đang tải trình soạn thảo...
       </div>
     );

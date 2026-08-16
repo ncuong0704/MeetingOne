@@ -237,7 +237,7 @@ export function DeviceSelection({
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h4 className="text-sm font-medium text-gray-900">Thiết bị âm thanh</h4>
+        <h4 className="text-sm font-medium text-ink">Thiết bị âm thanh</h4>
         <div className="flex items-center space-x-2">
           {/* TODO: Monitoring */}
           {/* <button */}
@@ -255,7 +255,7 @@ export function DeviceSelection({
           <button
             onClick={handleRefresh}
             disabled={refreshing || disabled}
-            className="h-8 w-8 p-0 inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-gray-100 disabled:pointer-events-none disabled:opacity-50"
+            className="h-8 w-8 p-0 inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors hover:bg-secondary disabled:pointer-events-none disabled:opacity-50"
           >
             <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
           </button>
@@ -272,8 +272,8 @@ export function DeviceSelection({
         {/* Microphone Selection */}
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <Mic className="h-4 w-4 text-gray-600" />
-            <Label htmlFor="mic-selection" className="text-sm font-medium text-gray-700">
+            <Mic className="h-4 w-4 text-ink-2" />
+            <Label htmlFor="mic-selection" className="text-sm font-medium text-ink">
               Micro
             </Label>
           </div>
@@ -304,7 +304,7 @@ export function DeviceSelection({
               type="button"
               onClick={() => setQualityOpen(true)}
               disabled={disabled || !wantsMicrophone(audioSource)}
-              className="h-9 shrink-0 rounded-md bg-blue-600 px-3 text-xs font-semibold text-white hover:bg-blue-700 disabled:pointer-events-none disabled:opacity-50"
+              className="h-9 shrink-0 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary-hover disabled:pointer-events-none disabled:opacity-50"
               title="Đánh giá chất lượng microphone (10 giây)"
             >
               Đánh giá
@@ -316,19 +316,19 @@ export function DeviceSelection({
             deviceName={selectedDevices.micDevice}
           />
           {inputDevices.length === 0 && (
-            <p className="text-xs text-gray-500">Không tìm thấy micro</p>
+            <p className="text-xs text-ink-2">Không tìm thấy micro</p>
           )}
 
           {/* Audio Level Meters for Input Devices */}
           {showLevels && inputDevices.length > 0 && (
-            <div className="space-y-2 pt-2 border-t border-gray-100">
-              <p className="text-xs text-gray-600 font-medium">Mức âm micro:</p>
+            <div className="space-y-2 pt-2 border-t border-rule">
+              <p className="text-xs text-ink-2 font-medium">Mức âm micro:</p>
               {inputDevices.map((device) => {
                 const levelData = audioLevels.get(device.name);
                 return (
                   <div key={`level-${device.name}`} className="space-y-1">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-600 truncate max-w-[200px]">
+                      <span className="text-xs text-ink-2 truncate max-w-[200px]">
                         {device.name}
                       </span>
                       {levelData && (
@@ -358,8 +358,8 @@ export function DeviceSelection({
         {/* System Audio Selection */}
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <Speaker className="h-4 w-4 text-gray-600" />
-            <Label htmlFor="system-selection" className="text-sm font-medium text-gray-700">
+            <Speaker className="h-4 w-4 text-ink-2" />
+            <Label htmlFor="system-selection" className="text-sm font-medium text-ink">
               Âm thanh hệ thống
             </Label>
           </div>
@@ -386,12 +386,12 @@ export function DeviceSelection({
           </Select>
 
           {outputDevices.length === 0 && (
-            <p className="text-xs text-gray-500">Không tìm thấy thiết bị âm thanh hệ thống</p>
+            <p className="text-xs text-ink-2">Không tìm thấy thiết bị âm thanh hệ thống</p>
           )}
 
           {/* Backend Selection - available on all platforms */}
           {!disabled && (
-            <div className="pt-3 border-t border-gray-100">
+            <div className="pt-3 border-t border-rule">
               <AudioBackendSelector disabled={disabled} />
             </div>
           )}
@@ -399,7 +399,7 @@ export function DeviceSelection({
       </div>
 
       {/* Info text */}
-      <div className="text-xs text-gray-500 space-y-1">
+      <div className="text-xs text-ink-2 space-y-1">
         <p>• <strong>Micro:</strong> Ghi giọng nói và âm thanh xung quanh</p>
         <p>• <strong>Âm thanh hệ thống:</strong> Ghi âm từ máy (nhạc, cuộc gọi, v.v.)</p>
         {isMonitoring && (

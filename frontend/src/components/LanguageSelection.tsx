@@ -80,7 +80,7 @@ export function LanguageSelection({
           value={selectedLanguage}
           onChange={(e) => handleLanguageChange(e.target.value)}
           disabled={disabled || saving}
-          className="w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
+          className="w-full px-3 py-2 text-sm bg-paper-2 border border-input rounded-md focus:outline-none focus:ring-1 focus-visible:ring-ring focus-visible:border-primary disabled:bg-secondary disabled:text-ink-2"
         >
           {availableLanguages.map((language) => (
             <option key={language.code} value={language.code}>
@@ -92,7 +92,7 @@ export function LanguageSelection({
 
         {/* ASR Vietnamese note */}
         {isAsr && (
-          <div className="p-2 bg-blue-50 border border-blue-200 rounded text-blue-800">
+          <div className="p-2 bg-primary/10 border border-primary/30 rounded text-primary">
             <p className="font-medium">🇻🇳 Chỉ hỗ trợ tiếng Việt</p>
             <p className="mt-1 text-xs">Mô hình ASR được huấn luyện riêng cho tiếng Việt. Không cần chọn ngôn ngữ thủ công.</p>
           </div>
@@ -100,7 +100,7 @@ export function LanguageSelection({
 
         {/* Info text */}
         <div className="text-xs space-y-2 pt-2">
-          <p className="text-gray-600">
+          <p className="text-ink-2">
             <strong>Đang chọn:</strong> {selectedLanguageName}
           </p>
           {selectedLanguage === 'auto' && (
@@ -110,13 +110,13 @@ export function LanguageSelection({
             </div>
           )}
           {selectedLanguage === 'auto-translate' && (
-            <div className="p-2 bg-blue-50 border border-blue-200 rounded text-blue-800">
+            <div className="p-2 bg-primary/10 border border-primary/30 rounded text-primary">
               <p className="font-medium">🌐 Translation Mode Active</p>
               <p className="mt-1">All audio will be automatically translated to English. Best for multilingual meetings where you need English output.</p>
             </div>
           )}
           {selectedLanguage !== 'auto' && selectedLanguage !== 'auto-translate' && (
-            <p className="text-gray-600">
+            <p className="text-ink-2">
               Phiên âm được tối ưu cho <strong>{selectedLanguageName}</strong>
             </p>
           )}

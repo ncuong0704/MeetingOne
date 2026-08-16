@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { ChevronDown, ChevronRight, File, Settings, ChevronLeftCircle, ChevronRightCircle, Calendar, StickyNote, Home, Trash2, Mic, Square, Plus, Search, Pencil, NotebookPen, SearchIcon, X, Upload } from 'lucide-react';
+import { ChevronDown, ChevronRight, Settings, ChevronsLeft, ChevronsRight, Calendar, Home, Trash2, Mic, Square, Plus, Pencil, NotebookPen, SearchIcon, X, Upload } from 'lucide-react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useSidebar } from './SidebarProvider';
 import type { CurrentMeeting } from '@/components/Sidebar/SidebarProvider';
@@ -31,12 +31,14 @@ import { UserGuideButton } from '../UserGuide';
 import { ComplianceNotification } from '../ComplianceNotification';
 import { Input } from '../ui/input';
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '../ui/input-group';
+import { formatMeetingListDate } from '@/lib/formatMeetingListDate';
 
 interface SidebarItem {
   id: string;
   title: string;
   type: 'folder' | 'file';
   children?: SidebarItem[];
+  created_at?: string;
 }
 
 const Sidebar: React.FC = () => {
@@ -454,16 +456,14 @@ const Sidebar: React.FC = () => {
     return (
       <TooltipProvider>
         <div className="flex flex-col items-center space-y-4 mt-4">
-          <Logo isCollapsed={isCollapsed} />
-
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 onClick={() => router.push('/')}
-                className={`p-2 rounded-lg transition-colors duration-150 ${isHomePage ? 'bg-gray-100' : 'hover:bg-gray-100'
+                className={`p-2 rounded-md transition-colors duration-150 ${isHomePage ? 'bg-secondary text-foreground' : 'hover:bg-secondary'
                   }`}
               >
-                <Home className="w-5 h-5 text-gray-600" />
+                <Home className="w-5 h-5 text-muted-foreground" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
@@ -478,10 +478,10 @@ const Sidebar: React.FC = () => {
                   if (isCollapsed) toggleCollapse();
                   toggleFolder('meetings');
                 }}
-                className={`p-2 rounded-lg transition-colors duration-150 ${isMeetingPage ? 'bg-gray-100' : 'hover:bg-gray-100'
+                className={`p-2 rounded-md transition-colors duration-150 ${isMeetingPage ? 'bg-secondary text-foreground' : 'hover:bg-secondary'
                   }`}
               >
-                <NotebookPen className="w-5 h-5 text-gray-600" />
+                <NotebookPen className="w-5 h-5 text-muted-foreground" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
@@ -494,12 +494,12 @@ const Sidebar: React.FC = () => {
               <button
                 onClick={handleRecordingToggle}
                 disabled={isRecording}
-                className={`p-2 ${isRecording ? 'bg-red-500 cursor-not-allowed' : 'bg-red-500 hover:bg-red-600'} rounded-full transition-colors duration-150 shadow-sm`}
+                className={`p-2 ${isRecording ? 'bg-destructive cursor-not-allowed' : 'bg-destructive hover:bg-destructive/90'} rounded-md transition-colors duration-150`}
               >
                 {isRecording ? (
-                  <Square className="w-5 h-5 text-white" />
+                  <Square className="w-5 h-5 text-destructive-foreground" />
                 ) : (
-                  <Mic className="w-5 h-5 text-white" />
+                  <Mic className="w-5 h-5 text-destructive-foreground" />
                 )}
               </button>
             </TooltipTrigger>
@@ -512,9 +512,9 @@ const Sidebar: React.FC = () => {
             <TooltipTrigger asChild>
               <button
                 onClick={() => openImportDialog()}
-                className="p-2 rounded-lg transition-colors duration-150 bg-[rgba(22,71,142,0.08)] hover:bg-[rgba(22,71,142,0.15)]"
+                className="p-2 rounded-md transition-colors duration-150 bg-primary/10 hover:bg-primary/15"
               >
-                <Upload className="w-5 h-5 text-[#16478e]" />
+                <Upload className="w-5 h-5 text-primary" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
@@ -526,10 +526,10 @@ const Sidebar: React.FC = () => {
             <TooltipTrigger asChild>
               <button
                 onClick={() => router.push('/settings')}
-                className={`p-2 rounded-lg transition-colors duration-150 ${isSettingsPage ? 'bg-gray-100' : 'hover:bg-gray-100'
+                className={`p-2 rounded-md transition-colors duration-150 ${isSettingsPage ? 'bg-secondary text-foreground' : 'hover:bg-secondary'
                   }`}
               >
-                <Settings className="w-5 h-5 text-gray-600" />
+                <Settings className="w-5 h-5 text-muted-foreground" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
@@ -565,16 +565,16 @@ const Sidebar: React.FC = () => {
     return (
       <div key={item.id}>
         <div
-          className={`flex items-center transition-colors duration-150 group ${item.type === 'folder' && depth === 0
-            ? 'px-4 pt-4 pb-1.5 text-[11px] font-semibold uppercase tracking-widest text-gray-400'
-            : `px-3 py-1.5 my-0.5 rounded-lg text-sm ${isActive
-                ? 'bg-[rgba(22,71,142,0.12)] text-[#16478e] font-medium ring-1 ring-[rgba(22,71,142,0.25)]'
+          className={`flex items-center min-w-0 transition-colors duration-150 group ${item.type === 'folder' && depth === 0
+            ? 'px-4 pt-4 pb-1.5 text-[11px] font-semibold text-muted-foreground'
+            : `px-2.5 py-2 rounded-r-md border-l-2 ${isActive
+                ? 'border-primary bg-paper-2'
                 : hasTranscriptMatch
-                  ? 'bg-amber-50 text-gray-800'
-                  : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
+                  ? 'border-transparent bg-primary/5'
+                  : 'border-transparent hover:bg-secondary'
               } cursor-pointer`
             }`}
-          style={item.type === 'folder' && depth === 0 ? {} : { paddingLeft }}
+          style={item.type === 'file' || (item.type === 'folder' && depth === 0) ? undefined : { paddingLeft }}
           onClick={() => {
             if (item.type === 'folder') {
               toggleFolder(item.id);
@@ -596,58 +596,70 @@ const Sidebar: React.FC = () => {
               <span className={depth === 0 ? "" : "font-medium"}>{item.title}</span>
               <div className="ml-auto">
                 {isExpanded ? (
-                  <ChevronDown className="w-4 h-4 text-gray-500" />
+                  <ChevronDown className="w-4 h-4 text-muted-foreground" />
                 ) : (
-                  <ChevronRight className="w-4 h-4 text-gray-500" />
+                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
                 )}
               </div>
               {searchQuery && item.id === 'meetings' && isSearching && (
-                <span className="ml-2 text-xs text-[#16478e] animate-pulse">Đang tìm...</span>
+                <span className="ml-2 text-xs text-primary animate-pulse">Đang tìm...</span>
               )}
             </>
           ) : (
-            <div className="flex flex-col w-full">
-              <div className="flex items-center w-full min-w-0">
-                {isMeetingItem ? (
-                  <div className={`flex-shrink-0 flex items-center justify-center w-5 h-5 rounded-md mr-2 ${isActive ? 'bg-[rgba(22,71,142,0.18)]' : 'bg-gray-100'}`}>
-                    <File className={`w-3 h-3 ${isActive ? 'text-[#16478e]' : 'text-gray-500'}`} />
-                  </div>
-                ) : (
-                  <div className="flex-shrink-0 flex items-center justify-center w-5 h-5 rounded-md mr-2 bg-gray-900">
-                    <Plus className="w-3 h-3 text-white" />
-                  </div>
+            <div className="relative flex flex-col w-full min-w-0">
+              <div className="flex items-start gap-2 w-full min-w-0">
+                {!isMeetingItem && (
+                  <Plus className="w-3.5 h-3.5 shrink-0 mt-0.5 text-primary" />
                 )}
-                <span className="flex-1 min-w-0 break-words">{item.title}</span>
+                <div className="flex-1 min-w-0">
+                  <span
+                    className={`block truncate text-sm leading-snug ${
+                      isActive ? 'font-medium text-ink' : 'font-normal text-ink'
+                    }`}
+                    title={item.title}
+                  >
+                    {item.title}
+                  </span>
+                  {item.created_at && (
+                    <span className="block mt-1 font-mono text-[10px] leading-none tabular-nums tracking-[0.04em] text-ink-2 truncate">
+                      {formatMeetingListDate(item.created_at)}
+                    </span>
+                  )}
+                </div>
                 {isMeetingItem && (
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                  <div
+                    className={`absolute right-0 top-0 flex items-center gap-0.5 pl-6 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto bg-gradient-to-l to-transparent ${
+                      isActive ? 'from-paper-2 from-50%' : 'from-rail from-50% group-hover:from-secondary'
+                    }`}
+                  >
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         handleEditStart(item.id, item.title);
                       }}
-                      className="hover:text-[#16478e] p-1 rounded-md hover:bg-[rgba(22,71,142,0.08)] flex-shrink-0"
+                      className="hover:text-primary p-1 rounded-md hover:bg-primary/10 shrink-0 text-ink-2"
                       aria-label="Sửa tiêu đề cuộc họp"
                     >
-                      <Pencil className="w-4 h-4" />
+                      <Pencil className="w-3.5 h-3.5" />
                     </button>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         setDeleteModalState({ isOpen: true, itemId: item.id });
                       }}
-                      className="hover:text-[#e63027] p-1 rounded-md hover:bg-[rgba(230,48,39,0.08)] flex-shrink-0"
+                      className="hover:text-destructive p-1 rounded-md hover:bg-destructive/10 shrink-0 text-ink-2"
                       aria-label="Xóa cuộc họp"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 )}
               </div>
 
               {/* Transcript match snippet */}
-              {hasTranscriptMatch && (
-                <div className="mt-1 ml-7 text-[11px] text-gray-500 bg-amber-50 px-2 py-1 rounded-md border border-amber-100 line-clamp-2">
-                  <span className="font-semibold text-amber-600">Tìm thấy: </span>
+              {hasTranscriptMatch && matchingResult && (
+                <div className="mt-1.5 text-[11px] text-ink-2 bg-primary/5 px-2 py-1 rounded-md border border-rule line-clamp-2">
+                  <span className="font-medium text-primary">Tìm thấy: </span>
                   {matchingResult.matchContext}
                 </div>
               )}
@@ -665,59 +677,63 @@ const Sidebar: React.FC = () => {
 
   return (
     <div className="fixed top-0 left-0 h-screen z-40">
-      {/* Floating collapse button */}
-      <button
-        onClick={toggleCollapse}
-        className="absolute -right-6 top-20 z-50 p-1 bg-white hover:bg-gray-100 rounded-full shadow-lg border"
-        style={{ transform: 'translateX(50%)' }}
-        aria-label={isCollapsed ? 'Mở rộng sidebar' : 'Thu gọn sidebar'}
-      >
-        {isCollapsed ? (
-          <ChevronRightCircle className="w-6 h-6" />
-        ) : (
-          <ChevronLeftCircle className="w-6 h-6" />
-        )}
-      </button>
-
       <div
-        className={`h-screen bg-white border-r shadow-sm flex flex-col transition-all duration-300 ${isCollapsed ? 'w-16' : 'w-64'
+        className={`h-screen bg-rail border-r border-rule flex flex-col transition-all duration-[var(--dur-short)] ease-[var(--ease-out)] ${isCollapsed ? 'w-16' : 'w-64'
           }`}
       >
-        {/*  Header with traffic light spacing */}
-        <div className="flex-shrink-0 h-22 flex items-center">
-
-          {/* Title container */}
-
-
-
-          <div className="flex-1">
-            {!isCollapsed && (
-              <div className="p-3">
-                {/* Logo thương hiệu trong Logo.tsx (ACT MeetingOne) */}
+        <div className="flex-shrink-0 border-b border-rule">
+          {isCollapsed ? (
+            <div className="flex flex-col items-center gap-2 py-3 px-1">
+              <Logo isCollapsed={isCollapsed} />
+              <button
+                onClick={toggleCollapse}
+                className="p-1.5 rounded-md text-ink-2 hover:bg-secondary hover:text-foreground"
+                aria-label="Mở rộng sidebar"
+              >
+                <ChevronsRight className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="p-3 pb-2.5">
+              <div className="flex items-start justify-between gap-1">
                 <Logo isCollapsed={isCollapsed} />
-
-                <div className="relative mb-1">
-                  <InputGroup >
-                    <InputGroupInput placeholder='Tìm kiếm nội dung cuộc họp...' value={searchQuery}
-                      onChange={(e) => handleSearchChange(e.target.value)}
-                    />
-                    <InputGroupAddon>
-                      <SearchIcon />
-                    </InputGroupAddon>
-                    {searchQuery &&
-                      <InputGroupAddon align={'inline-end'}>
-                        <InputGroupButton
-                          onClick={() => handleSearchChange('')}
-                        >
-                          <X />
-                        </InputGroupButton>
-                      </InputGroupAddon>
-                    }
-                  </InputGroup>
-                </div>
+                <button
+                  onClick={toggleCollapse}
+                  className="mt-1 p-1.5 rounded-md text-ink-2 hover:bg-secondary hover:text-foreground shrink-0"
+                  aria-label="Thu gọn sidebar"
+                >
+                  <ChevronsLeft className="w-4 h-4" />
+                </button>
               </div>
-            )}
-          </div>
+              <p className="px-1 mb-2.5 font-mono text-[10px] tracking-[0.12em] uppercase text-ink-2">
+                Thư ký cuộc họp
+              </p>
+              <InputGroup className="h-9 bg-paper-2 border-rule shadow-[var(--shadow-whisper)]">
+                <InputGroupAddon className="text-ink-2">
+                  <SearchIcon className="size-4" aria-hidden />
+                </InputGroupAddon>
+                <InputGroupInput
+                  type="search"
+                  placeholder="Tìm kiếm…"
+                  aria-label="Tìm kiếm nội dung cuộc họp"
+                  autoComplete="off"
+                  value={searchQuery}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                  className="text-sm placeholder:text-ink-2 [&::-webkit-search-cancel-button]:hidden"
+                />
+                {searchQuery &&
+                  <InputGroupAddon align={'inline-end'}>
+                    <InputGroupButton
+                      onClick={() => handleSearchChange('')}
+                      aria-label="Xóa tìm kiếm"
+                    >
+                      <X />
+                    </InputGroupButton>
+                  </InputGroupAddon>
+                }
+              </InputGroup>
+            </div>
+          )}
         </div>
 
         {/* Main content - scrollable area */}
@@ -727,8 +743,10 @@ const Sidebar: React.FC = () => {
             {!isCollapsed && (
               <div
                 onClick={() => router.push('/')}
-                className={`flex items-center gap-2 mx-3 mt-2 px-3 py-2 rounded-lg text-sm font-medium cursor-pointer transition-colors duration-150 ${
-                  pathname === '/' ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                className={`flex items-center gap-2 mx-2 mt-2 pl-2.5 pr-3 py-2 rounded-r-md text-sm font-medium cursor-pointer border-l-2 transition-colors duration-150 ${
+                  pathname === '/'
+                    ? 'border-primary bg-paper-2 text-ink'
+                    : 'border-transparent text-muted-foreground hover:bg-secondary hover:text-foreground'
                 }`}
               >
                 <Home className="w-4 h-4 shrink-0" />
@@ -749,12 +767,12 @@ const Sidebar: React.FC = () => {
                   {filteredSidebarItems.filter(item => item.type === 'folder').map(item => (
                     <div key={item.id}>
                       <div className="flex items-center gap-1.5 px-4 pt-4 pb-1.5">
-                        <NotebookPen className="w-3 h-3 text-gray-400 shrink-0" />
-                        <span className="text-[11px] font-semibold uppercase tracking-widest text-gray-400">
+                        <NotebookPen className="w-3 h-3 text-muted-foreground shrink-0" />
+                        <span className="font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-ink-2">
                           {item.title}
                         </span>
                         {searchQuery && item.id === 'meetings' && isSearching && (
-                          <span className="ml-1 text-[10px] text-blue-400 animate-pulse">Đang tìm...</span>
+                          <span className="ml-1 text-[10px] text-primary animate-pulse">Đang tìm...</span>
                         )}
                       </div>
                     </div>
@@ -765,7 +783,7 @@ const Sidebar: React.FC = () => {
                   {filteredSidebarItems
                     .filter(item => item.type === 'folder' && expandedFolders.has(item.id) && item.children)
                     .map(item => (
-                      <div key={`${item.id}-children`} className="mx-3">
+                      <div key={`${item.id}-children`} className="px-2">
                         {item.children!.map(child => renderItem(child, 1))}
                       </div>
                     ))}
@@ -778,16 +796,16 @@ const Sidebar: React.FC = () => {
         {/* Footer */}
         {!isCollapsed && (
           <div
-            className="flex-shrink-0 p-2.5 border-t border-gray-100 space-y-1"
+            className="flex-shrink-0 p-2.5 border-t border-rule space-y-1"
           >
             {/* Primary: Recording */}
             <button
               onClick={handleRecordingToggle}
               disabled={isRecording}
-              className={`w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-white rounded-lg transition-colors ${
+              className={`w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-destructive-foreground rounded-md transition-colors ${
                 isRecording
-                  ? 'bg-[#e63027]/70 cursor-not-allowed'
-                  : 'bg-[#e63027] hover:bg-[#c72820]'
+                  ? 'bg-destructive/70 cursor-not-allowed'
+                  : 'bg-destructive hover:bg-destructive/90'
               }`}
             >
               {isRecording ? (
@@ -800,7 +818,7 @@ const Sidebar: React.FC = () => {
             {/* Import file */}
             <button
               onClick={() => openImportDialog()}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-[#16478e] border border-[#16478e] bg-transparent hover:bg-[rgba(22,71,142,0.08)] rounded-lg transition-colors"
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-primary border border-primary bg-transparent hover:bg-primary/10 rounded-md transition-colors"
             >
               <Upload className="w-3.5 h-3.5 shrink-0" />
               <span>Nhập file âm thanh</span>
@@ -809,10 +827,10 @@ const Sidebar: React.FC = () => {
             {/* Settings */}
             <button
               onClick={() => router.push('/settings')}
-              className={`w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+              className={`w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
                 pathname === '/settings'
-                  ? 'bg-gray-200 text-gray-800'
-                  : 'text-gray-700 bg-gray-100 hover:bg-gray-200'
+                  ? 'bg-secondary text-foreground'
+                  : 'text-foreground bg-transparent hover:bg-secondary'
               }`}
             >
               <Settings className="w-3.5 h-3.5 shrink-0" />
@@ -845,7 +863,7 @@ const Sidebar: React.FC = () => {
             <h3 className="text-lg font-semibold mb-4">Chỉnh sửa tiêu đề cuộc họp</h3>
             <div className="space-y-4">
               <div>
-                <label htmlFor="meeting-title" className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="meeting-title" className="block text-sm font-medium text-foreground mb-2">
                   Tiêu đề cuộc họp
                 </label>
                 <input
@@ -860,7 +878,7 @@ const Sidebar: React.FC = () => {
                       handleEditCancel();
                     }
                   }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   placeholder="Nhập tiêu đề cuộc họp"
                   autoFocus
                 />
@@ -870,13 +888,13 @@ const Sidebar: React.FC = () => {
           <DialogFooter>
             <button
               onClick={handleEditCancel}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+              className="px-4 py-2 text-sm font-medium text-foreground bg-secondary hover:bg-muted rounded-md transition-colors"
             >
               Hủy
             </button>
             <button
               onClick={handleEditConfirm}
-              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors"
+              className="px-4 py-2 text-sm font-medium text-primary-foreground bg-primary hover:bg-primary-hover rounded-md transition-colors"
             >
               Lưu
             </button>

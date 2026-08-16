@@ -193,8 +193,8 @@ export default function Home() {
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, ease: 'easeOut' }}
-      className="flex flex-col h-screen bg-gray-50"
+      transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+      className="flex flex-col h-screen bg-paper"
     >
       {/* All Modals supported*/}
       <SettingsModals
@@ -212,53 +212,40 @@ export default function Home() {
         onDelete={deleteRecoverableMeeting}
         onLoadPreview={loadMeetingTranscripts}
       />
-      <div className="flex flex-1 overflow-hidden">
-        <TranscriptPanel
-          isProcessingStop={isProcessingStop}
-          isStopping={isStopping}
-          showModal={showModal}
-        />
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        <div className="flex flex-col flex-1 min-h-0">
+          <TranscriptPanel
+            isProcessingStop={isProcessingStop}
+            isStopping={isStopping}
+            showModal={showModal}
+          />
 
-        {/* Recording controls - always show unless processing/saving */}
-        {status !== RecordingStatus.PROCESSING_TRANSCRIPTS &&
-          status !== RecordingStatus.SAVING && (
-            <div className="fixed bottom-12 left-0 right-0 z-10 pointer-events-none">
-              <div
-                className="flex justify-center pl-8 transition-[margin] duration-300 pointer-events-none"
-                style={{
-                  marginLeft: sidebarCollapsed ? '4rem' : '16rem'
-                }}
-              >
-                <div className="w-2/3 max-w-[750px] flex justify-center pointer-events-auto">
-                  <div
-                    className="bg-white rounded-full shadow-lg flex items-center"
-                  >
-                    <RecordingControls
-                      isRecording={recordingState.isRecording}
-                      onRecordingStop={(callApi = true) => handleRecordingStop(callApi)}
-                      onRecordingStart={handleRecordingStart} // handleRecordingStart là hàm gọi khi bấm nút ghi âm
-                      onTranscriptReceived={() => { }} // Not actually used by RecordingControls
-                      onStopInitiated={() => setIsStopping(true)}
-                      barHeights={barHeights}
-                      onTranscriptionError={(message) => {
-                        showModal('errorAlert', message);
-                      }}
-                      isRecordingDisabled={isRecordingDisabled || !canRecordAudio}
-                      canRecordAudio={canRecordAudio}
-                      isParentProcessing={isProcessingStop}
-                      selectedDevices={selectedDevices}
-                      meetingName={meetingTitle}
-                      hasMicrophoneAccess={hasMicrophoneAccess}
-                      audioCaptureSource={audioCaptureSource}
-                      onAudioSourceChange={setAudioCaptureSource}
-                    />
-                  </div>
-                </div>
+          {status !== RecordingStatus.PROCESSING_TRANSCRIPTS &&
+            status !== RecordingStatus.SAVING && (
+              <div className="app-record-bar shrink-0">
+                <RecordingControls
+                  isRecording={recordingState.isRecording}
+                  onRecordingStop={(callApi = true) => handleRecordingStop(callApi)}
+                  onRecordingStart={handleRecordingStart}
+                  onTranscriptReceived={() => { }}
+                  onStopInitiated={() => setIsStopping(true)}
+                  barHeights={barHeights}
+                  onTranscriptionError={(message) => {
+                    showModal('errorAlert', message);
+                  }}
+                  isRecordingDisabled={isRecordingDisabled || !canRecordAudio}
+                  canRecordAudio={canRecordAudio}
+                  isParentProcessing={isProcessingStop}
+                  selectedDevices={selectedDevices}
+                  meetingName={meetingTitle}
+                  hasMicrophoneAccess={hasMicrophoneAccess}
+                  audioCaptureSource={audioCaptureSource}
+                  onAudioSourceChange={setAudioCaptureSource}
+                />
               </div>
-            </div>
-          )}
+            )}
+        </div>
 
-        {/* Status Overlays - Processing and Saving */}
         <StatusOverlays
           isProcessing={status === RecordingStatus.PROCESSING_TRANSCRIPTS && !recordingState.isRecording}
           isSaving={status === RecordingStatus.SAVING}
