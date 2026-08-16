@@ -25,6 +25,7 @@ import {
   resolveVariantForFamily,
   VARIANT_OPTIONS,
 } from './asrSettingsConstants';
+import { AsrVariantNotice } from './AsrVariantNotice';
 
 interface LiveAsrPanelProps {
   config?: LiveAsrConfig | null;
@@ -197,11 +198,6 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
             <option key={m.id} value={m.id}>{m.label}</option>
           ))}
         </select>
-        {selectedModelInfo?.liveDescription && (
-          <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 rounded-md">
-            {selectedModelInfo.liveDescription}
-          </p>
-        )}
       </div>
 
       <div className="space-y-2">
@@ -219,13 +215,11 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
             );
           })}
         </select>
+        <AsrVariantNotice family={selectedFamily} variant={effectiveVariant} path="live" />
         <div className="flex items-center justify-between p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
           <div className="flex items-center gap-2">
             <span className="text-base">🇻🇳</span>
             <div>
-              <p className="text-xs font-medium text-gray-800 dark:text-gray-200">
-                {selectedModelInfo?.description}
-              </p>
               {currentStatus.isLoaded && (
                 <span className="text-xs text-green-600 dark:text-green-400 font-medium">✓ Đang dùng</span>
               )}

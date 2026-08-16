@@ -1,4 +1,4 @@
-import { ASR_MODELS, AsrModelFamily, ModelVariant } from '@/lib/asr';
+import { ASR_MODELS, AsrModelFamily, AsrNotice, AsrPathKind, ModelVariant } from '@/lib/asr';
 
 export const DEFAULT_FAMILY: AsrModelFamily = 'zipformer-vi-30m';
 export const DEFAULT_LIVE_FAMILY: AsrModelFamily = 'zipformer-vi-30m-streaming';
@@ -36,4 +36,18 @@ export function resolveVariantForFamily(
   const info = ASR_MODELS.find((m) => m.id === family);
   if (!info) return variant;
   return info.availableVariants.includes(variant) ? variant : info.availableVariants[0];
+}
+
+export function asrVariantNotice(
+  family: AsrModelFamily,
+  variant: ModelVariant,
+  path: AsrPathKind,
+): AsrNotice | null {
+  const info = ASR_MODELS.find((m) => m.id === family);
+  if (!info) return null;
+  const effective = resolveVariantForFamily(family, variant);
+  if (path === 'live') {
+    return info.liveVariants?.[effective] ?? info.variants[effective] ?? null;
+  }
+  return info.variants[effective] ?? null;
 }

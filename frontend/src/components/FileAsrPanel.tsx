@@ -25,6 +25,7 @@ import {
   resolveVariantForFamily,
   VARIANT_OPTIONS,
 } from './asrSettingsConstants';
+import { AsrVariantNotice } from './AsrVariantNotice';
 
 interface FileAsrPanelProps {
   config?: FileAsrConfig | null;
@@ -248,9 +249,6 @@ export default function FileAsrPanel({ config, disabled = false, onSaved }: File
             <option key={m.id} value={m.id}>{m.label}</option>
           ))}
         </select>
-        {selectedModelInfo?.description && (
-          <p className="text-xs text-gray-500 dark:text-gray-400">{selectedModelInfo.description}</p>
-        )}
       </div>
 
       <div className="space-y-2">
@@ -268,6 +266,7 @@ export default function FileAsrPanel({ config, disabled = false, onSaved }: File
             );
           })}
         </select>
+        <AsrVariantNotice family={selectedFamily} variant={effectiveVariant} path="file" />
         <div className="flex items-center justify-between p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
           <div>
             {currentStatus.isLoaded && (

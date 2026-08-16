@@ -13,6 +13,12 @@ export type AsrModelFamily =
   | 'zipformer-vi-30m-streaming';
 export type ModelVariant = 'int8' | 'full';
 export type DecodingMethod = 'greedy_search' | 'modified_beam_search';
+export type AsrPathKind = 'live' | 'file';
+
+export type AsrNotice = {
+  description: string;
+  warning?: string;
+};
 
 export interface AsrModelInfo {
   id: AsrModelFamily;
@@ -20,11 +26,11 @@ export interface AsrModelInfo {
   hfRepo: string;
   int8Size: string;
   fullSize: string;
+  /** Short family blurb (status cards / fallback). */
   description: string;
-  liveDescription?: string;
-  /** Which variants this family actually ships. Must match Rust `ModelFamily::available_variants()`. */
   availableVariants: ModelVariant[];
-  /** Hide from file-import / ROVER pickers — OnlineRecognizer live path only. */
+  variants: Partial<Record<ModelVariant, AsrNotice>>;
+  liveVariants?: Partial<Record<ModelVariant, AsrNotice>>;
   liveOnly?: boolean;
 }
 
@@ -70,10 +76,19 @@ export const ASR_MODELS: AsrModelInfo[] = [
     int8Size: 'Không có',
     fullSize: '~51 MB',
     description: 'Transcript từng phần ngay khi nói — chỉ dùng khi ghi âm trực tiếp',
-    liveDescription:
-      'Khuyến nghị cho ghi âm trực tiếp: hiện chữ gần như tức thì (partial), không chờ im lặng.',
     availableVariants: ['full'],
     liveOnly: true,
+    variants: {
+      full: {
+        description: 'Bản full (~51 MB): hiện chữ gần như tức thì khi đang nói.',
+      },
+    },
+    liveVariants: {
+      full: {
+        description: 'Bản full (~51 MB): transcript từng phần ngay khi nói.',
+        warning: 'Chỉ dùng khi ghi âm trực tiếp. Không dùng cho nhập file.',
+      },
+    },
   },
   {
     id: 'zipformer-vi-30m',
@@ -82,8 +97,25 @@ export const ASR_MODELS: AsrModelInfo[] = [
     int8Size: '~32 MB',
     fullSize: '~100 MB',
     description: 'Nhỏ gọn, tốc độ cao — mặc định',
-    liveDescription: 'Khuyến nghị cho ghi âm trực tiếp — nhanh, ít tốn CPU/RAM.',
     availableVariants: ['int8', 'full'],
+    variants: {
+      int8: {
+        description: 'Bản int8 (~32 MB): nhỏ, nhanh — phù hợp máy vừa và mặc định nhập file.',
+      },
+      full: {
+        description: 'Bản full (~100 MB): chính xác hơn int8, tốn RAM/CPU hơn.',
+      },
+    },
+    liveVariants: {
+      int8: {
+        description: 'Bản int8 (~32 MB): nhỏ gọn, tốc độ cao — mặc định.',
+        warning: 'Khuyến nghị cho ghi âm trực tiếp — nhanh, ít tốn CPU/RAM.',
+      },
+      full: {
+        description: 'Bản full (~100 MB): chính xác hơn int8.',
+        warning: 'Nặng hơn bản int8; cuộc họp dài có thể tốn CPU/RAM hơn.',
+      },
+    },
   },
   {
     id: 'gipformer-65m-rnnt',
@@ -92,9 +124,26 @@ export const ASR_MODELS: AsrModelInfo[] = [
     int8Size: '~75 MB',
     fullSize: '~335 MB',
     description: 'Chính xác hơn, cần máy mạnh hơn',
-    liveDescription:
-      'Chính xác hơn nhưng chậm hơn; cuộc họp dài có thể tụt transcript real-time.',
     availableVariants: ['int8', 'full'],
+    variants: {
+      int8: {
+        description: 'Bản int8 (~75 MB): chính xác hơn ZipFormer 30M, cần máy mạnh hơn.',
+      },
+      full: {
+        description: 'Bản full (~335 MB): chính xác nhất họ Gipformer.',
+        warning: 'Rất nặng RAM/CPU — chỉ nên dùng khi máy đủ mạnh.',
+      },
+    },
+    liveVariants: {
+      int8: {
+        description: 'Bản int8 (~75 MB): chính xác hơn ZipFormer 30M.',
+        warning: 'Chậm hơn 30M; cuộc họp dài có thể tụt transcript real-time.',
+      },
+      full: {
+        description: 'Bản full (~335 MB): chính xác nhất nhưng rất nặng.',
+        warning: 'Không khuyến nghị khi ghi âm liên tục — dễ tụt transcript.',
+      },
+    },
   },
   {
     id: 'sherpa-onnx-zipformer-vi-2025-04-20',
@@ -103,9 +152,18 @@ export const ASR_MODELS: AsrModelInfo[] = [
     int8Size: 'Không có',
     fullSize: '~270 MB',
     description: 'Model cộng đồng, chỉ có bản full precision',
-    liveDescription:
-      'Model lớn (~270 MB), chỉ bản full — không khuyến nghị khi ghi âm liên tục.',
     availableVariants: ['full'],
+    variants: {
+      full: {
+        description: 'Chỉ có bản full (~270 MB): model cộng đồng, không có int8.',
+      },
+    },
+    liveVariants: {
+      full: {
+        description: 'Chỉ có bản full (~270 MB): model cộng đồng.',
+        warning: 'Không khuyến nghị khi ghi âm liên tục.',
+      },
+    },
   },
 ];
 
