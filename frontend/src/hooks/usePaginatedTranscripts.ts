@@ -156,19 +156,14 @@ export function usePaginatedTranscripts({
         }
     }, [hasMore, meetingId, loadTranscriptsAtOffset, isLoading]);
 
-    // Force refetch of data (e.g., after retranscription)
+    // Reload current meeting in place. Do not reset()/setIsLoading(true): that
+    // unmounts meeting details and closes the Người nói dialog.
     const refetch = useCallback(async () => {
         if (!meetingId) return;
 
-        reset();
-        setIsLoading(true);
-        try {
-            await loadMetadata();
-            await loadTranscriptsAtOffset(0, false);
-        } finally {
-            setIsLoading(false);
-        }
-    }, [meetingId, reset, loadMetadata, loadTranscriptsAtOffset]);
+        await loadMetadata();
+        await loadTranscriptsAtOffset(0, false);
+    }, [meetingId, loadMetadata, loadTranscriptsAtOffset]);
 
     // Initial load
     useEffect(() => {

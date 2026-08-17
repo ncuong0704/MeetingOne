@@ -10,6 +10,7 @@ import { LoaderIcon } from "lucide-react";
 import { toast } from 'sonner';
 import { useConfig } from "@/contexts/ConfigContext";
 import { usePaginatedTranscripts } from "@/hooks/usePaginatedTranscripts";
+import { shouldSplashMeetingDetails } from "@/lib/meetingDetailsLoadGate";
 
 interface MeetingDetailsResponse {
   id: string;
@@ -38,7 +39,6 @@ function MeetingDetailsContent() {
     metadata,
     segments,
     transcripts,
-    isLoading: isLoadingTranscripts,
     isLoadingMore,
     hasMore,
     totalCount,
@@ -313,8 +313,7 @@ function MeetingDetailsContent() {
     );
   }
 
-  // Show loading spinner while initial data loads
-  if ((isLoading || isLoadingTranscripts) || !meetingDetails) {
+  if (shouldSplashMeetingDetails(Boolean(meetingDetails))) {
     return <div className="flex items-center justify-center h-screen">
       <LoaderIcon className="animate-spin size-6 " />
     </div>;
