@@ -76,6 +76,17 @@ pub struct MeetingSpeaker {
     pub color: String,
 }
 
+/// meeting_speakers plus earliest transcript start for preview playback.
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct MeetingSpeakerWithPreview {
+    pub id: String,
+    pub meeting_id: String,
+    pub cluster_index: i32,
+    pub display_name: String,
+    pub color: String,
+    pub preview_start: Option<f64>,
+}
+
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct SummaryProcess {
     pub meeting_id: String,

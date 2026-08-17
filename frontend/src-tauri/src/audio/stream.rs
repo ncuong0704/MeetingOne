@@ -655,3 +655,21 @@ impl Drop for AudioStreamManager {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn start_streams_fails_when_both_devices_missing() {
+        let mut manager = AudioStreamManager::new(RecordingState::new());
+        let err = manager
+            .start_streams(None, None, None)
+            .await
+            .expect_err("no streams");
+        assert!(
+            err.to_string().contains("No audio streams could be created"),
+            "unexpected error: {err}"
+        );
+    }
+}

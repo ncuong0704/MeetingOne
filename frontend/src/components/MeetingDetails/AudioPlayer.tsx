@@ -2,7 +2,7 @@
 
 import { useAudioPlayer } from '@/hooks/useAudioPlayer';
 import { Play, Pause, Loader2, MicOff, RotateCcw } from 'lucide-react';
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 
 function formatTime(seconds: number): string {
   if (!isFinite(seconds) || seconds < 0) return '00:00';
@@ -11,15 +11,29 @@ function formatTime(seconds: number): string {
   return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 }
 
+export type AudioPlayerControls = {
+  seek: (time: number) => void;
+  play: () => Promise<void>;
+  pause: () => void;
+};
+
 interface AudioPlayerProps {
   /** Absolute path to the meeting folder on disk (audio file is resolved inside Rust). */
   meetingFolderPath: string;
   /** Optional: seek to a specific timestamp (called externally e.g. from transcript click) */
   seekRef?: React.MutableRefObject<((time: number) => void) | null>;
+  controlsRef?: React.MutableRefObject<AudioPlayerControls | null>;
   onTimeUpdate?: (time: number) => void;
+  onReady?: () => void;
 }
 
-export function AudioPlayer({ meetingFolderPath, seekRef, onTimeUpdate }: AudioPlayerProps) {
+export function AudioPlayer({
+  meetingFolderPath,
+  seekRef,
+  controlsRef,
+  onTimeUpdate,
+  onReady,
+}: AudioPlayerProps) {
   const { isPlaying, currentTime, duration, error, play, pause, seek } = useAudioPlayer(
     meetingFolderPath,
     onTimeUpdate,
@@ -29,6 +43,13 @@ export function AudioPlayer({ meetingFolderPath, seekRef, onTimeUpdate }: AudioP
   if (seekRef) {
     seekRef.current = seek;
   }
+  if (controlsRef) {
+    controlsRef.current = { seek, play, pause };
+  }
+
+  useEffect(() => {
+    if (duration > 0) onReady?.();
+  }, [duration, onReady]);
 
   const isLoaded = duration > 0;
   const progress = isLoaded ? Math.min((currentTime / duration) * 100, 100) : 0;
@@ -53,6 +74,15 @@ export function AudioPlayer({ meetingFolderPath, seekRef, onTimeUpdate }: AudioP
       <div className="flex items-center gap-2 border-b border-rule bg-paper px-4 py-2.5">
         <MicOff className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <span className="text-xs text-muted-foreground">Cuộc họp này chưa có file ghi âm được lưu</span>
+      </div>
+    );
+  }
+
+  if (error === 'PLAYBACK_FAILED') {
+    return (
+      <div className="flex items-center gap-2 border-b border-orange-100 bg-orange-50 px-4 py-2.5">
+        <MicOff className="h-3.5 w-3.5 shrink-0 text-orange-500" />
+        <span className="text-xs text-orange-600">Không thể phát file ghi âm. Thử mở thư mục cuộc họp và phát file trên máy.</span>
       </div>
     );
   }

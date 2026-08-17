@@ -59,7 +59,7 @@ export function SpeakerHotkeyDialog({ open, onOpenChange }: SpeakerHotkeyDialogP
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="gap-0 overflow-hidden p-0 sm:max-w-md"
+        className="gap-0 overflow-visible p-0 sm:max-w-md"
         onPointerDownOutside={(event) => {
           if ((event.target as HTMLElement | null)?.closest('[data-speaker-suggestions]')) {
             event.preventDefault();
@@ -89,7 +89,7 @@ export function SpeakerHotkeyDialog({ open, onOpenChange }: SpeakerHotkeyDialogP
         </DialogHeader>
 
         <div className="px-5 pb-4">
-          <div className="max-h-[50vh] overflow-y-auto rounded-md border border-rule">
+          <div className="rounded-md border border-rule">
             {Array.from({ length: 9 }, (_, i) => String(i + 1)).map((key) => {
               const filled = Boolean((slots[key] ?? '').trim());
               return (

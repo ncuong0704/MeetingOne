@@ -220,21 +220,21 @@ function SpeakerLabel({
     };
 
     return (
-        <div className="group mb-1 flex items-center gap-2">
+        <div className="group mb-1 flex min-w-0 items-center gap-2">
             <Popover open={open} onOpenChange={setOpen}>
                 <PopoverAnchor asChild>
                     <button
                         type="button"
                         onClick={() => setOpen(true)}
-                        className="inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 text-xs font-semibold hover:bg-secondary"
+                        className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-xs font-semibold hover:bg-secondary"
                         style={{ color }}
                     >
                         <span
-                            className="inline-block h-2 w-2 rounded-full"
+                            className="h-2 w-2 min-h-2 min-w-2 shrink-0 rounded-full"
                             style={{ backgroundColor: color }}
                             aria-hidden
                         />
-                        {name}
+                        <span className="min-w-0 truncate">{name}</span>
                     </button>
                 </PopoverAnchor>
                 <PopoverContent

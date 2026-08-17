@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { canRecordWithDevices } from '@/lib/audioCaptureSource';
 
 export interface PermissionStatus {
   hasMicrophone: boolean;
@@ -86,7 +87,7 @@ export function usePermissionCheck() {
   }, []);
 
   const hasMicrophoneAccess = status.hasMicrophone && status.micPermissionGranted;
-  const canRecordAudio = status.hasSystemAudio || hasMicrophoneAccess;
+  const canRecordAudio = canRecordWithDevices(status.hasSystemAudio, hasMicrophoneAccess);
 
   return {
     ...status,

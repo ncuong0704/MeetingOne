@@ -180,6 +180,15 @@ pub(crate) fn resolve_capture_devices(
         None
     };
 
+    accept_capture_devices(source, mic, system)
+}
+
+/// Accept already-resolved optional devices, or return the user-facing error.
+pub(crate) fn accept_capture_devices(
+    source: AudioCaptureSource,
+    mic: Option<Arc<super::AudioDevice>>,
+    system: Option<Arc<super::AudioDevice>>,
+) -> Result<(Option<Arc<super::AudioDevice>>, Option<Arc<super::AudioDevice>>), String> {
     match source {
         AudioCaptureSource::Microphone if mic.is_none() => Err(
             "Không mở được microphone. Kiểm tra thiết bị và quyền truy cập.".into(),
@@ -1542,6 +1551,15 @@ pub async fn attempt_device_reconnect(
 #[cfg(test)]
 mod resolve_capture_source_tests {
     use super::*;
+    use crate::audio::{AudioDevice, DeviceType};
+
+    fn mic() -> Arc<AudioDevice> {
+        Arc::new(AudioDevice::new("Mic".into(), DeviceType::Input))
+    }
+
+    fn speaker() -> Arc<AudioDevice> {
+        Arc::new(AudioDevice::new("Speaker".into(), DeviceType::Output))
+    }
 
     #[test]
     fn system_source_never_opens_microphone() {
@@ -1563,5 +1581,50 @@ mod resolve_capture_source_tests {
             ),
             Err(_) => {}
         }
+    }
+
+    #[test]
+    fn both_ok_when_only_microphone_exists() {
+        let (got_mic, got_sys) = accept_capture_devices(
+            AudioCaptureSource::Both,
+            Some(mic()),
+            None,
+        )
+        .expect("mic-only machine can still record");
+        assert!(got_mic.is_some());
+        assert!(got_sys.is_none());
+    }
+
+    #[test]
+    fn both_ok_when_only_speaker_exists() {
+        let (got_mic, got_sys) = accept_capture_devices(
+            AudioCaptureSource::Both,
+            None,
+            Some(speaker()),
+        )
+        .expect("speaker-only machine can still record system audio");
+        assert!(got_mic.is_none());
+        assert!(got_sys.is_some());
+    }
+
+    #[test]
+    fn both_fail_when_neither_device_exists() {
+        let err = accept_capture_devices(AudioCaptureSource::Both, None, None)
+            .expect_err("no devices");
+        assert_eq!(err, "Không có nguồn âm thanh nào khả dụng.");
+    }
+
+    #[test]
+    fn microphone_only_fails_without_mic() {
+        let err = accept_capture_devices(AudioCaptureSource::Microphone, None, Some(speaker()))
+            .expect_err("forced mic-only");
+        assert!(err.contains("microphone"));
+    }
+
+    #[test]
+    fn system_only_fails_without_speaker() {
+        let err = accept_capture_devices(AudioCaptureSource::System, Some(mic()), None)
+            .expect_err("forced system-only");
+        assert!(err.contains("âm thanh hệ thống"));
     }
 }

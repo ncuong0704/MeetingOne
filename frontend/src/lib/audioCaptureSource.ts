@@ -24,3 +24,31 @@ export function wantsMicrophone(source: AudioCaptureSource): boolean {
 export function wantsSystem(source: AudioCaptureSource): boolean {
   return source === 'system' || source === 'both';
 }
+
+/** Recording is possible if system output exists or the mic is usable. */
+export function canRecordWithDevices(
+  hasSystemAudio: boolean,
+  hasMicrophoneAccess: boolean,
+): boolean {
+  return hasSystemAudio || hasMicrophoneAccess;
+}
+
+/**
+ * Downgrade or reject the chosen capture source when the microphone is missing
+ * or the OS denied access.
+ */
+export function effectiveAudioSource(
+  source: AudioCaptureSource,
+  hasMicrophoneAccess: boolean,
+): AudioCaptureSource | { error: string } {
+  if (source === 'microphone' && !hasMicrophoneAccess) {
+    return {
+      error:
+        'Không có quyền microphone. Chọn «Âm thanh hệ thống» hoặc cấp quyền micro.',
+    };
+  }
+  if (source === 'both' && !hasMicrophoneAccess) {
+    return 'system';
+  }
+  return source;
+}

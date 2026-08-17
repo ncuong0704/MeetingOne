@@ -4,12 +4,15 @@ import { Transcript, TranscriptSegmentData } from '@/types';
 import { TranscriptView } from '@/components/TranscriptView';
 import { FlowingTranscriptView } from '@/components/FlowingTranscriptView';
 import { TranscriptButtonGroup } from './TranscriptButtonGroup';
-import { AudioPlayer } from './AudioPlayer';
+import { AudioPlayer, type AudioPlayerControls } from './AudioPlayer';
+import { SpeakerListDialog, speakersFromApi } from './SpeakerListDialog';
 import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
-import { Headphones } from 'lucide-react';
+import { Headphones, Users } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import { useTranscriptAudioSync } from '@/hooks/useTranscriptAudioSync';
+import { DiarizationAPI, type MeetingSpeaker } from '@/lib/asr';
+import { previewStopTime, shouldShowSpeakerButton } from '@/lib/speakerPreview';
 
 interface TranscriptPanelProps {
   transcripts: Transcript[];
@@ -72,15 +75,98 @@ export function TranscriptPanel({
   const segmentCount = usePagination ? (totalCount ?? convertedSegments.length) : (transcripts?.length || 0);
 
   const [showAudioPlayer, setShowAudioPlayer] = useState(false);
+  const [speakerDialogOpen, setSpeakerDialogOpen] = useState(false);
+  const [meetingSpeakers, setMeetingSpeakers] = useState<MeetingSpeaker[]>([]);
   const seekRef = useRef<((time: number) => void) | null>(null);
+  const playerControlsRef = useRef<AudioPlayerControls | null>(null);
   const pendingSeekRef = useRef<number | null>(null);
+  const pendingPreviewRef = useRef<number | null>(null);
+  const previewUntilRef = useRef<number | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [audioLoaded, setAudioLoaded] = useState(false);
+
+  const speakerRows = useMemo(() => speakersFromApi(meetingSpeakers), [meetingSpeakers]);
+  const showSpeakerButton = shouldShowSpeakerButton(speakerRows);
+
+  const loadMeetingSpeakers = useCallback(async () => {
+    if (!meetingId) {
+      setMeetingSpeakers([]);
+      return;
+    }
+    try {
+      const rows = await DiarizationAPI.listSpeakers(meetingId);
+      setMeetingSpeakers(rows);
+    } catch {
+      setMeetingSpeakers([]);
+    }
+  }, [meetingId]);
+
+  useEffect(() => {
+    void loadMeetingSpeakers();
+  }, [loadMeetingSpeakers]);
+
+  useEffect(() => {
+    if (speakerDialogOpen) void loadMeetingSpeakers();
+  }, [speakerDialogOpen, loadMeetingSpeakers]);
+
+  const applyPendingPreview = useCallback(() => {
+    const start = pendingPreviewRef.current;
+    const controls = playerControlsRef.current;
+    if (start === null || !controls) return;
+    pendingPreviewRef.current = null;
+    previewUntilRef.current = previewStopTime(start);
+    controls.seek(start);
+    void controls.play();
+  }, []);
 
   const handleTimeUpdate = useCallback((t: number) => {
     setCurrentTime(t);
     setAudioLoaded(true);
+    const until = previewUntilRef.current;
+    if (until !== null && t >= until) {
+      previewUntilRef.current = null;
+      playerControlsRef.current?.pause();
+    }
   }, []);
+
+  const handlePlayerReady = useCallback(() => {
+    setAudioLoaded(true);
+    applyPendingPreview();
+  }, [applyPendingPreview]);
+
+  const handleSpeakerPreview = useCallback(
+    (start: number) => {
+      if (!meetingFolderPath) return;
+      pendingPreviewRef.current = start;
+      if (!showAudioPlayer) {
+        setShowAudioPlayer(true);
+        return;
+      }
+      applyPendingPreview();
+    },
+    [meetingFolderPath, showAudioPlayer, applyPendingPreview],
+  );
+
+  const handleSpeakerRename = useCallback(
+    async (speakerId: string, displayName: string) => {
+      await DiarizationAPI.renameSpeaker(speakerId, displayName);
+      await loadMeetingSpeakers();
+      await onRefetchTranscripts?.();
+      setSpeakerDialogOpen(true);
+    },
+    [loadMeetingSpeakers, onRefetchTranscripts],
+  );
+
+  const handleSpeakerMerge = useCallback(
+    async (sourceId: string, targetId: string) => {
+      await DiarizationAPI.mergeSpeakers(sourceId, targetId);
+      await loadMeetingSpeakers();
+      await onRefetchTranscripts?.();
+      setSpeakerDialogOpen(true);
+      toast.success('Đã gộp người nói');
+    },
+    [loadMeetingSpeakers, onRefetchTranscripts],
+  );
 
   useEffect(() => {
     setAudioLoaded(false);
@@ -92,6 +178,8 @@ export function TranscriptPanel({
       setAudioLoaded(false);
       setCurrentTime(0);
       pendingSeekRef.current = null;
+      pendingPreviewRef.current = null;
+      previewUntilRef.current = null;
     }
   }, [showAudioPlayer]);
 
@@ -140,6 +228,20 @@ export function TranscriptPanel({
           )}
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
+          {showSpeakerButton && (
+            <button
+              type="button"
+              onClick={() => setSpeakerDialogOpen(true)}
+              title="Người nói"
+              className={`flex h-7 w-7 items-center justify-center rounded-md border transition-colors ${
+                speakerDialogOpen
+                  ? 'border-primary/35 bg-primary/10 text-primary'
+                  : 'border-rule bg-paper-2 text-muted-foreground hover:bg-secondary hover:text-foreground'
+              }`}
+            >
+              <Users className="h-3.5 w-3.5" />
+            </button>
+          )}
           {/* Audio player toggle — shown when meeting has a recording folder */}
           {meetingFolderPath && (
             <button
@@ -173,7 +275,9 @@ export function TranscriptPanel({
         <AudioPlayer
           meetingFolderPath={meetingFolderPath}
           seekRef={seekRef}
+          controlsRef={playerControlsRef}
           onTimeUpdate={handleTimeUpdate}
+          onReady={handlePlayerReady}
         />
       )}
 
@@ -190,9 +294,24 @@ export function TranscriptPanel({
           activeSegmentId={activeSegmentId}
           onSegmentClick={meetingFolderPath ? onSegmentClick : undefined}
           playbackFollow={showAudioPlayer && !!meetingFolderPath}
-          onSpeakersChanged={onRefetchTranscripts}
+          onSpeakersChanged={async () => {
+            await onRefetchTranscripts?.();
+            await loadMeetingSpeakers();
+          }}
         />
       </div>
+
+      {meetingId && (
+        <SpeakerListDialog
+          open={speakerDialogOpen}
+          onOpenChange={setSpeakerDialogOpen}
+          speakers={speakerRows}
+          canPlay={!!meetingFolderPath}
+          onRename={handleSpeakerRename}
+          onPreview={handleSpeakerPreview}
+          onMerge={handleSpeakerMerge}
+        />
+      )}
     </div>
   );
 }

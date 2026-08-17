@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Settings2, Database as DatabaseIcon, SparkleIcon, LayoutTemplate, MessageSquareText, Users } from 'lucide-react';
+import { ArrowLeft, Settings2, Database as DatabaseIcon, SparkleIcon, LayoutTemplate, MessageSquareText, Users, LogOut } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { invoke } from '@tauri-apps/api/core';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -26,6 +26,13 @@ const TABS = [
 ] as const;
 
 type TabValue = typeof TABS[number]['value'];
+
+function initialsFromName(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+}
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -68,28 +75,59 @@ export default function SettingsPage() {
       </header>
 
       <div className="flex flex-1 min-h-0">
-        <nav className="w-52 shrink-0 overflow-y-auto border-r border-rule bg-paper-2 py-3 px-2">
-          {TABS.map(({ value, label, desc, icon: Icon }) => {
-            const isActive = activeTab === value;
-            return (
-              <button
-                key={value}
-                onClick={() => setActiveTab(value)}
-                className={cn(
-                  'w-full flex items-start gap-2.5 rounded-r-md px-3 py-2.5 text-left border-l-2 transition-colors duration-150',
-                  isActive
-                    ? 'border-primary bg-paper text-foreground'
-                    : 'border-transparent text-muted-foreground hover:bg-paper hover:text-foreground'
-                )}
-              >
-                <Icon className={cn('w-3.5 h-3.5 mt-0.5 shrink-0', isActive ? 'text-primary' : 'text-muted-foreground')} />
-                <span className="min-w-0">
-                  <span className={cn('block text-sm', isActive ? 'font-medium' : 'font-normal')}>{label}</span>
-                  <span className="block text-[11px] leading-snug text-ink-2 mt-0.5">{desc}</span>
+        <nav className="w-52 shrink-0 border-r border-rule bg-paper-2 flex flex-col min-h-0">
+          <div className="flex-1 overflow-y-auto py-3 px-2">
+            {TABS.map(({ value, label, desc, icon: Icon }) => {
+              const isActive = activeTab === value;
+              return (
+                <button
+                  key={value}
+                  onClick={() => setActiveTab(value)}
+                  className={cn(
+                    'w-full flex items-start gap-2.5 rounded-r-md px-3 py-2.5 text-left border-l-2 transition-colors duration-150',
+                    isActive
+                      ? 'border-primary bg-paper text-foreground'
+                      : 'border-transparent text-muted-foreground hover:bg-paper hover:text-foreground'
+                  )}
+                >
+                  <Icon className={cn('w-3.5 h-3.5 mt-0.5 shrink-0', isActive ? 'text-primary' : 'text-muted-foreground')} />
+                  <span className="min-w-0">
+                    <span className={cn('block text-sm', isActive ? 'font-medium' : 'font-normal')}>{label}</span>
+                    <span className="block text-[11px] leading-snug text-ink-2 mt-0.5">{desc}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {authRequired && user && (
+            <div className="shrink-0 border-t border-rule px-3 py-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span
+                  aria-hidden
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-[11px] font-medium font-mono text-primary"
+                >
+                  {initialsFromName(user.fullName)}
                 </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-ink truncate" title={user.fullName}>
+                    {user.fullName}
+                  </p>
+                  <p className="text-[11px] leading-snug font-mono text-ink-2 truncate" title={user.email}>
+                    {user.email}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => { void logout(); }}
+                className="mt-2.5 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md border border-rule bg-paper px-2.5 text-xs font-medium text-ink-2 hover:border-destructive/40 hover:bg-paper-2 hover:text-destructive transition-colors duration-150"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                Đăng xuất
               </button>
-            );
-          })}
+            </div>
+          )}
         </nav>
 
         <main className="flex-1 overflow-y-auto bg-paper">
@@ -115,22 +153,6 @@ export default function SettingsPage() {
                 {activeTab === 'promptSettings'      && <PromptSettings />}
               </motion.div>
             </AnimatePresence>
-
-            {authRequired && user && (
-              <div className="mt-8 pt-6 border-t border-rule flex items-center justify-between gap-4">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground truncate">{user.fullName}</p>
-                  <p className="text-xs text-muted-foreground truncate">{user.email}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => { void logout(); }}
-                  className="shrink-0 px-3 py-1.5 text-sm text-muted-foreground border border-input rounded-md hover:bg-secondary transition-colors"
-                >
-                  Đăng xuất
-                </button>
-              </div>
-            )}
           </div>
         </main>
       </div>

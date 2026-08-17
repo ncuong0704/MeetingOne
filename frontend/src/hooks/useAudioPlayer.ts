@@ -1,6 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { convertFileSrc } from '@tauri-apps/api/core';
+import {
+  audioMimeType,
+  classifyMediaPlaybackError,
+  isMissingAudioInvokeError,
+  prefersBlobPlayback,
+} from '@/lib/meetingAudioPlayback';
 
 /** `meetingFolderPath`: absolute folder where meeting audio was saved (file name resolved in Rust). */
 export const useAudioPlayer = (
@@ -19,14 +25,35 @@ export const useAudioPlayer = (
     if (!meetingFolderPath) return;
 
     let audio: HTMLAudioElement | null = null;
+    let objectUrl: string | null = null;
+    let cancelled = false;
 
     const load = async () => {
+      let fileResolved = false;
       try {
         const filePath = await invoke<string>('resolve_meeting_audio_file_path', {
           folderPath: meetingFolderPath,
         });
+        if (cancelled) return;
+        fileResolved = true;
 
-        const url = convertFileSrc(filePath);
+        let url = convertFileSrc(filePath);
+        if (prefersBlobPlayback(filePath)) {
+          const bytes = await invoke<number[]>('read_meeting_audio_file', {
+            folderPath: meetingFolderPath,
+          });
+          if (cancelled) return;
+          objectUrl = URL.createObjectURL(
+            new Blob([new Uint8Array(bytes)], { type: audioMimeType(filePath) }),
+          );
+          url = objectUrl;
+        }
+
+        if (cancelled) {
+          if (objectUrl) URL.revokeObjectURL(objectUrl);
+          return;
+        }
+
         audio = new Audio(url);
         audioRef.current = audio;
 
@@ -49,27 +76,23 @@ export const useAudioPlayer = (
 
         audio.addEventListener('error', () => {
           const code = audio?.error?.code;
-          // MEDIA_ERR_NETWORK (2) or MEDIA_ERR_SRC_NOT_SUPPORTED (4) → file not accessible
-          setError(code === 2 || code === 4 ? 'FILE_NOT_FOUND' : 'Failed to load audio file');
+          setError(classifyMediaPlaybackError(code, fileResolved));
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        const notFound =
-          msg.toLowerCase().includes('no audio file') ||
-          msg.includes('os error 2') ||
-          msg.toLowerCase().includes('no such file') ||
-          msg.toLowerCase().includes('cannot find');
-        setError(notFound ? 'FILE_NOT_FOUND' : 'Failed to load audio file');
+        setError(isMissingAudioInvokeError(msg) ? 'FILE_NOT_FOUND' : 'Failed to load audio file');
       }
     };
 
     load();
 
     return () => {
+      cancelled = true;
       if (audio) {
         audio.pause();
         audio.src = '';
       }
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
       audioRef.current = null;
       setIsPlaying(false);
       setCurrentTime(0);

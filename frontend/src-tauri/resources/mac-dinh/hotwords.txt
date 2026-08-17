@@ -1,73 +1,73 @@
-BAN CHẤP HÀNH
-BỘ CHÍNH TRỊ
-BAN BÍ THƯ
-THÀNH ỦY
-ĐẢNG ỦY
-BAN THƯỜNG VỤ
-THƯỜNG TRỰC
-ĐẢNG BỘ THÀNH PHỐ
-BAN TỔ CHỨC
-BAN TUYÊN GIÁO VÀ DÂN VẬN
-ỦY BAN KIỂM TRA
-BAN NỘI CHÍNH
-CHUYÊN TRÁCH THAM MƯU
-ỦY VIÊN
-CẤP XÃ
-TRUNG TÂM CHÍNH TRỊ
-ĐƠN VỊ SỰ NGHIỆP
-BAN XÂY DỰNG ĐẢNG
-VĂN PHÒNG THÀNH ỦY
-HỘI ĐỒNG NHÂN DÂN
-ỦY BAN NHÂN DÂN
-ĐOÀN ĐẠI BIỂU QUỐC HỘI
-MẶT TRẬN TỔ QUỐC
-BAN CÁN SỰ ĐẢNG
-ĐẢNG ĐOÀN QUỐC HỘI
-BAN CHỈ ĐẠO
-TỔ GIÚP VIỆC
-CƠ QUAN THƯỜNG TRỰC
-NGHỊ QUYẾT ĐẠI HỘI
-ĐIỀU LỆ ĐẢNG
-CƯƠNG LĨNH CHÍNH TRỊ
-PHÒNG CHỐNG THAM NHŨNG
-PHONG TỎA TÀI KHOẢN
-LỢI ÍCH NHÓM
-CHUYỂN ĐỔI SỐ
-HẠ TẦNG SỐ
-DỮ LIỆU SỐ
-CƠ SỞ DỮ LIỆU QUỐC GIA
-CHÍNH PHỦ SỐ
-KINH TẾ SỐ
-XÃ HỘI SỐ
-NỀN TẢNG SỐ
-HỆ THỐNG THÔNG TIN
-AN NINH MẠNG
-CHUYÊN DÙNG
-CHỮ KÝ SỐ
-DỊCH VỤ CÔNG TRỰC TUYẾN
-THỦ TỤC HÀNH CHÍNH
-ĐỀ ÁN 06
-ĐỀ ÁN 204
-NGHỊ QUYẾT 57
-ĐÔ THỊ THÔNG MINH
-TRUNG TÂM DỮ LIỆU
-BẢO VỆ NỀN TẢNG TƯ TƯỞNG
-PHẢN BÁC QUAN ĐIỂM SAI TRÁI
-CẢI CÁCH TƯ PHÁP
-CÔNG AN THÀNH PHỐ
-VIỆN KIỂM SÁT NHÂN DÂN
-TÒA ÁN NHÂN DÂN
-CỤC THI HÀNH ÁN DÂN SỰ
-QUẢN LÝ ĐÔ THỊ
-TRẬT TỰ AN TOÀN GIAO THÔNG
-PHÒNG CHÁY CHỮA CHÁY
-CÔNG TÁC CÁN BỘ
-LUÂN CHUYỂN CÁN BỘ
-ĐÁNH GIÁ CÁN BỘ
-TỰ DIỄN BIẾN
-TỰ CHUYỂN HÓA
-NÊU GƯƠNG CÁN BỘ
-KHỐI ĐẠI ĐOÀN KẾT
+Ban Chấp Hành
+Bộ Chính Trị
+Ban Bí Thư
+Thành Ủy
+Đảng Ủy
+Ban Thường Vụ
+Thường Trực
+Đảng Bộ Thành Phố
+Ban Tổ Chức
+Ban Tuyên Giáo Và Dân Vận
+Ủy Ban Kiểm Tra
+Ban Nội Chính
+Chuyên Trách Tham Mưu
+Ủy Viên
+Cấp Xã
+Trung Tâm Chính Trị
+Đơn Vị Sự Nghiệp
+Ban Xây Dựng Đảng
+Văn Phòng Thành Ủy
+Hội Đồng Nhân Dân
+Ủy Ban Nhân Dân
+Đoàn Đại Biểu Quốc Hội
+Mặt Trận Tổ Quốc
+Ban Cán Sự Đảng
+Đảng Đoàn Quốc Hội
+Ban Chỉ Đạo
+Tổ Giúp Việc
+Cơ Quan Thường Trực
+Nghị Quyết Đại Hội
+Điều Lệ Đảng
+Cương Lĩnh Chính Trị
+Phòng Chống Tham Nhũng
+Phong Tỏa Tài Khoản
+Lợi Ích Nhóm
+Chuyển Đổi Số
+Hạ Tầng Số
+Dữ Liệu Số
+Cơ Sở Dữ Liệu Quốc Gia
+Chính Phủ Số
+Kinh Tế Số
+Xã Hội Số
+Nền Tảng Số
+Hệ Thống Thông Tin
+An Ninh Mạng
+Chuyên Dùng
+Chữ Ký Số
+Dịch Vụ Công Trực Tuyến
+Thủ Tục Hành Chính
+Đề Án 06
+Đề Án 204
+Nghị Quyết 57
+Đô Thị Thông Minh
+Trung Tâm Dữ Liệu
+Bảo Vệ Nền Tảng Tư Tưởng
+Phản Bác Quan Điểm Sai Trái
+Cải Cách Tư Pháp
+Công An Thành Phố
+Viện Kiểm Sát Nhân Dân
+Tòa Án Nhân Dân
+Cục Thi Hành Án Dân Sự
+Quản Lý Đô Thị
+Trật Tự An Toàn Giao Thông
+Phòng Cháy Chữa Cháy
+Công Tác Cán Bộ
+Luân Chuyển Cán Bộ
+Đánh Giá Cán Bộ
+Tự Diễn Biến
+Tự Chuyển Hóa
+Nêu Gương Cán Bộ
+Khối Đại Đoàn Kết
 Phường Hiệp Bình
 Phường Tam Bình
 Phường Thủ Đức
@@ -193,10 +193,10 @@ Xã Xuyên Mộc
 Xã Hòa Hội
 Xã Bàu Lâm
 Xã Đất Đỏ
-Xã Long Hải
+Xã Long Hải
 Xã Long Điền
 Xã Phước Hải
-Đặc khu Côn Đảo
+Đặc Khu Côn Đảo
 Phường Đông Hòa
 Phường Dĩ An
 Phường Tân Đông Hiệp
@@ -220,7 +220,6 @@ Phường Long Nguyên
 Phường Bến Cát
 Phường Chánh Phú Hòa
 Phường Thới Hòa
-Phường Tân Định
 Xã Bắc Tân Uyên
 Xã Thường Tân
 Xã Phú Giáo
@@ -234,20 +233,108 @@ Xã Long Hòa
 Xã Dầu Tiếng
 Xã Thanh An
 QTSC
-KHỐI ĐẢNG
-THAM MƯU
-PHIẾU CHUYỂN
-TỜ TRÌNH
-PHIẾU TRÌNH
-KINH TẾ ĐẢNG
-DIỆN RỘNG
-THÔNG BÁO KẾT LUẬN
-CHỊ TUYẾT
-ANH THÔNG
-BÁC QUANG
-ANH QUANG
-ANH ĐƯỢC
-ANH LỘC
-ANH MINH
-ANH PHONG
+Khối Đảng
+Tham Mưu
+Phiếu Chuyển
+Tờ Trình
+Phiếu Trình
+Kinh Tế Đảng
+Diện Rộng
+Thông Báo Kết Luận
 
+# 1. Tên Riêng
+
+Anh Tuấn Anh
+Bác Dũng
+Anh Hùng
+Anh Sâm
+Anh Kiên
+
+# 2. Tên Công Ty / Tổ Chức
+
+Viễn Thông ACT:2.5
+ACT:2.5
+Công Ty ACT:2.5
+Công Ty Cổ Phần Viễn Thông ACT:2.5
+ACT Telecom:2.5
+Cán Bộ ACT:2.5
+Nhân Sự ACT:2.5
+Lãnh Đạo ACT:2.5
+Viettel:2.5
+
+# 3. Hạ Tầng Viễn Thông
+
+Trạm BTS:2.5
+Nhà Trạm
+Trạm Viễn Thông
+Cột Anten
+Anten
+Feeder
+Thiết Bị Vô Tuyến
+Khối Thu Phát
+RRU
+BBU
+Truyền Dẫn
+Cáp Quang
+Tuyến Cáp
+Tuyến Truyền Dẫn
+Mạng Truyền Dẫn
+Nguồn DC
+Nguồn AC
+Tiếp Đất
+Chống Sét
+Tủ Nguồn
+Tủ Thiết Bị
+
+# 4. Vận Hành / Bảo Dưỡng
+
+Bảo Dưỡng Nhà Trạm
+Kiểm Tra Hiện Trường
+Kiểm Tra Trạm BTS
+Xử Lý Sự Cố
+Ứng Cứu Thông Tin
+Bảo Trì
+Bảo Dưỡng
+Nghiệm Thu
+Kiểm Tra Chất Lượng
+Đánh Giá Hiện Trường
+Củng Cố Hạ Tầng
+Nâng Cấp Hạ Tầng
+Tối Ưu Mạng
+
+# 5. Tài Liệu Kỹ Thuật
+
+Quy Chuẩn
+Tiêu Chuẩn
+Hướng Dẫn Sử Dụng
+Hướng Dẫn Kỹ Thuật
+Quy Trình
+Quy Định
+Tài Liệu Kỹ Thuật
+Phương Án Kỹ Thuật
+Biện Pháp Thi Công
+Hồ Sơ Nghiệm Thu
+Hồ Sơ Thiết Kế
+MTVC
+Checklist
+Biên Bản
+
+# 6. Cuộc Họp
+
+Cuộc Họp
+Biên Bản Họp
+Ghi Âm Cuộc Họp
+Ghi Chép Cuộc Họp
+Bản Ghi
+Nội Dung Cuộc Họp
+Tóm Tắt Cuộc Họp
+Kết Luận Cuộc Họp
+Nhiệm Vụ
+Đầu Việc
+Người Phụ Trách
+Deadline
+Thời Hạn
+Quyết Định
+Ý Kiến
+Lãnh Đạo
+Phòng Ban

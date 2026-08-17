@@ -9,25 +9,10 @@ import Analytics from '@/lib/analytics';
 import { toast } from 'sonner';
 import {
   AudioCaptureSource,
+  effectiveAudioSource,
   wantsMicrophone,
   wantsSystem,
 } from '@/lib/audioCaptureSource';
-
-function effectiveAudioSource(
-  source: AudioCaptureSource,
-  hasMicrophoneAccess: boolean
-): AudioCaptureSource | { error: string } {
-  if (source === 'microphone' && !hasMicrophoneAccess) {
-    return {
-      error:
-        'Không có quyền microphone. Chọn «Âm thanh hệ thống» hoặc cấp quyền micro.',
-    };
-  }
-  if (source === 'both' && !hasMicrophoneAccess) {
-    return 'system';
-  }
-  return source;
-}
 
 async function startBackendRecording(
   source: AudioCaptureSource,

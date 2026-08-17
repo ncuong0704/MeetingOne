@@ -1,32 +1,27 @@
 [
   {
-    "hoTen": "Nguyễn Văn A",
-    "chucVu": "Chuyên viên",
-    "phongBan": "Phòng CNTT"
+    "hoTen": "Phạm Tuấn Anh",
+    "chucVu": "Tổng Giám đốc",
+    "phongBan": "Ban Điều hành"
   },
   {
-    "hoTen": "",
-    "chucVu": "",
-    "phongBan": ""
+    "hoTen": "Trần Dũng",
+    "chucVu": "Giám đốc Khối Dịch vụ Kỹ thuật",
+    "phongBan": "Khối Dịch vụ kỹ thuật"
   },
   {
-    "hoTen": "",
-    "chucVu": "",
-    "phongBan": ""
+    "hoTen": "Đặng Trần Hùng",
+    "chucVu": "Giám đốc Khối Giải pháp Công nghệ",
+    "phongBan": "Khối Giải pháp - Công nghệ"
   },
   {
-    "hoTen": "",
-    "chucVu": "",
-    "phongBan": ""
+    "hoTen": "Võ Ngọc Sâm",
+    "chucVu": "Giám đốc Khối Dự Án",
+    "phongBan": "Khối Dự án"
   },
   {
-    "hoTen": "",
-    "chucVu": "",
-    "phongBan": ""
-  },
-  {
-    "hoTen": "",
-    "chucVu": "",
-    "phongBan": ""
+    "hoTen": "Phạm Văn Kiên",
+    "chucVu": "Trưởng phòng KHCT",
+    "phongBan": "Phòng Kế hoạch - Chính trị"
   }
 ]

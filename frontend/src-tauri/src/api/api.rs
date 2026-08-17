@@ -5,7 +5,7 @@ use tauri::{AppHandle, Runtime};
 
 use crate::{
     database::{
-        models::MeetingModel,
+        models::{MeetingModel, MeetingSpeakerWithPreview},
         repositories::{
             meeting::MeetingsRepository, setting::SettingsRepository,
             speaker::SpeakersRepository, transcript::TranscriptsRepository,
@@ -1117,6 +1117,35 @@ pub async fn merge_speaker_segment(
         Ok(false) => Err(
             "Không thể gộp: không có đoạn trước hoặc đoạn trước chưa có người nói".to_string(),
         ),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub async fn list_meeting_speakers(
+    state: tauri::State<'_, AppState>,
+    meeting_id: String,
+) -> Result<Vec<MeetingSpeakerWithPreview>, String> {
+    SpeakersRepository::list_for_meeting(state.db_manager.pool(), &meeting_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn merge_meeting_speakers(
+    state: tauri::State<'_, AppState>,
+    source_speaker_id: String,
+    target_speaker_id: String,
+) -> Result<(), String> {
+    match SpeakersRepository::merge_into(
+        state.db_manager.pool(),
+        &source_speaker_id,
+        &target_speaker_id,
+    )
+    .await
+    {
+        Ok(true) => Ok(()),
+        Ok(false) => Err("Không tìm thấy người nói để gộp".to_string()),
         Err(e) => Err(e.to_string()),
     }
 }

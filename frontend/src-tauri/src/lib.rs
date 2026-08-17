@@ -527,6 +527,8 @@ pub fn run() {
             api::api_get_meeting_transcripts,
             api::rename_meeting_speaker,
             api::merge_speaker_segment,
+            api::list_meeting_speakers,
+            api::merge_meeting_speakers,
             api::api_update_transcript_text,
             api::api_save_meeting_title,
             api::api_save_transcript,
@@ -619,6 +621,7 @@ pub fn run() {
             audio::retranscription::cancel_retranscription_command,
             audio::retranscription::is_retranscription_in_progress_command,
             audio::retranscription::resolve_meeting_audio_file_path,
+            audio::retranscription::read_meeting_audio_file,
             // Import audio commands
             audio::import::select_and_validate_audio_command,
             audio::import::validate_audio_file_command,

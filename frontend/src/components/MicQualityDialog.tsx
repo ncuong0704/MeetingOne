@@ -32,7 +32,7 @@ interface MicQualityDialogProps {
   deviceName: string | null;
 }
 
-type Phase = 'idle' | 'need_download' | 'downloading' | 'recording' | 'analyzing' | 'result' | 'error';
+type Phase = 'idle' | 'need_download' | 'downloading' | 'recording' | 'analyzing' | 'transcribing' | 'result' | 'error';
 
 export function MicQualityDialog({ open, onOpenChange, deviceName }: MicQualityDialogProps) {
   const [phase, setPhase] = useState<Phase>('idle');
@@ -68,6 +68,7 @@ export function MicQualityDialog({ open, onOpenChange, deviceName }: MicQualityD
         if (event.payload.phase === 'download') setPhase('downloading');
         if (event.payload.phase === 'recording') setPhase('recording');
         if (event.payload.phase === 'analyzing') setPhase('analyzing');
+        if (event.payload.phase === 'transcribing') setPhase('transcribing');
       });
       unlistenDone = await listen('mic-quality-download-complete', () => {
         setPhase('idle');
@@ -128,7 +129,11 @@ export function MicQualityDialog({ open, onOpenChange, deviceName }: MicQualityD
     onOpenChange(false);
   };
 
-  const busy = phase === 'recording' || phase === 'analyzing' || phase === 'downloading';
+  const busy =
+    phase === 'recording' ||
+    phase === 'analyzing' ||
+    phase === 'transcribing' ||
+    phase === 'downloading';
   const statusText =
     phase === 'downloading'
       ? `Đang tải model DNSMOS... ${percent}%`
@@ -136,9 +141,11 @@ export function MicQualityDialog({ open, onOpenChange, deviceName }: MicQualityD
         ? `Đang ghi âm... ${percent}%`
         : phase === 'analyzing'
           ? 'Đang phân tích...'
-          : phase === 'need_download'
-            ? 'Cần tải model DNSMOS (~5MB)'
-            : 'Sẵn sàng';
+          : phase === 'transcribing'
+            ? 'Đang nhận dạng...'
+            : phase === 'need_download'
+              ? 'Cần tải model DNSMOS (~5MB)'
+              : 'Sẵn sàng';
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) handleClose(); }}>
@@ -269,16 +276,21 @@ function ResultBody({ result }: { result: AnalysisResult }) {
         </div>
       </div>
 
-      {m.sample_text && (
-        <div>
-          <p className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-2">
-            Chữ nhận dạng được
-          </p>
-          <p className="rounded-md border border-rule bg-paper px-3 py-2 text-sm text-ink">
-            {m.sample_text}
-          </p>
-        </div>
-      )}
+      <div>
+        <p className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-ink-2">
+          Bản ghi lúc kiểm tra
+        </p>
+        <p
+          className={cn(
+            'rounded-md border border-rule bg-paper px-3 py-2 text-sm leading-relaxed',
+            m.sample_text.trim() ? 'text-ink' : 'text-ink-2'
+          )}
+        >
+          {m.sample_text.trim()
+            ? m.sample_text.trim()
+            : 'Không nhận dạng được chữ. Nói rõ hơn, gần micro hơn, hoặc tải mô hình nhận dạng trong Cài đặt.'}
+        </p>
+      </div>
 
       {result.suggestions.length > 0 && (
         <div>

@@ -187,4 +187,20 @@ mod tests {
         assert_eq!(out[0].full_name, "Minh");
         assert!(!out[0].id.is_empty());
     }
+
+    #[test]
+    fn bundled_nguoi_noi_json_keeps_named_rows_and_drops_blank_templates() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("resources")
+            .join(DEFAULTS_SUBDIR)
+            .join(DEFAULTS_FILE);
+        let people = read_directory_file(&path);
+        assert_eq!(people.len(), 5);
+        assert_eq!(people[0].full_name, "Phạm Tuấn Anh");
+        assert_eq!(people[0].title, "Tổng Giám đốc");
+        assert_eq!(people[0].department, "Ban Điều hành");
+        assert_eq!(people[4].full_name, "Phạm Văn Kiên");
+        assert_eq!(people[4].title, "Trưởng phòng KHCT");
+        assert!(people.iter().all(|p| !p.id.is_empty()));
+    }
 }

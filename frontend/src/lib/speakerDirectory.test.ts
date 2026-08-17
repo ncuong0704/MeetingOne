@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   createDirectorySpeaker,
   directoryFilterQuery,
@@ -8,6 +11,14 @@ import {
   suggestDirectorySpeakers,
   type DirectorySpeaker,
 } from './speakerDirectory.ts';
+
+const srcTauriResources = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '..',
+  '..',
+  'src-tauri',
+  'resources',
+);
 
 test('foldVietnamese strips diacritics and đ', () => {
   assert.equal(foldVietnamese('Nguyễn'), 'nguyen');
@@ -83,6 +94,35 @@ test('formatDirectorySpeakerLabel joins name, title, and department with dashes'
       department: 'Phòng CNTT',
     }),
     'Nguyễn Cường - Chuyên viên AI - Phòng CNTT',
+  );
+});
+
+test('bundled nguoi-noi.json maps Vietnamese keys and skips blank templates', () => {
+  const raw = JSON.parse(
+    readFileSync(
+      join(srcTauriResources, 'mac-dinh', 'nguoi-noi.json'),
+      'utf8',
+    ),
+  ) as Array<{ hoTen?: string; chucVu?: string; phongBan?: string }>;
+  const people = raw
+    .map((row) =>
+      createDirectorySpeaker({
+        fullName: row.hoTen ?? '',
+        title: row.chucVu,
+        department: row.phongBan,
+      }),
+    )
+    .filter((person): person is DirectorySpeaker => person !== null);
+  assert.equal(people.length, 5);
+  assert.deepEqual(
+    people.map((p) => ({ fullName: p.fullName, title: p.title, department: p.department })),
+    [
+      { fullName: 'Phạm Tuấn Anh', title: 'Tổng Giám đốc', department: 'Ban Điều hành' },
+      { fullName: 'Trần Dũng', title: 'Giám đốc Khối Dịch vụ Kỹ thuật', department: 'Khối Dịch vụ kỹ thuật' },
+      { fullName: 'Đặng Trần Hùng', title: 'Giám đốc Khối Giải pháp Công nghệ', department: 'Khối Giải pháp - Công nghệ' },
+      { fullName: 'Võ Ngọc Sâm', title: 'Giám đốc Khối Dự Án', department: 'Khối Dự án' },
+      { fullName: 'Phạm Văn Kiên', title: 'Trưởng phòng KHCT', department: 'Phòng Kế hoạch - Chính trị' },
+    ],
   );
 });
 

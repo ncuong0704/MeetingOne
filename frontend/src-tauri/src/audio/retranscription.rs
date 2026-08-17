@@ -552,6 +552,17 @@ pub fn resolve_meeting_audio_file_path(folder_path: String) -> Result<String, St
         .map_err(|e| e.to_string())
 }
 
+/// Bytes of the meeting playback file. Used for imported 16 kHz WAV: WebView2's
+/// `<audio>` element often rejects `convertFileSrc` for PCM WAV even when the
+/// file exists (MEDIA_ERR_SRC_NOT_SUPPORTED), which the UI used to show as
+/// "no recording saved".
+#[tauri::command]
+pub fn read_meeting_audio_file(folder_path: String) -> Result<Vec<u8>, String> {
+    let trimmed = folder_path.trim_end_matches(|c| c == '/' || c == '\\');
+    let path = find_audio_file(Path::new(trimmed)).map_err(|e| e.to_string())?;
+    std::fs::read(&path).map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -596,5 +607,15 @@ mod tests {
 
         let found = find_audio_file(dir.path()).expect("audio file");
         assert_eq!(found.file_name().unwrap(), "audio.wav");
+    }
+
+    #[test]
+    fn read_meeting_audio_file_returns_wav_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("audio.wav"), b"RIFF-playback").unwrap();
+
+        let bytes = read_meeting_audio_file(dir.path().to_string_lossy().to_string())
+            .expect("read wav");
+        assert_eq!(bytes, b"RIFF-playback");
     }
 }

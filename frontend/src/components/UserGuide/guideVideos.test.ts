@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { GUIDE_VIDEOS, isAllowedYoutubeUrl, youtubeOpenUrl } from './guideVideos.ts';
 
 test('GUIDE_VIDEOS is an array of items with id, title, description, youtubeUrl', () => {
@@ -17,6 +20,7 @@ test('isAllowedYoutubeUrl accepts youtube and youtu.be https', () => {
   assert.equal(isAllowedYoutubeUrl('https://www.youtube.com/watch?v=dQw4w9WgXcQ'), true);
   assert.equal(isAllowedYoutubeUrl('https://youtu.be/dQw4w9WgXcQ'), true);
   assert.equal(isAllowedYoutubeUrl('https://m.youtube.com/watch?v=dQw4w9WgXcQ'), true);
+  assert.equal(isAllowedYoutubeUrl('https://www.youtube.com/shorts/dQw4w9WgXcQ'), true);
 });
 
 test('isAllowedYoutubeUrl rejects unsafe or non-youtube URLs', () => {
@@ -37,5 +41,22 @@ test('youtubeOpenUrl canonicalizes to youtu.be without query ampersands', () => 
     youtubeOpenUrl('https://www.youtube.com/embed/dQw4w9WgXcQ'),
     'https://youtu.be/dQw4w9WgXcQ',
   );
+  assert.equal(
+    youtubeOpenUrl('https://www.youtube.com/shorts/dQw4w9WgXcQ'),
+    'https://youtu.be/dQw4w9WgXcQ',
+  );
   assert.equal(youtubeOpenUrl('https://example.com/watch?v=x'), null);
+});
+
+test('GUIDE_VIDEOS comes from mac-dinh/video-huong-dan.json', () => {
+  const catalog = JSON.parse(
+    readFileSync(
+      join(
+        dirname(fileURLToPath(import.meta.url)),
+        '../../../src-tauri/resources/mac-dinh/video-huong-dan.json',
+      ),
+      'utf8',
+    ),
+  );
+  assert.deepEqual(GUIDE_VIDEOS, catalog);
 });

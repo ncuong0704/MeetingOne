@@ -250,10 +250,23 @@ export const CapuAPI = {
   getCpuTopology: (): Promise<CpuTopology> => invoke('capu_get_cpu_topology'),
 };
 
+export type MeetingSpeaker = {
+  id: string;
+  meeting_id: string;
+  cluster_index: number;
+  display_name: string;
+  color: string;
+  preview_start: number | null;
+};
+
 export const DiarizationAPI = {
   renameSpeaker: (speakerId: string, displayName: string): Promise<void> =>
     invoke('rename_meeting_speaker', { speakerId, displayName }),
   mergeWithPrevious: (transcriptId: string): Promise<void> =>
     invoke('merge_speaker_segment', { transcriptId }),
+  listSpeakers: (meetingId: string): Promise<MeetingSpeaker[]> =>
+    invoke('list_meeting_speakers', { meetingId }),
+  mergeSpeakers: (sourceSpeakerId: string, targetSpeakerId: string): Promise<void> =>
+    invoke('merge_meeting_speakers', { sourceSpeakerId, targetSpeakerId }),
   isModelReady: (): Promise<boolean> => invoke('diarization_is_model_ready'),
 };

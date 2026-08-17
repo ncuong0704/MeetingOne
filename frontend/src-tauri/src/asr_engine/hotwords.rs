@@ -114,6 +114,20 @@ mod tests {
         assert_eq!(filter_hotwords_text(raw), "BAN CHẤP HÀNH :3.0");
     }
 
+    #[test]
+    fn bundled_hotwords_txt_is_nonempty_after_filter() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("resources")
+            .join("mac-dinh")
+            .join("hotwords.txt");
+        let raw = std::fs::read_to_string(&path).expect("bundled hotwords.txt");
+        let filtered = filter_hotwords_text(&raw);
+        assert!(filtered.lines().count() > 10);
+        assert!(filtered.contains("Ủy Ban Nhân Dân"));
+        assert!(filtered.contains("Ban Chấp Hành"));
+        assert!(!filtered.lines().any(|l| l.starts_with('#')));
+    }
+
     /// Ignored by default — needs a real downloaded model's bpe.model. Run explicitly:
     /// `cargo test asr_engine::hotwords::tests::ensure_bpe_vocab_generates_a_real_model -- --ignored --nocapture`
     /// with `BPE_MODEL_PATH` pointing at e.g. the already-downloaded

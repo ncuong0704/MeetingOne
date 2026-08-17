@@ -322,45 +322,83 @@ fn analyze_pcm_dnsmos_vad(
     Ok((segments, dnsmos, vad_found))
 }
 
-async fn asr_proxy(audio: &[f32]) -> (Option<f32>, String) {
+async fn transcribe_streaming(
+    engine: std::sync::Arc<crate::asr_engine::streaming::StreamingEngine>,
+    audio: &[f32],
+) -> String {
+    let hotwords = engine.hotwords().await;
+    let rec_guard = engine.recognizer().read().await;
+    let Some(recognizer) = rec_guard.as_ref() else {
+        return String::new();
+    };
+    tokio::task::block_in_place(|| {
+        let stream = if hotwords.is_empty() {
+            recognizer.create_stream()
+        } else {
+            recognizer.create_stream_with_hotwords(&hotwords)
+        };
+        let chunk = (SAMPLE_RATE as f32 * 0.1) as usize;
+        for part in audio.chunks(chunk.max(1)) {
+            stream.accept_waveform(SAMPLE_RATE as i32, part);
+            while recognizer.is_ready(&stream) {
+                recognizer.decode(&stream);
+            }
+        }
+        stream.input_finished();
+        while recognizer.is_ready(&stream) {
+            recognizer.decode(&stream);
+        }
+        recognizer
+            .get_result(&stream)
+            .map(|r| r.text)
+            .unwrap_or_default()
+    })
+}
+
+/// Load the saved live ASR model if needed (same path as starting a meeting), then
+/// transcribe the test clip. Missing model files skip ASR; DNSMOS still returns.
+async fn asr_proxy<R: Runtime>(app: &AppHandle<R>, audio: &[f32]) -> (Option<f32>, String) {
     if audio.is_empty() {
         return (None, String::new());
     }
-    if let Some(engine) = crate::asr_engine::streaming::streaming_engine_if_init() {
-        if engine.is_loaded().await {
-            let rec_guard = engine.recognizer().read().await;
-            if let Some(recognizer) = rec_guard.as_ref() {
-                return tokio::task::block_in_place(|| {
-                    let stream = recognizer.create_stream();
-                    let chunk = (SAMPLE_RATE as f32 * 0.1) as usize;
-                    for part in audio.chunks(chunk.max(1)) {
-                        stream.accept_waveform(SAMPLE_RATE as i32, part);
-                        while recognizer.is_ready(&stream) {
-                            recognizer.decode(&stream);
-                        }
-                    }
-                    stream.input_finished();
-                    while recognizer.is_ready(&stream) {
-                        recognizer.decode(&stream);
-                    }
-                    match recognizer.get_result(&stream) {
-                        Some(r) => (None, r.text.trim().to_string()),
-                        None => (None, String::new()),
-                    }
-                });
-            }
-        }
+    if let Err(e) = crate::asr_engine::commands::asr_validate_model_ready(
+        app.clone(),
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    {
+        warn!("Mic quality ASR skipped: {e}");
+        return (None, String::new());
     }
-    if let Ok(engine) = crate::asr_engine::commands::get_engine_arc() {
-        match engine.transcribe_audio(audio.to_vec()).await {
-            Ok(text) => (None, text.trim().to_string()),
-            Err(e) => {
-                warn!("ASR-Proxy offline failed: {e}");
-                (None, String::new())
-            }
+
+    let raw = if let Some(engine) = crate::asr_engine::streaming::streaming_engine_if_init() {
+        if engine.is_loaded().await {
+            transcribe_streaming(engine, audio).await
+        } else {
+            transcribe_offline(audio).await
         }
     } else {
-        (None, String::new())
+        transcribe_offline(audio).await
+    };
+
+    let mut capu_trailing = Vec::new();
+    let text = crate::audio::post_asr::process_asr_text(&raw, &mut capu_trailing);
+    (None, text.trim().to_string())
+}
+
+async fn transcribe_offline(audio: &[f32]) -> String {
+    match crate::asr_engine::commands::get_engine_arc() {
+        Ok(engine) => match engine.transcribe_audio(audio.to_vec()).await {
+            Ok(text) => text,
+            Err(e) => {
+                warn!("ASR-Proxy offline failed: {e}");
+                String::new()
+            }
+        },
+        Err(_) => String::new(),
     }
 }
 
@@ -646,14 +684,30 @@ async fn mic_quality_analyze_inner<R: Runtime>(
     }
 
     let concat: Vec<f32> = segments.iter().flatten().copied().collect();
-    let (asr_conf, text) = asr_proxy(&concat).await;
+    if CANCEL.load(Ordering::SeqCst) {
+        return Err("Đã hủy".into());
+    }
     let _ = app.emit(
         "mic-quality-progress",
         MicQualityProgress {
-            phase: "analyzing".into(),
+            phase: "transcribing".into(),
+            percent: 60,
+        },
+    );
+    let (asr_conf, text) = asr_proxy(&app, &concat).await;
+    if CANCEL.load(Ordering::SeqCst) {
+        return Err("Đã hủy".into());
+    }
+    let _ = app.emit(
+        "mic-quality-progress",
+        MicQualityProgress {
+            phase: "transcribing".into(),
             percent: 100,
         },
     );
+    if !text.is_empty() {
+        info!("Mic quality transcript: {text}");
+    }
     Ok(finish_metrics(&segments, dnsmos, asr_conf, text))
 }
 
