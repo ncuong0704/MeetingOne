@@ -854,9 +854,15 @@ pub async fn api_save_shared_transcript_config<R: Runtime>(
     let diarization_num_resolved = diarization_num_speakers
         .filter(|&n| (1..=20).contains(&n));
 
+    let bundled_hotwords = crate::asr_engine::commands::load_bundled_hotwords_raw(&app);
+    let persist_hotwords = crate::asr_engine::hotwords::persist_hotwords_value(
+        hotwords.as_deref(),
+        bundled_hotwords.as_deref(),
+    );
+
     if let Err(e) = SettingsRepository::save_shared_transcript_config(
         pool,
-        hotwords.as_deref(),
+        persist_hotwords.as_deref(),
         capu_threads_resolved,
         capu_punct_resolved,
         capu_case_resolved,
@@ -869,10 +875,9 @@ pub async fn api_save_shared_transcript_config<R: Runtime>(
     }
 
     if let Ok(engine) = crate::asr_engine::commands::get_engine_arc() {
-        let bundled = crate::asr_engine::commands::load_bundled_hotwords_raw(&app);
         let text = crate::asr_engine::hotwords::effective_hotwords_text(
-            hotwords.as_deref(),
-            bundled.as_deref(),
+            persist_hotwords.as_deref(),
+            bundled_hotwords.as_deref(),
         );
         engine.set_hotwords(text).await;
     }

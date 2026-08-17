@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { RotateCcw } from 'lucide-react';
 import { SharedTranscriptConfig, TranscriptConfigAPI } from '@/lib/asr';
 import {
   DEFAULT_CAPU_CASE_LEVEL,
@@ -21,6 +22,7 @@ export default function SharedTranscriptPanel({
 }: SharedTranscriptPanelProps) {
   const [hotwords, setHotwords] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -50,6 +52,28 @@ export default function SharedTranscriptPanel({
     }
   };
 
+  const handleReset = async () => {
+    setIsResetting(true);
+    setSaveMessage(null);
+    try {
+      await TranscriptConfigAPI.saveShared({
+        hotwords: null,
+        capuCpuThreads: FIXED_CAPU_CPU_THREADS,
+        capuPunctuationLevel: DEFAULT_CAPU_PUNCTUATION_LEVEL,
+        capuCaseLevel: DEFAULT_CAPU_CASE_LEVEL,
+        diarizationEnabled: config?.diarizationEnabled ?? false,
+        diarizationNumSpeakers: config?.diarizationNumSpeakers ?? null,
+      });
+      setSaveMessage('Đã khôi phục từ khóa mặc định');
+      onSaved?.();
+      setTimeout(() => setSaveMessage(null), 3000);
+    } catch (e) {
+      setSaveMessage(`Lỗi: ${String(e)}`);
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
   return (
     <section>
       <h2 className="text-sm font-semibold text-ink tracking-tight">Từ khóa</h2>
@@ -62,7 +86,7 @@ export default function SharedTranscriptPanel({
         <textarea
           value={hotwords}
           onChange={(e) => setHotwords(e.target.value)}
-          disabled={disabled}
+          disabled={disabled || isSaving || isResetting}
           rows={5}
           placeholder={'ỦY BAN NHÂN DÂN :2.5\nCHUYỂN ĐỔI SỐ\n# Tên riêng\nANH MINH'}
           className="w-full px-3 py-2 text-sm font-mono rounded-md border border-rule bg-paper-2 text-ink placeholder:text-ink-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
@@ -71,10 +95,19 @@ export default function SharedTranscriptPanel({
           <button
             type="button"
             onClick={handleSave}
-            disabled={isSaving || disabled}
+            disabled={isSaving || isResetting || disabled}
             className="inline-flex h-8 items-center rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
           >
             {isSaving ? 'Đang lưu...' : 'Lưu'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleReset()}
+            disabled={isSaving || isResetting || disabled}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-rule bg-paper-2 px-2.5 text-xs font-medium text-ink-2 hover:bg-secondary hover:text-ink disabled:opacity-50"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            {isResetting ? 'Đang khôi phục...' : 'Khôi phục mặc định'}
           </button>
           {saveMessage && (
             <span

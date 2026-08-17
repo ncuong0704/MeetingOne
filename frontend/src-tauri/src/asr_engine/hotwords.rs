@@ -49,20 +49,83 @@ fn generate_bpe_vocab(bpe_model_path: &Path, vocab_path: &Path) -> Result<()> {
     std::fs::write(vocab_path, out).map_err(|e| anyhow!("Failed to write {:?}: {}", vocab_path, e))
 }
 
+fn hotword_phrase_key(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() || trimmed.starts_with('#') {
+        return None;
+    }
+    let phrase = trimmed
+        .rsplit_once(" :")
+        .map(|(p, _)| p.trim())
+        .unwrap_or(trimmed);
+    Some(phrase.to_lowercase())
+}
+
+fn extra_hotword_lines<'a>(stored: &'a str, bundled: &str) -> Vec<&'a str> {
+    let bundled_keys: std::collections::HashSet<String> = bundled
+        .lines()
+        .filter_map(hotword_phrase_key)
+        .collect();
+    stored
+        .lines()
+        .filter(|line| {
+            hotword_phrase_key(line)
+                .map(|key| !bundled_keys.contains(&key))
+                .unwrap_or(false)
+        })
+        .collect()
+}
+
+/// Rebuild user hotwords against the current bundled file: keep official lines (so app
+/// updates pick up new defaults) and append phrases the user added that are not in bundled.
+pub fn overlay_hotwords(stored: &str, bundled: &str) -> String {
+    let extras = extra_hotword_lines(stored, bundled);
+    if extras.is_empty() {
+        return bundled.to_string();
+    }
+    let mut out = bundled.trim_end().to_string();
+    out.push('\n');
+    out.push_str(&extras.join("\n"));
+    out
+}
+
+/// What to store in DB: NULL follows bundled across updates; empty string disables;
+/// any other string keeps user extras (and old snapshots that already differ).
+pub fn persist_hotwords_value(textarea: Option<&str>, bundled: Option<&str>) -> Option<String> {
+    match textarea {
+        None => None,
+        Some(s) if s.trim().is_empty() => Some(String::new()),
+        Some(s) => {
+            let bundled = bundled.unwrap_or("");
+            if extra_hotword_lines(s, bundled).is_empty() {
+                None
+            } else {
+                Some(s.to_string())
+            }
+        }
+    }
+}
+
 /// Hotwords to pass to sherpa-onnx: use DB value when set; if DB is NULL (never saved),
 /// use bundled defaults; if DB is empty string (user cleared and saved), use no hotwords.
+/// Non-empty DB values are overlaid so a new bundled list is included after app updates.
 pub fn effective_hotwords_text(stored: Option<&str>, bundled_raw: Option<&str>) -> String {
     match stored {
-        Some(s) if !s.trim().is_empty() => filter_hotwords_text(s),
+        Some(s) if !s.trim().is_empty() => {
+            filter_hotwords_text(&overlay_hotwords(s, bundled_raw.unwrap_or("")))
+        }
         Some(_) => String::new(),
         None => filter_hotwords_text(bundled_raw.unwrap_or("")),
     }
 }
 
 /// Raw text for Settings UI: show bundled file when DB has never stored hotwords.
+/// Stored lists are overlaid so the textarea shows current defaults plus user extras.
 pub fn display_hotwords_text(stored: Option<&str>, bundled_raw: Option<&str>) -> Option<String> {
     match stored {
-        Some(s) if !s.trim().is_empty() => Some(s.to_string()),
+        Some(s) if !s.trim().is_empty() => {
+            Some(overlay_hotwords(s, bundled_raw.unwrap_or("")))
+        }
         Some(_) => Some(String::new()),
         None => bundled_raw.map(|s| s.to_string()),
     }
@@ -92,6 +155,56 @@ mod tests {
         assert_eq!(
             display_hotwords_text(None, Some("LINE1\nLINE2")),
             Some("LINE1\nLINE2".to_string())
+        );
+    }
+
+    #[test]
+    fn overlay_hotwords_follows_bundled_when_stored_is_old_snapshot() {
+        let stored = "Ban Chấp Hành\nThành Ủy\n";
+        let bundled = "Ban Chấp Hành\nThành Ủy\nỦy Ban Nhân Dân\n";
+        assert_eq!(overlay_hotwords(stored, bundled), bundled);
+    }
+
+    #[test]
+    fn overlay_hotwords_keeps_user_extras_after_bundled() {
+        let stored = "Ban Chấp Hành\nANH MINH :2.5\n";
+        let bundled = "# Đảng\nBan Chấp Hành\nThành Ủy\n";
+        assert_eq!(
+            overlay_hotwords(stored, bundled),
+            "# Đảng\nBan Chấp Hành\nThành Ủy\nANH MINH :2.5"
+        );
+    }
+
+    #[test]
+    fn persist_hotwords_value_clears_db_when_textarea_matches_bundled() {
+        let bundled = "Ban Chấp Hành\nThành Ủy\n";
+        assert_eq!(persist_hotwords_value(Some(bundled), Some(bundled)), None);
+        assert_eq!(
+            persist_hotwords_value(Some("Ban Chấp Hành\n"), Some(bundled)),
+            None
+        );
+        assert_eq!(persist_hotwords_value(None, Some(bundled)), None);
+        assert_eq!(
+            persist_hotwords_value(Some("ANH MINH\n"), Some(bundled)),
+            Some("ANH MINH\n".to_string())
+        );
+        assert_eq!(persist_hotwords_value(Some(""), Some(bundled)), Some(String::new()));
+    }
+
+    #[test]
+    fn effective_hotwords_text_uses_bundled_when_stored_is_subset() {
+        let stored = "TERM_A\n";
+        let bundled = "TERM_A\nTERM_B\n# skip";
+        assert_eq!(effective_hotwords_text(Some(stored), Some(bundled)), "TERM_A\nTERM_B");
+    }
+
+    #[test]
+    fn effective_hotwords_text_includes_user_extras() {
+        let stored = "CUSTOM\n";
+        let bundled = "TERM_A\n";
+        assert_eq!(
+            effective_hotwords_text(Some(stored), Some(bundled)),
+            "TERM_A\nCUSTOM"
         );
     }
 
