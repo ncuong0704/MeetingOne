@@ -240,6 +240,12 @@ impl LoudnessNormalizer {
     }
 }
 
+/// Live microphone path (test ASR): raw PCM after format conversion.
+/// File import still uses `HighPassFilter` + `LoudnessNormalizer`.
+pub fn live_microphone_capture_samples(samples: &[f32]) -> Vec<f32> {
+    samples.to_vec()
+}
+
 /// RNNoise-based noise suppression processor
 ///
 /// Uses a recurrent neural network to suppress background noise while preserving speech.
@@ -882,5 +888,32 @@ mod loudness_normalizer_tests {
             "expected ~-23 LUFS in the converged tail, got {}",
             lufs
         );
+    }
+}
+
+#[cfg(test)]
+mod live_mic_capture_tests {
+    use super::*;
+
+    #[test]
+    fn ebu_limiter_delays_an_impulse_unlike_test_asr_raw_path() {
+        let sample_rate = 48000u32;
+        let lookahead = (sample_rate as usize * 10) / 1000;
+        let mut samples = vec![0.0f32; lookahead + 8];
+        samples[0] = 0.5;
+        let mut normalizer = LoudnessNormalizer::new(1, sample_rate).expect("create");
+        let out = normalizer.normalize_loudness(&samples);
+        assert!(
+            out[0].abs() < 1e-6,
+            "limiter lookahead should delay the impulse; got {}",
+            out[0]
+        );
+    }
+
+    #[test]
+    fn live_microphone_capture_samples_are_raw_identity() {
+        let input: Vec<f32> = (0..800).map(|i| if i == 0 { 0.8 } else { 0.01 }).collect();
+        let out = live_microphone_capture_samples(&input);
+        assert_eq!(out, input);
     }
 }

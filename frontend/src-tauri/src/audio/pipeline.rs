@@ -10,7 +10,7 @@ use rubato::{Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolat
 
 use super::devices::AudioDevice;
 use super::recording_state::{AudioChunk, AudioError, RecordingState, DeviceType};
-use super::audio_processing::{audio_to_mono, LoudnessNormalizer, NoiseSuppressionProcessor, HighPassFilter};
+use super::audio_processing::{audio_to_mono, NoiseSuppressionProcessor};
 use super::vad::{ContinuousVadProcessor, SpeechSegment};
 use super::common::expand_segments_at_silence;
 
@@ -165,7 +165,7 @@ impl ProfessionalAudioMixer {
 
             // Pre-scale system audio to 70% to leave headroom
             // This prevents constant soft scaling which can cause pumping artifacts
-            // Mic is normalized to -23 LUFS (already optimal), system needs reduction
+            // Mic is raw PCM (test ASR live path); system is often louder so it is reduced
             let sys_scaled = sys * 0.7;
             let _mic_scaled = mic * 0.8;  // Reserved for future mic scaling
 
@@ -206,11 +206,8 @@ pub struct AudioCapture {
     // Buffering for variable-size chunks â†’ fixed-size resampler input
     resampler_input_buffer: Arc<std::sync::Mutex<Vec<f32>>>,
     resampler_chunk_size: usize,  // Fixed chunk size for resampler (512 samples)
-    // Audio enhancement processors (microphone only)
+    // Optional RNNoise (gated by RNNOISE_APPLY_ENABLED; live mic is otherwise raw PCM)
     noise_suppressor: Arc<std::sync::Mutex<Option<NoiseSuppressionProcessor>>>,
-    high_pass_filter: Arc<std::sync::Mutex<Option<HighPassFilter>>>,
-    // EBU R128 normalizer for microphone audio (per-device, stateful)
-    normalizer: Arc<std::sync::Mutex<Option<LoudnessNormalizer>>>,
     // Note: Using global recording timestamp for synchronization
 }
 
@@ -266,51 +263,38 @@ impl AudioCapture {
             );
         }
 
-        // Initialize audio enhancement processors for MICROPHONE ONLY
-        // System audio doesn't need enhancement (already clean)
-        let (noise_suppressor, high_pass_filter, normalizer) = if matches!(device_type, DeviceType::Microphone) {
-            // Initialize noise suppression (RNNoise) at 48kHz - CONDITIONAL based on flag
-            let ns = if super::ffmpeg_mixer::RNNOISE_APPLY_ENABLED {
-                match NoiseSuppressionProcessor::new(TARGET_SAMPLE_RATE) {
-                    Ok(processor) => {
-                        info!("âœ… RNNoise noise suppression ENABLED for microphone '{}' (10-15 dB reduction)", device.name);
-                        Some(processor)
-                    }
-                    Err(e) => {
-                        warn!("âš ï¸ Failed to create noise suppressor: {}, continuing without noise suppression", e);
-                        None
-                    }
-                }
-            } else {
-                info!("â„¹ï¸ RNNoise noise suppression DISABLED for microphone '{}' (flag: RNNOISE_APPLY_ENABLED=false)", device.name);
-                info!("   Whisper handles noise well internally - RNNoise is optional");
-                None
-            };
-
-            // Initialize high-pass filter (removes rumble below 80 Hz)
-            let hpf = {
-                let filter = HighPassFilter::new(TARGET_SAMPLE_RATE, 80.0);
-                info!("âœ… High-pass filter initialized for microphone '{}' (cutoff: 80 Hz)", device.name);
-                Some(filter)
-            };
-
-            // Initialize EBU R128 normalizer (professional loudness standard)
-            let norm = match LoudnessNormalizer::new(1, TARGET_SAMPLE_RATE) {
-                Ok(normalizer) => {
-                    info!("âœ… EBU R128 normalizer initialized for microphone '{}' (target: -23 LUFS)", device.name);
-                    Some(normalizer)
+        // Live microphone matches test ASR: raw PCM after format conversion.
+        // HPF + EBU R128 stay on the file-import path (`preprocess_file_audio`).
+        // Optional RNNoise remains gated by RNNOISE_APPLY_ENABLED (currently off).
+        let noise_suppressor = if matches!(device_type, DeviceType::Microphone)
+            && super::ffmpeg_mixer::RNNOISE_APPLY_ENABLED
+        {
+            match NoiseSuppressionProcessor::new(TARGET_SAMPLE_RATE) {
+                Ok(processor) => {
+                    info!(
+                        "RNNoise noise suppression ENABLED for microphone '{}' (10-15 dB reduction)",
+                        device.name
+                    );
+                    Some(processor)
                 }
                 Err(e) => {
-                    warn!("âš ï¸ Failed to create normalizer for microphone: {}, normalization disabled", e);
+                    warn!(
+                        "Failed to create noise suppressor: {}, continuing without noise suppression",
+                        e
+                    );
                     None
                 }
-            };
-
-            (ns, hpf, norm)
+            }
         } else {
-            // System audio: no enhancement needed
-            info!("â„¹ï¸ System audio '{}' captured raw (no enhancement)", device.name);
-            (None, None, None)
+            if matches!(device_type, DeviceType::Microphone) {
+                info!(
+                    "Live microphone '{}' captured raw (no HPF/EBU; matches test ASR)",
+                    device.name
+                );
+            } else {
+                info!("System audio '{}' captured raw (no enhancement)", device.name);
+            }
+            None
         };
 
         // CRITICAL FIX: Initialize persistent resampler to preserve energy across chunks
@@ -377,8 +361,6 @@ impl AudioCapture {
             resampler_input_buffer: Arc::new(std::sync::Mutex::new(Vec::with_capacity(RESAMPLER_CHUNK_SIZE * 2))),
             resampler_chunk_size: RESAMPLER_CHUNK_SIZE,
             noise_suppressor: Arc::new(std::sync::Mutex::new(noise_suppressor)),
-            high_pass_filter: Arc::new(std::sync::Mutex::new(high_pass_filter)),
-            normalizer: Arc::new(std::sync::Mutex::new(normalizer)),
             // Using global recording time for sync
         }
     }
@@ -509,64 +491,15 @@ impl AudioCapture {
             }
         }
 
-        // AUDIO ENHANCEMENT PIPELINE (Microphone Only)
-        // Processing order is critical: high-pass â†’ noise suppression â†’ normalization
-        // This ensures noise is removed before being amplified by the normalizer
+        // Live microphone matches test ASR: raw PCM (no HPF / EBU R128).
+        // RNNoise stays optional and off by default.
         if matches!(self.device_type, DeviceType::Microphone) {
-            // STEP 1: Apply high-pass filter to remove low-frequency rumble (< 80 Hz)
-            if let Ok(mut hpf_lock) = self.high_pass_filter.lock() {
-                if let Some(ref mut filter) = *hpf_lock {
-                    mono_data = filter.process(&mono_data);
-                }
-            }
+            mono_data = super::audio_processing::live_microphone_capture_samples(&mono_data);
 
-            // STEP 2: Apply RNNoise noise suppression (10-15 dB reduction) - CONDITIONAL
             if super::ffmpeg_mixer::RNNOISE_APPLY_ENABLED {
                 if let Ok(mut ns_lock) = self.noise_suppressor.lock() {
                     if let Some(ref mut suppressor) = *ns_lock {
-                        let before_len = mono_data.len();
                         mono_data = suppressor.process(&mono_data);
-                        let after_len = mono_data.len();
-
-                        // CRITICAL MONITORING: Track buffer health
-                        let chunk_id = self.chunk_counter.load(std::sync::atomic::Ordering::SeqCst);
-                        if chunk_id % 100 == 0 {
-                            let buffered = suppressor.buffered_samples();
-                            let length_delta = (before_len as i32 - after_len as i32).abs();
-
-                            debug!("ðŸ”‡ Noise suppression health: in={}, out={}, delta={}, buffered={}, RMS={:.4}",
-                                   before_len, after_len, length_delta, buffered,
-                                   if !mono_data.is_empty() {
-                                       (mono_data.iter().map(|&x| x * x).sum::<f32>() / mono_data.len() as f32).sqrt()
-                                   } else { 0.0 });
-
-                            // WARN if accumulating samples (potential latency buildup)
-                            if buffered > 1000 {
-                                warn!("âš ï¸ RNNoise accumulating samples: {} buffered (potential latency issue!)",
-                                      buffered);
-                            }
-
-                            // WARN if significant length mismatch
-                            if length_delta > 50 {
-                                warn!("âš ï¸ RNNoise length mismatch: input={} output={} (delta={})",
-                                      before_len, after_len, length_delta);
-                            }
-                        }
-                    }
-                }
-            }
-
-            // STEP 3: Apply EBU R128 normalization (professional loudness standard)
-            if let Ok(mut normalizer_lock) = self.normalizer.lock() {
-                if let Some(ref mut normalizer) = *normalizer_lock {
-                    mono_data = normalizer.normalize_loudness(&mono_data);
-
-                    // Log normalization occasionally for debugging
-                    let chunk_id = self.chunk_counter.load(std::sync::atomic::Ordering::SeqCst);
-                    if chunk_id % 200 == 0 && !mono_data.is_empty() {
-                        let rms = (mono_data.iter().map(|&x| x * x).sum::<f32>() / mono_data.len() as f32).sqrt();
-                        let peak = mono_data.iter().map(|&x| x.abs()).fold(0.0f32, f32::max);
-                        debug!("ðŸŽ¤ After normalization chunk {}: RMS={:.4}, Peak={:.4}", chunk_id, rms, peak);
                     }
                 }
             }
@@ -889,8 +822,7 @@ impl AudioPipeline {
                     }
 
                     // STEP 1: Add raw audio to ring buffer for mixing
-                    // Microphone audio is already normalized at capture level (AudioCapture)
-                    // System audio remains raw
+                    // Microphone and system audio are both raw PCM at this point
                     self.ring_buffer.add_samples(chunk.device_type.clone(), chunk.data);
 
                     // STEP 2: Mix audio in fixed windows when both streams have sufficient data
@@ -899,10 +831,8 @@ impl AudioPipeline {
                             // Simple mixing without aggressive ducking
                             let mixed_clean = self.mixer.mix_window(&mic_window, &sys_window);
 
-                            // NO POST-GAIN NEEDED: Microphone already normalized by EBU R128 to -23 LUFS
-                            // This is broadcast-standard loudness (Netflix/YouTube/Spotify level)
-                            // System audio at natural levels
-                            // Previous 2x gain was causing excessive limiting/distortion
+                            // No post-gain: live mic is raw (test ASR). Previous 2x gain
+                            // caused excessive limiting/distortion.
                             let mixed_with_gain = mixed_clean;
 
                             // STEP 3: Transcription path
