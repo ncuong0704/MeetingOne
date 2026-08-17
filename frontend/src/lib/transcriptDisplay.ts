@@ -1,4 +1,4 @@
-/** Shared display rules for the meeting transcript pane (`FlowingTranscriptView`) and clipboard copy. */
+/** Shared display rules for the meeting transcript pane (`FlowingTranscriptView`), clipboard copy, and LLM summary input. */
 
 export type TranscriptDisplaySegment = {
     id: string;
@@ -88,6 +88,25 @@ export function formatTranscriptPlainText(segments: TranscriptDisplaySegment[]):
             return body;
         })
         .join('\n\n');
+}
+
+/** Plain-text transcript for LLM report generation — same content as the UI, no timestamps. */
+export function formatTranscriptsForSummary(
+    transcripts: Array<{
+        id: string;
+        text: string;
+        speaker_id?: string | null;
+        speaker_name?: string | null;
+    }>,
+): string {
+    return formatTranscriptPlainText(
+        transcripts.map((t) => ({
+            id: t.id,
+            text: t.text,
+            speakerId: t.speaker_id ?? null,
+            speakerName: t.speaker_name ?? null,
+        })),
+    );
 }
 
 function escapeHtml(s: string): string {

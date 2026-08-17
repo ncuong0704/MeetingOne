@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
     formatTranscriptHtml,
     formatTranscriptPlainText,
+    formatTranscriptsForSummary,
     type TranscriptDisplaySegment,
 } from './transcriptDisplay.ts';
 
@@ -69,4 +70,36 @@ test('html matches structure and has no timestamp spans', () => {
 test('empty list is empty string', () => {
     assert.equal(formatTranscriptPlainText([]), '');
     assert.equal(formatTranscriptHtml([]), '');
+});
+
+test('summary text matches UI: speakers, no timestamps from transcript records', () => {
+    const text = formatTranscriptsForSummary([
+        {
+            id: '1',
+            text: 'Xin chào.',
+            timestamp: '14:30:05',
+            audio_start_time: 5,
+            speaker_id: 's1',
+            speaker_name: 'Lan',
+        },
+        {
+            id: '2',
+            text: 'Bắt đầu họp',
+            timestamp: '14:30:12',
+            audio_start_time: 12,
+            speaker_id: 's1',
+            speaker_name: 'Lan',
+        },
+        {
+            id: '3',
+            text: 'Đồng ý.',
+            timestamp: '14:31:03',
+            audio_start_time: 63,
+            speaker_id: 's2',
+            speaker_name: 'Minh',
+        },
+    ]);
+    assert.equal(TIME_TOKEN.test(text), false);
+    assert.equal(text.includes('14:30'), false);
+    assert.equal(text, 'Lan\nXin chào.\nBắt đầu họp\n\nMinh\nĐồng ý.');
 });
