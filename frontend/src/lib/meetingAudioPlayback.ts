@@ -1,5 +1,10 @@
 /** Playback helpers: import stores 16 kHz PCM WAV, live recordings store audio.mp4. */
 
+/** Production CSP blocks blob URLs unless `media-src` lists `blob:` (devUrl skips CSP). */
+export function mediaSrcAllowsBlobPlayback(mediaSrc: string): boolean {
+  return mediaSrc.split(/\s+/).filter(Boolean).includes('blob:');
+}
+
 export function prefersBlobPlayback(filePath: string): boolean {
   return filePath.toLowerCase().endsWith('.wav');
 }

@@ -1,9 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   audioMimeType,
   classifyMediaPlaybackError,
   isMissingAudioInvokeError,
+  mediaSrcAllowsBlobPlayback,
   prefersBlobPlayback,
 } from './meetingAudioPlayback.ts';
 
@@ -31,4 +35,26 @@ test('media error 4 after the file resolved is playback failure, not missing fil
   assert.equal(classifyMediaPlaybackError(4, true), 'PLAYBACK_FAILED');
   assert.equal(classifyMediaPlaybackError(2, true), 'PLAYBACK_FAILED');
   assert.equal(classifyMediaPlaybackError(4, false), 'FILE_NOT_FOUND');
+});
+
+test('blob: is required on media-src; asset: alone is not enough', () => {
+  assert.equal(mediaSrcAllowsBlobPlayback("'self' asset: https://asset.localhost"), false);
+  assert.equal(
+    mediaSrcAllowsBlobPlayback("'self' asset: https://asset.localhost blob:"),
+    true,
+  );
+});
+
+test('production CSP allows blob media so imported WAV playback is not blocked', () => {
+  const conf = JSON.parse(
+    readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src-tauri', 'tauri.conf.json'),
+      'utf8',
+    ),
+  ) as { app: { security: { csp: { 'media-src': string } } } };
+  assert.equal(
+    mediaSrcAllowsBlobPlayback(conf.app.security.csp['media-src']),
+    true,
+    'tauri:dev skips CSP; production applies media-src and will block blob: WAV playback without it',
+  );
 });
