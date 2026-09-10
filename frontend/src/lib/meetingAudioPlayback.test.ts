@@ -52,16 +52,30 @@ test('blob: is required on media-src; asset: alone is not enough', () => {
   );
 });
 
-test('production CSP allows blob media so imported WAV playback is not blocked', () => {
+function productionMediaSrc(): string {
   const conf = JSON.parse(
     readFileSync(
       join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src-tauri', 'tauri.conf.json'),
       'utf8',
     ),
   ) as { app: { security: { csp: { 'media-src': string } } } };
+  return conf.app.security.csp['media-src'];
+}
+
+test('production CSP allows blob media so imported WAV playback is not blocked', () => {
   assert.equal(
-    mediaSrcAllowsBlobPlayback(conf.app.security.csp['media-src']),
+    mediaSrcAllowsBlobPlayback(productionMediaSrc()),
     true,
     'tauri:dev skips CSP; production applies media-src and will block blob: WAV playback without it',
   );
+});
+
+test('production CSP allows Windows convertFileSrc (http://asset.localhost)', () => {
+  const parts = productionMediaSrc().split(/\s+/).filter(Boolean);
+  assert.equal(
+    parts.includes('http://asset.localhost'),
+    true,
+    'WebView2 serves convertFileSrc as http://asset.localhost; https://asset.localhost is not enough',
+  );
+  assert.equal(parts.includes('asset:'), true);
 });

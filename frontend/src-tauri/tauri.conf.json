@@ -28,7 +28,7 @@
                 "script-src": "'self' 'unsafe-eval' 'unsafe-inline'",
                 "style-src": "'self' 'unsafe-inline'",
                 "img-src": "'self' asset: https://asset.localhost data:",
-                "media-src": "'self' asset: https://asset.localhost blob:",
+                "media-src": "'self' asset: http://asset.localhost https://asset.localhost blob:",
                 "connect-src": "ipc: http://ipc.localhost 'self' data: http://localhost:5167 https://api.github.com https://github.com https://objects.githubusercontent.com https://release-assets.githubusercontent.com https://huggingface.co https://corsproxy.api.blocknotejs.org"
             },
             "assetProtocol": {

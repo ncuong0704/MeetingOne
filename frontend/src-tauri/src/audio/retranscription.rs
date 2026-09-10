@@ -590,14 +590,112 @@ pub async fn is_retranscription_in_progress_command() -> bool {
     is_retranscription_in_progress()
 }
 
-/// Returns absolute path to the first audio file in the meeting folder (same rules as retranscription).
+/// WAV larger than this is not sent through JS IPC (a 3-hour import freezes WebView2).
+const MAX_BLOB_BYTES: u64 = 32 * 1024 * 1024;
+
+fn playback_mp4_sidecar(wav: &Path) -> PathBuf {
+    wav.with_file_name("audio_playback.mp4")
+}
+
+fn playback_file_needs_mp4_transcode(path: &Path, size: u64) -> bool {
+    path.extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("wav"))
+        && size > MAX_BLOB_BYTES
+}
+
+fn sidecar_is_fresh(wav: &Path, sidecar: &Path) -> bool {
+    let Ok(side_meta) = std::fs::metadata(sidecar) else {
+        return false;
+    };
+    if side_meta.len() == 0 {
+        return false;
+    }
+    let Ok(wav_meta) = std::fs::metadata(wav) else {
+        return false;
+    };
+    match (side_meta.modified(), wav_meta.modified()) {
+        (Ok(side_t), Ok(wav_t)) => side_t >= wav_t,
+        _ => false,
+    }
+}
+
+fn transcode_wav_to_aac_mp4(wav: &Path, dest: &Path) -> Result<(), String> {
+    let ffmpeg_path = super::ffmpeg::find_ffmpeg_path().ok_or_else(|| {
+        "FFmpeg not found. Cannot prepare a long recording for playback.".to_string()
+    })?;
+    let wav_str = wav
+        .to_str()
+        .ok_or_else(|| format!("WAV path is not valid UTF-8: {}", wav.display()))?;
+    let dest_str = dest
+        .to_str()
+        .ok_or_else(|| format!("Playback path is not valid UTF-8: {}", dest.display()))?;
+
+    let mut command = std::process::Command::new(ffmpeg_path);
+    command.args([
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        wav_str,
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        "-profile:a",
+        "aac_low",
+        "-movflags",
+        "+faststart",
+        "-f",
+        "mp4",
+        dest_str,
+    ]);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let output = command
+        .output()
+        .map_err(|e| format!("Failed to run FFmpeg: {e}"))?;
+    if !output.status.success() {
+        let _ = std::fs::remove_file(dest);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("FFmpeg transcode failed: {stderr}"));
+    }
+    if !dest.exists() || std::fs::metadata(dest).map(|m| m.len()).unwrap_or(0) == 0 {
+        let _ = std::fs::remove_file(dest);
+        return Err("FFmpeg did not write a playback MP4".to_string());
+    }
+    Ok(())
+}
+
+/// WebView2 cannot play 16 kHz PCM WAV via convertFileSrc. Small WAV stays as-is
+/// (frontend blobs it). Long WAV is transcoded to AAC MP4 on disk once, then reused.
+fn ensure_webview_playable_path(path: PathBuf) -> Result<PathBuf, String> {
+    let size = std::fs::metadata(&path)
+        .map_err(|e| e.to_string())?
+        .len();
+    if !playback_file_needs_mp4_transcode(&path, size) {
+        return Ok(path);
+    }
+    let sidecar = playback_mp4_sidecar(&path);
+    if sidecar_is_fresh(&path, &sidecar) {
+        return Ok(sidecar);
+    }
+    transcode_wav_to_aac_mp4(&path, &sidecar)?;
+    Ok(sidecar)
+}
+
+/// Returns absolute path to the meeting audio file prepared for in-app playback.
 #[tauri::command]
 pub fn resolve_meeting_audio_file_path(folder_path: String) -> Result<String, String> {
     let trimmed = folder_path.trim_end_matches(|c| c == '/' || c == '\\');
     let folder = Path::new(trimmed);
-    find_audio_file(folder)
-        .map(|p| p.to_string_lossy().to_string())
-        .map_err(|e| e.to_string())
+    let path = find_audio_file(folder).map_err(|e| e.to_string())?;
+    ensure_webview_playable_path(path).map(|p| p.to_string_lossy().to_string())
 }
 
 /// Bytes of the meeting playback file. Used for imported 16 kHz WAV: WebView2's
@@ -608,7 +706,6 @@ pub fn resolve_meeting_audio_file_path(folder_path: String) -> Result<String, St
 pub fn read_meeting_audio_file(folder_path: String) -> Result<Vec<u8>, String> {
     let trimmed = folder_path.trim_end_matches(|c| c == '/' || c == '\\');
     let path = find_audio_file(Path::new(trimmed)).map_err(|e| e.to_string())?;
-    const MAX_BLOB_BYTES: u64 = 32 * 1024 * 1024;
     let len = std::fs::metadata(&path)
         .map_err(|e| e.to_string())?
         .len();
@@ -684,5 +781,88 @@ mod tests {
         let err = read_meeting_audio_file(dir.path().to_string_lossy().to_string())
             .expect_err("huge wav");
         assert!(err.contains("FILE_TOO_LARGE_FOR_BLOB"), "{err}");
+    }
+
+    #[test]
+    fn long_wav_needs_mp4_transcode_small_wav_and_mp4_do_not() {
+        assert!(playback_file_needs_mp4_transcode(
+            Path::new("audio.wav"),
+            MAX_BLOB_BYTES + 1
+        ));
+        assert!(playback_file_needs_mp4_transcode(
+            Path::new("AUDIO.WAV"),
+            MAX_BLOB_BYTES + 1
+        ));
+        assert!(!playback_file_needs_mp4_transcode(
+            Path::new("audio.wav"),
+            MAX_BLOB_BYTES
+        ));
+        assert!(!playback_file_needs_mp4_transcode(
+            Path::new("audio.mp4"),
+            MAX_BLOB_BYTES + 1
+        ));
+    }
+
+    #[test]
+    fn fresh_sidecar_mp4_is_reused_without_reencoding() {
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("audio.wav");
+        std::fs::write(&wav, b"RIFF").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let sidecar = playback_mp4_sidecar(&wav);
+        std::fs::write(&sidecar, b"fake-mp4").unwrap();
+
+        assert!(sidecar_is_fresh(&wav, &sidecar));
+    }
+
+    #[test]
+    fn stale_sidecar_mp4_is_not_reused() {
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("audio.wav");
+        let sidecar = playback_mp4_sidecar(&wav);
+        std::fs::write(&sidecar, b"old").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(&wav, b"RIFF-new").unwrap();
+
+        assert!(!sidecar_is_fresh(&wav, &sidecar));
+    }
+
+    #[test]
+    fn resolve_small_wav_does_not_create_playback_mp4() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("audio.wav"), b"RIFF-playback").unwrap();
+
+        let resolved = resolve_meeting_audio_file_path(dir.path().to_string_lossy().to_string())
+            .expect("resolve wav");
+        assert!(resolved.ends_with("audio.wav"), "{resolved}");
+        assert!(!dir.path().join("audio_playback.mp4").exists());
+    }
+
+    #[test]
+    fn large_wav_reuses_fresh_sidecar_instead_of_blob_or_ffmpeg() {
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("audio.wav");
+        let file = std::fs::File::create(&wav).unwrap();
+        file.set_len(MAX_BLOB_BYTES + 1).unwrap();
+        drop(file);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(dir.path().join("audio_playback.mp4"), b"cached-mp4").unwrap();
+
+        let resolved = resolve_meeting_audio_file_path(dir.path().to_string_lossy().to_string())
+            .expect("resolve sidecar");
+        assert!(
+            resolved.ends_with("audio_playback.mp4"),
+            "{resolved}"
+        );
+    }
+
+    #[test]
+    fn find_audio_file_prefers_wav_over_playback_sidecar() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("audio.wav"), b"asr-source").unwrap();
+        std::fs::write(dir.path().join("audio_playback.mp4"), b"player-only").unwrap();
+
+        let found = find_audio_file(dir.path()).expect("audio file");
+        assert_eq!(found.file_name().unwrap(), "audio.wav");
     }
 }
