@@ -17,6 +17,7 @@ import {
   AudioCaptureSource,
   wantsMicrophone,
 } from '@/lib/audioCaptureSource';
+import { shouldStopRecordingOnTranscriptionError } from '@/lib/sttError';
 
 function AudioSourcePicker({
   value,
@@ -115,6 +116,8 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
   const [speechDetected, setSpeechDetected] = useState(false);
   const [deviceError, setDeviceError] = useState<{ title: string, message: string } | null>(null);
   const [qualityOpen, setQualityOpen] = useState(false);
+  const isRecordingRef = useRef(isRecording);
+  isRecordingRef.current = isRecording;
 
   const currentTime = 0;
   const duration = 0;
@@ -353,8 +356,10 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
             return newCount;
           });
           setIsProcessing(false);
-          console.log('Calling onRecordingStop(false) due to transcription error');
-          onRecordingStop(false);
+          if (shouldStopRecordingOnTranscriptionError(isRecordingRef.current)) {
+            console.log('Calling onRecordingStop(false) due to transcription error');
+            onRecordingStop(false);
+          }
 
           // For actionable errors (like model loading failures), the main page will handle showing the model selector
           // For regular errors, they are handled by useModalState global listener which shows a toast

@@ -19,6 +19,7 @@ const LIVE_WS_BASE: &str =
 const SAMPLE_RATE: f64 = 16_000.0;
 const MAX_RECONNECTS: u32 = 5;
 const SETUP_TIMEOUT: Duration = Duration::from_secs(20);
+const STREAM_END_FLUSH: Duration = Duration::from_secs(2);
 
 const KEY_MISSING_MSG: &str =
     "Chưa có API key Gemini. Nhập key ở Cài đặt → Nhận dạng, hoặc key LLM (custom-openai / Gemini).";
@@ -260,6 +261,14 @@ fn audio_message(pcm16: &[u8]) -> Message {
     Message::Text(payload.to_string().into())
 }
 
+fn audio_stream_end_json() -> Value {
+    json!({ "realtimeInput": { "audioStreamEnd": true } })
+}
+
+fn audio_stream_end_message() -> Message {
+    Message::Text(audio_stream_end_json().to_string().into())
+}
+
 fn emit_transcript<R: Runtime>(app: &AppHandle<R>, emit: &mut EmitState, text: String, is_partial: bool) {
     if text.trim().is_empty() {
         return;
@@ -434,7 +443,30 @@ async fn run_session<R: Runtime>(
         tokio::select! {
             chunk = receiver.recv() => {
                 match chunk {
-                    None => return SessionEnd::ReceiverClosed,
+                    None => {
+                        let _ = sink.send(audio_stream_end_message()).await;
+                        let deadline = tokio::time::Instant::now() + STREAM_END_FLUSH;
+                        loop {
+                            let remain = deadline.saturating_duration_since(tokio::time::Instant::now());
+                            if remain.is_zero() {
+                                break;
+                            }
+                            tokio::select! {
+                                _ = tokio::time::sleep(remain) => break,
+                                msg = stream.next() => {
+                                    match msg {
+                                        Some(Ok(m)) => {
+                                            if let Some(value) = message_json(&m) {
+                                                let _ = handle_server_json(app, emit, resumption, &value);
+                                            }
+                                        }
+                                        _ => break,
+                                    }
+                                }
+                            }
+                        }
+                        return SessionEnd::ReceiverClosed;
+                    }
                     Some(c) => {
                         if c.data.is_empty() || c.chunk_id >= u64::MAX - 10 {
                             continue;
@@ -547,5 +579,13 @@ mod tests {
         assert_eq!(classify_http_status(429), Some(SessionEnd::Quota));
         assert_eq!(classify_error_text("429 Too Many Requests"), Some(SessionEnd::Quota));
         assert_eq!(classify_http_status(401), Some(SessionEnd::Auth));
+    }
+
+    #[test]
+    fn gemini_audio_stream_end_payload() {
+        assert_eq!(
+            audio_stream_end_json(),
+            json!({ "realtimeInput": { "audioStreamEnd": true } })
+        );
     }
 }

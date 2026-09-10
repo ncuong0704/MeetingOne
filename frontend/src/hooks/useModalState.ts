@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { toast } from 'sonner';
 import { TranscriptModelProps } from '@/components/TranscriptSettings';
+import { useRecordingState } from '@/contexts/RecordingStateContext';
+import { shouldOpenModelSelectorOnTranscriptionError } from '@/lib/sttError';
 
 export type ModalType =
   | 'modelSettings'
@@ -44,6 +46,10 @@ interface UseModalStateReturn {
  * - Auto-close on model download completion
  */
 export function useModalState(transcriptModelConfig?: TranscriptModelProps): UseModalStateReturn {
+  const { isRecording } = useRecordingState();
+  const isRecordingRef = useRef(isRecording);
+  isRecordingRef.current = isRecording;
+
   // Modal visibility state
   const [modals, setModals] = useState<ModalState>({
     modelSettings: false,
@@ -134,10 +140,17 @@ export function useModalState(transcriptModelConfig?: TranscriptModelProps): Use
         console.log('Setting up transcription-error listener...');
         unlistenFn = await listen<{ error: string, userMessage: string, actionable: boolean }>('transcription-error', (event) => {
           console.log('Transcription error received:', event.payload);
-          const { userMessage, actionable } = event.payload;
+          const { error, userMessage, actionable } = event.payload;
+          const openSelector =
+            actionable &&
+            shouldOpenModelSelectorOnTranscriptionError(
+              isRecordingRef.current,
+              error || '',
+              userMessage || '',
+            );
 
-          if (actionable) {
-            // This is a model-related error that requires user action
+          if (openSelector) {
+            // Local model-related errors that require user action
             showModal('modelSelector', userMessage);
           } else {
             // Show toast instead of modal for non-actionable errors (consistent with sidebar)

@@ -88,8 +88,7 @@ pub fn needs_local_asr(provider: SttProvider) -> bool {
 }
 
 pub fn is_stt_key_error(msg: &str) -> bool {
-    let lower = msg.to_lowercase();
-    lower.contains("api key") || lower.contains("gemini") || lower.contains("key")
+    msg.contains("Chưa có API key Gemini") || msg.to_lowercase().contains("api key")
 }
 
 #[cfg(test)]
@@ -141,9 +140,12 @@ mod tests {
         assert!(is_stt_key_error(
             "Chưa có API key Gemini. Nhập key ở Cài đặt → Nhận dạng, hoặc key LLM (custom-openai / Gemini)."
         ));
+        assert!(is_stt_key_error("API key Gemini không hợp lệ hoặc bị từ chối."));
         assert!(!is_stt_key_error(
             "Recording cannot start: Transcription model is still downloading. Please wait for the download to complete."
         ));
+        assert!(!is_stt_key_error("hotkey assigned"));
+        assert!(!is_stt_key_error("Mất kết nối Gemini Transcribe Live. Kiểm tra mạng rồi ghi lại."));
     }
 
     #[test]
