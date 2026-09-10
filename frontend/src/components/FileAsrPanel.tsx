@@ -245,7 +245,8 @@ export default function FileAsrPanel({ config, disabled = false, onSaved }: File
   return (
     <div className="space-y-3">
       <p className="text-xs text-ink-2">
-        Dùng khi nhập file hoặc nhận dạng lại. ROVER chỉ áp dụng cho luồng file.
+        Dùng khi nhập file hoặc nhận dạng lại.
+        {provider === 'asr' && ' ROVER chỉ áp dụng cho luồng file.'}
       </p>
 
       <GeminiSttFields
