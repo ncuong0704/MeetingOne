@@ -5,6 +5,7 @@
 pub mod asr_provider;
 pub mod engine;
 pub mod gemini_key;
+pub mod gemini_parse;
 pub mod live_speaker;
 pub mod speaker_directory;
 pub mod provider;
