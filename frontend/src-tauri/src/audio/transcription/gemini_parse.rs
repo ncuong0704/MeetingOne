@@ -99,13 +99,42 @@ fn format_hms(seconds: f64) -> String {
 }
 
 pub fn extract_interaction_text(body: &serde_json::Value) -> String {
-    if let Some(t) = body.get("output_text").and_then(|v| v.as_str()) {
+    if let Some(t) = body
+        .get("output_text")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+    {
         return t.to_string();
     }
-    body.pointer("/outputs/0/text")
+    if let Some(t) = body
+        .pointer("/outputs/0/text")
         .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string()
+        .filter(|s| !s.is_empty())
+    {
+        return t.to_string();
+    }
+    text_from_steps(body)
+}
+
+fn text_from_steps(body: &serde_json::Value) -> String {
+    let Some(steps) = body.get("steps").and_then(|v| v.as_array()) else {
+        return String::new();
+    };
+    let mut parts = Vec::new();
+    for step in steps {
+        let Some(content) = step.get("content").and_then(|v| v.as_array()) else {
+            continue;
+        };
+        for part in content {
+            if let Some(t) = part.get("text").and_then(|v| v.as_str()) {
+                let t = t.trim();
+                if !t.is_empty() {
+                    parts.push(t);
+                }
+            }
+        }
+    }
+    parts.join(" ")
 }
 
 #[cfg(test)]
@@ -174,5 +203,40 @@ mod tests {
         assert_eq!(segs[0].id, "seg_0");
         assert_eq!(segs[1].id, "seg_1");
         assert_eq!(segs[1].audio_start_time, Some(1.2));
+    }
+
+    #[test]
+    fn extract_text_from_rest_steps_without_output_text() {
+        let body = serde_json::json!({
+            "id": "interaction-1",
+            "status": "completed",
+            "steps": [
+                {
+                    "content": [
+                        { "type": "text", "text": "Xin chào cuộc họp." }
+                    ]
+                },
+                {
+                    "content": [
+                        { "text": "Phần hai." }
+                    ]
+                }
+            ]
+        });
+        assert_eq!(
+            extract_interaction_text(&body),
+            "Xin chào cuộc họp. Phần hai."
+        );
+    }
+
+    #[test]
+    fn extract_text_prefers_output_text_then_outputs() {
+        let sdk = serde_json::json!({ "output_text": "SDK transcript." });
+        assert_eq!(extract_interaction_text(&sdk), "SDK transcript.");
+
+        let outputs = serde_json::json!({
+            "outputs": [{ "text": "Outputs transcript." }]
+        });
+        assert_eq!(extract_interaction_text(&outputs), "Outputs transcript.");
     }
 }

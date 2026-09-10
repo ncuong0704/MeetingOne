@@ -17,6 +17,15 @@ const PREVIEW_MODEL: &str = "gemini-3.5-transcribe-preview";
 const UPLOAD_START_URL: &str = "https://generativelanguage.googleapis.com/upload/v1beta/files";
 const INTERACTIONS_URL: &str = "https://generativelanguage.googleapis.com/v1beta/interactions";
 const API_REVISION: &str = "2026-05-20";
+const POLL_MAX: usize = 10;
+const POLL_SLEEP: Duration = Duration::from_secs(2);
+
+#[derive(Debug, PartialEq)]
+enum InteractionPoll {
+    Ready,
+    Pending,
+    Failed(String),
+}
 
 pub fn reject_if_too_long(duration_seconds: f64) -> Result<()> {
     if duration_seconds > MAX_DURATION_SECS {
@@ -91,6 +100,7 @@ pub async fn transcribe_file(
     throw_if_cancelled(&is_cancelled, cancel_msg)?;
     let text = extract_interaction_text(&body);
     let timed = timed_from_interaction(&body);
+    require_nonempty_transcript(&text, &timed)?;
     Ok(segments_from_file_output(&text, &timed, duration_seconds))
 }
 
@@ -166,10 +176,7 @@ async fn create_interaction(
     is_cancelled: &impl Fn() -> bool,
     cancel_msg: &str,
 ) -> Result<Value> {
-    let mut transcription_config = json!({ "mode": "smart" });
-    if !vocabulary.is_empty() {
-        transcription_config["custom_vocabulary"] = json!(vocabulary);
-    }
+    let transcription_config = build_transcription_config(vocabulary);
     let mut model = model;
     loop {
         throw_if_cancelled(is_cancelled, cancel_msg)?;
@@ -217,8 +224,110 @@ async fn create_interaction(
                     .unwrap_or("unknown error")
             ));
         }
-        return Ok(body);
+        return settle_interaction(client, api_key, body, is_cancelled, cancel_msg).await;
     }
+}
+
+fn build_transcription_config(vocabulary: &[String]) -> Value {
+    let mut cfg = json!({ "mode": { "type": "smart" } });
+    if !vocabulary.is_empty() {
+        cfg["custom_vocabulary"] = json!(vocabulary);
+    }
+    cfg
+}
+
+fn classify_interaction(body: &Value) -> InteractionPoll {
+    match body.get("status").and_then(|v| v.as_str()) {
+        Some(status @ ("failed" | "incomplete" | "budget_exceeded")) => {
+            InteractionPoll::Failed(format!(
+                "Gemini Transcribe không hoàn tất (status={status})."
+            ))
+        }
+        Some("in_progress" | "queued") => InteractionPoll::Pending,
+        _ => InteractionPoll::Ready,
+    }
+}
+
+fn interaction_id(body: &Value) -> Option<String> {
+    if let Some(id) = body
+        .get("id")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+    {
+        return Some(id.to_string());
+    }
+    body.get("name")
+        .and_then(|v| v.as_str())
+        .and_then(|name| name.rsplit('/').next())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+}
+
+fn require_nonempty_transcript(text: &str, timed: &[(String, f64, f64)]) -> Result<()> {
+    if text.trim().is_empty() && timed.is_empty() {
+        Err(anyhow!(
+            "Gemini Transcribe trả về transcript rỗng. Không lưu kết quả trống."
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+async fn settle_interaction(
+    client: &Client,
+    api_key: &str,
+    mut body: Value,
+    is_cancelled: &impl Fn() -> bool,
+    cancel_msg: &str,
+) -> Result<Value> {
+    for attempt in 0..POLL_MAX {
+        throw_if_cancelled(is_cancelled, cancel_msg)?;
+        match classify_interaction(&body) {
+            InteractionPoll::Failed(msg) => return Err(anyhow!("{msg}")),
+            InteractionPoll::Ready => return Ok(body),
+            InteractionPoll::Pending => {
+                if attempt + 1 == POLL_MAX {
+                    break;
+                }
+                let id = interaction_id(&body).ok_or_else(|| {
+                    anyhow!("Gemini Transcribe đang xử lý nhưng thiếu interaction id.")
+                })?;
+                tokio::time::sleep(POLL_SLEEP).await;
+                throw_if_cancelled(is_cancelled, cancel_msg)?;
+                body = get_interaction(client, api_key, &id).await?;
+            }
+        }
+    }
+    Err(anyhow!(
+        "Gemini Transcribe vẫn đang xử lý sau khi chờ. Thử lại sau."
+    ))
+}
+
+async fn get_interaction(client: &Client, api_key: &str, id: &str) -> Result<Value> {
+    let url = format!("{INTERACTIONS_URL}/{id}");
+    let resp = client
+        .get(&url)
+        .header("x-goog-api-key", api_key)
+        .header("Api-Revision", API_REVISION)
+        .send()
+        .await
+        .context("Gemini interactions.get failed")?;
+    if !resp.status().is_success() {
+        return Err(http_error("interactions.get", resp).await);
+    }
+    let body: Value = resp
+        .json()
+        .await
+        .context("Gemini interaction GET was not JSON")?;
+    if let Some(err) = body.get("error") {
+        return Err(anyhow!(
+            "Gemini Transcribe lỗi: {}",
+            err.get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("unknown error")
+        ));
+    }
+    Ok(body)
 }
 
 fn timed_from_interaction(body: &Value) -> Vec<(String, f64, f64)> {
@@ -325,6 +434,64 @@ mod tests {
                 .unwrap_err()
                 .to_string(),
             "Retranscription cancelled"
+        );
+    }
+
+    #[test]
+    fn transcription_config_mode_is_discriminated_union() {
+        let cfg = build_transcription_config(&[]);
+        assert_eq!(cfg["mode"], json!({ "type": "smart" }));
+        assert!(cfg.get("custom_vocabulary").is_none());
+
+        let with_vocab = build_transcription_config(&["Meetily".into()]);
+        assert_eq!(with_vocab["mode"]["type"], "smart");
+        assert_eq!(with_vocab["custom_vocabulary"], json!(["Meetily"]));
+    }
+
+    #[test]
+    fn classify_failed_pending_and_sdk_missing_status() {
+        for status in ["failed", "incomplete", "budget_exceeded"] {
+            match classify_interaction(&json!({ "status": status })) {
+                InteractionPoll::Failed(msg) => assert!(msg.contains(status)),
+                other => panic!("expected Failed for {status}, got {other:?}"),
+            }
+        }
+        assert_eq!(
+            classify_interaction(&json!({ "status": "in_progress" })),
+            InteractionPoll::Pending
+        );
+        assert_eq!(
+            classify_interaction(&json!({ "status": "queued" })),
+            InteractionPoll::Pending
+        );
+        assert_eq!(
+            classify_interaction(&json!({ "status": "completed" })),
+            InteractionPoll::Ready
+        );
+        assert_eq!(
+            classify_interaction(&json!({ "output_text": "SDK transcript" })),
+            InteractionPoll::Ready
+        );
+    }
+
+    #[test]
+    fn empty_transcript_is_err_text_or_timed_is_ok() {
+        let err = require_nonempty_transcript("", &[]).unwrap_err().to_string();
+        assert!(err.contains("rỗng"));
+        assert!(require_nonempty_transcript("   ", &[]).is_err());
+        assert!(require_nonempty_transcript("Xin chào.", &[]).is_ok());
+        assert!(require_nonempty_transcript("", &[("A".into(), 0.0, 1.0)]).is_ok());
+    }
+
+    #[test]
+    fn interaction_id_from_id_or_name() {
+        assert_eq!(
+            interaction_id(&json!({ "id": "abc" })).as_deref(),
+            Some("abc")
+        );
+        assert_eq!(
+            interaction_id(&json!({ "name": "interactions/xyz" })).as_deref(),
+            Some("xyz")
         );
     }
 }
