@@ -29,6 +29,16 @@ test('gipformer 65M full is a heavier warning than int8', () => {
   assert.match(combined(full), /335/);
 });
 
+test('NghiASR notices differ between int8 and full', () => {
+  const int8 = asrVariantNotice('nghi-asr', 'int8', 'file');
+  const full = asrVariantNotice('nghi-asr', 'full', 'file');
+  assert.ok(int8?.description);
+  assert.ok(full?.description);
+  assert.notEqual(combined(int8), combined(full));
+  assert.match(combined(int8), /73/);
+  assert.match(combined(full), /271/);
+});
+
 test('streaming and sherpa 2025 only describe the full variant', () => {
   const streaming = asrVariantNotice('zipformer-vi-30m-streaming', 'int8', 'live');
   const sherpa = asrVariantNotice('sherpa-onnx-zipformer-vi-2025-04-20', 'int8', 'file');

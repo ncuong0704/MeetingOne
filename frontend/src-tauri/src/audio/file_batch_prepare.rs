@@ -3,7 +3,7 @@
 
 use crate::audio::audio_processing::{HighPassFilter, LoudnessNormalizer};
 use crate::audio::vad::SpeechSegment;
-use log::{info, warn};
+use log::{debug, info, warn};
 use std::time::Instant;
 
 const SAMPLE_RATE: usize = 16000;
@@ -111,7 +111,7 @@ pub fn boost_audio_for_vad(samples: &[f32]) -> Vec<f32> {
         let peak = window.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
         if peak > 1e-6 && peak < VAD_BOOST_TARGET_PEAK {
             let scale = VAD_BOOST_TARGET_PEAK / peak;
-            info!(
+            debug!(
                 "[FileBatch] VAD boost: window peak {:.4} -> {:.3}",
                 peak, VAD_BOOST_TARGET_PEAK
             );

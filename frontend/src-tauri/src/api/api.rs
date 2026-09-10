@@ -13,7 +13,10 @@ use crate::{
     },
     report_export,
     state::AppState,
-    summary::CustomOpenAIConfig,
+    summary::{
+        llm_client::{chat_completions_url, extract_completion_text, looks_openai_compatible},
+        CustomOpenAIConfig,
+    },
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -338,7 +341,7 @@ pub async fn api_get_model_config<R: Runtime>(
             let (provider, model) = match config.provider.as_str() {
                 "ollama" | "groq" => (
                     "custom-openai".to_string(),
-                    "gemini-3.1-flash-lite".to_string(),
+                    "gemini-3.6-flash".to_string(),
                 ),
                 _ => (config.provider.clone(), config.model.clone()),
             };
@@ -1560,10 +1563,10 @@ pub async fn api_test_custom_openai_connection<R: Runtime>(
         return Err("Endpoint must start with http:// or https://".to_string());
     }
 
-    // Build the URL - append /chat/completions to the base endpoint
-    let url = format!("{}/chat/completions", endpoint.trim_end_matches('/'));
+    // Gemini native REST is reachable but not OpenAI-shaped; rewrite to /v1beta/openai.
+    let url = chat_completions_url(&endpoint);
 
-    // Create a minimal test request
+    // Gemini 3 thinking models spend a tiny max_tokens budget on thoughts, leaving content empty.
     let test_request = serde_json::json!({
         "model": model,
         "messages": [
@@ -1572,7 +1575,8 @@ pub async fn api_test_custom_openai_connection<R: Runtime>(
                 "content": "Hi"
             }
         ],
-        "max_tokens": 5
+        "max_tokens": 64,
+        "reasoning_effort": "low"
     });
 
     let client = reqwest::Client::builder()
@@ -1599,37 +1603,19 @@ pub async fn api_test_custom_openai_connection<R: Runtime>(
                 // Parse response as JSON to verify it's a valid OpenAI-compatible response
                 match serde_json::from_str::<serde_json::Value>(&response_text) {
                     Ok(json) => {
-                        // Verify the response has the expected OpenAI structure
-                        if let Some(choices) = json.get("choices") {
-                            if let Some(choices_array) = choices.as_array() {
-                                if !choices_array.is_empty() {
-                                    // Verify the first choice has the required message structure
-                                    if let Some(first_choice) = choices_array.get(0) {
-                                        // Check if message.content field exists (can be empty string)
-                                        let has_message_structure = first_choice
-                                            .get("message")
-                                            .and_then(|m| {
-                                                m.get("content")
-                                                .or_else(|| m.get("reasoning_content"))
-                                            })
-                                            .is_some();
-
-                                        if has_message_structure {
-                                            log_info!("✅ Custom OpenAI connection test successful - response validated");
-                                            return Ok(serde_json::json!({
-                                                "status": "success",
-                                                "message": "Connection successful and response validated",
-                                                "http_status": status.as_u16()
-                                            }));
-                                        }
-                                    }
-                                }
-                            }
+                        if looks_openai_compatible(&json) || extract_completion_text(&json).is_some()
+                        {
+                            log_info!("✅ Custom OpenAI connection test successful - response validated");
+                            return Ok(serde_json::json!({
+                                "status": "success",
+                                "message": "Connection successful and response validated",
+                                "http_status": status.as_u16()
+                            }));
                         }
 
                         // Response was 200 but doesn't match OpenAI format
                         log_warn!("⚠️ Endpoint returned 200 but response doesn't match OpenAI format: {}", response_text);
-                        Err("Endpoint is reachable but doesn't appear to be OpenAI-compatible. Response is missing 'choices' array or 'message.content' / 'message.reasoning_content' field.".to_string())
+                        Err(openai_compat_error(&json))
                     }
                     Err(e) => {
                         log_warn!("⚠️ Endpoint returned 200 but response is not valid JSON: {}", e);
@@ -1652,6 +1638,20 @@ pub async fn api_test_custom_openai_connection<R: Runtime>(
             }
         }
     }
+}
+
+fn openai_compat_error(json: &serde_json::Value) -> String {
+    if json.get("candidates").is_some() {
+        return "Endpoint is reachable but returned Gemini native JSON (candidates), not OpenAI chat completions. Use https://generativelanguage.googleapis.com/v1beta/openai".to_string();
+    }
+    let keys = json
+        .as_object()
+        .map(|o| o.keys().cloned().collect::<Vec<_>>().join(", "))
+        .unwrap_or_default();
+    format!(
+        "Endpoint is reachable but doesn't appear to be OpenAI-compatible. Response is missing 'choices' array or 'message.content' / 'message.reasoning_content' field. Top-level keys: {}",
+        keys
+    )
 }
 
 // ===== PROMPT SETTINGS COMMANDS =====

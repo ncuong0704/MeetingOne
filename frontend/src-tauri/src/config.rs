@@ -67,6 +67,26 @@ pub const SHERPA_VI_2025_SIZE_BYTES: u64 = 261_000_000;
 pub const SHERPA_VI_2025_BPE: &str = "bpe.model";
 pub const SHERPA_VI_2025_TOKENS: &str = "tokens.txt";
 
+/// NghiMe/NghiASR — Vietnamese Zipformer (exp7 epoch-4-avg-4, INT8 + full)
+pub const NGHI_ASR_MODEL_NAME: &str = "nghi-asr";
+
+pub const NGHI_ASR_HF_URL: &str = "https://huggingface.co/NghiMe/NghiASR/resolve/main";
+
+pub const NGHI_ASR_INT8_SUBDIR: &str = "nghi-asr-int8";
+pub const NGHI_ASR_INT8_ENCODER: &str = "encoder-epoch-4-avg-4.int8.onnx";
+pub const NGHI_ASR_INT8_DECODER: &str = "decoder-epoch-4-avg-4.int8.onnx";
+pub const NGHI_ASR_INT8_JOINER: &str = "joiner-epoch-4-avg-4.int8.onnx";
+pub const NGHI_ASR_INT8_SIZE_BYTES: u64 = 71_000_000;
+
+pub const NGHI_ASR_FULL_SUBDIR: &str = "nghi-asr-full";
+pub const NGHI_ASR_FULL_ENCODER: &str = "encoder-epoch-4-avg-4.onnx";
+pub const NGHI_ASR_FULL_DECODER: &str = "decoder-epoch-4-avg-4.onnx";
+pub const NGHI_ASR_FULL_JOINER: &str = "joiner-epoch-4-avg-4.onnx";
+pub const NGHI_ASR_FULL_SIZE_BYTES: u64 = 261_000_000;
+
+pub const NGHI_ASR_BPE: &str = "bpe.model";
+pub const NGHI_ASR_TOKENS: &str = "tokens.txt";
+
 /// Live streaming ZipFormer (chunk-64) — test ASR OnlineRecognizer path
 pub const ZIPFORMER_STREAMING_MODEL_NAME: &str = "zipformer-vi-30m-streaming";
 pub const ZIPFORMER_STREAMING_HF_URL: &str =

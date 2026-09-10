@@ -17,12 +17,15 @@ export const GIPFORMER_MODEL_ID = 'gipformer-65m-rnnt';
 /** Internal model id for Sherpa-ONNX Zipformer VI 2025 (matches Rust SHERPA_VI_2025_MODEL_NAME). */
 export const SHERPA_VI_2025_MODEL_ID = 'sherpa-onnx-zipformer-vi-2025-04-20';
 
+/** Internal model id for NghiMe/NghiASR (matches Rust NGHI_ASR_MODEL_NAME). */
+export const NGHI_ASR_MODEL_ID = 'nghi-asr';
+
 /** Default Custom OpenAI-compatible endpoint (Google Gemini OpenAI API). */
 export const DEFAULT_CUSTOM_OPENAI_ENDPOINT =
   'https://generativelanguage.googleapis.com/v1beta/openai';
 
 /** Default model for Custom OpenAI summary provider. */
-export const DEFAULT_CUSTOM_OPENAI_MODEL = 'gemini-3.1-flash-lite';
+export const DEFAULT_CUSTOM_OPENAI_MODEL = 'gemini-3.6-flash';
 
 export function createDefaultSummaryModelConfig(): ModelConfig {
   return {

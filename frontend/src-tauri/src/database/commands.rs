@@ -194,7 +194,7 @@ pub async fn initialize_fresh_database(app: AppHandle) -> Result<(), String> {
     if let Err(e) = crate::database::repositories::setting::SettingsRepository::save_model_config(
         pool,
         "custom-openai",
-        "gemini-3.1-flash-lite",
+        "gemini-3.6-flash",
         None,
     ).await {
         error!("Failed to set default summary model config: {}", e);
@@ -203,7 +203,7 @@ pub async fn initialize_fresh_database(app: AppHandle) -> Result<(), String> {
     let custom_openai = crate::summary::CustomOpenAIConfig {
         endpoint: "https://generativelanguage.googleapis.com/v1beta/openai".to_string(),
         api_key: None,
-        model: "gemini-3.1-flash-lite".to_string(),
+        model: "gemini-3.6-flash".to_string(),
         max_tokens: None,
         temperature: None,
         top_p: None,

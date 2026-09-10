@@ -7,6 +7,7 @@ pub enum ModelFamily {
     Gipformer65M,
     SherpaZipformerVi2025,
     ZipFormer30MStreaming,
+    NghiAsr,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -23,6 +24,7 @@ impl ModelFamily {
             crate::config::GIPFORMER_MODEL_NAME => ModelFamily::Gipformer65M,
             crate::config::SHERPA_VI_2025_MODEL_NAME => ModelFamily::SherpaZipformerVi2025,
             crate::config::ZIPFORMER_STREAMING_MODEL_NAME => ModelFamily::ZipFormer30MStreaming,
+            crate::config::NGHI_ASR_MODEL_NAME => ModelFamily::NghiAsr,
             _ => ModelFamily::ZipFormer30M,
         }
     }
@@ -37,6 +39,7 @@ impl ModelFamily {
             ModelFamily::Gipformer65M => crate::config::GIPFORMER_MODEL_NAME,
             ModelFamily::SherpaZipformerVi2025 => crate::config::SHERPA_VI_2025_MODEL_NAME,
             ModelFamily::ZipFormer30MStreaming => crate::config::ZIPFORMER_STREAMING_MODEL_NAME,
+            ModelFamily::NghiAsr => crate::config::NGHI_ASR_MODEL_NAME,
         }
     }
 
@@ -46,6 +49,7 @@ impl ModelFamily {
             ModelFamily::Gipformer65M => "Gipformer 65M",
             ModelFamily::SherpaZipformerVi2025 => "Sherpa-ONNX Zipformer VI (2025)",
             ModelFamily::ZipFormer30MStreaming => "ZipFormer 30M Streaming",
+            ModelFamily::NghiAsr => "NghiASR",
         }
     }
 
@@ -58,6 +62,7 @@ impl ModelFamily {
             ModelFamily::Gipformer65M => &[ModelVariant::Int8, ModelVariant::Full],
             ModelFamily::SherpaZipformerVi2025 => &[ModelVariant::Full],
             ModelFamily::ZipFormer30MStreaming => &[ModelVariant::Full],
+            ModelFamily::NghiAsr => &[ModelVariant::Int8, ModelVariant::Full],
         }
     }
 
@@ -79,6 +84,8 @@ impl ModelFamily {
             (ModelFamily::Gipformer65M, ModelVariant::Full) => crate::config::GIPFORMER_FULL_SUBDIR,
             (ModelFamily::SherpaZipformerVi2025, _) => crate::config::SHERPA_VI_2025_SUBDIR,
             (ModelFamily::ZipFormer30MStreaming, _) => crate::config::ZIPFORMER_STREAMING_SUBDIR,
+            (ModelFamily::NghiAsr, ModelVariant::Int8) => crate::config::NGHI_ASR_INT8_SUBDIR,
+            (ModelFamily::NghiAsr, ModelVariant::Full) => crate::config::NGHI_ASR_FULL_SUBDIR,
         }
     }
 
@@ -91,6 +98,7 @@ impl ModelFamily {
             (ModelFamily::Gipformer65M, ModelVariant::Full) => crate::config::GIPFORMER_FULL_HF_URL,
             (ModelFamily::SherpaZipformerVi2025, _) => crate::config::SHERPA_VI_2025_HF_URL,
             (ModelFamily::ZipFormer30MStreaming, _) => crate::config::ZIPFORMER_STREAMING_HF_URL,
+            (ModelFamily::NghiAsr, _) => crate::config::NGHI_ASR_HF_URL,
         }
     }
 
@@ -103,6 +111,8 @@ impl ModelFamily {
             (ModelFamily::Gipformer65M, ModelVariant::Full) => crate::config::GIPFORMER_FULL_ENCODER,
             (ModelFamily::SherpaZipformerVi2025, _) => crate::config::SHERPA_VI_2025_ENCODER,
             (ModelFamily::ZipFormer30MStreaming, _) => crate::config::ZIPFORMER_STREAMING_ENCODER,
+            (ModelFamily::NghiAsr, ModelVariant::Int8) => crate::config::NGHI_ASR_INT8_ENCODER,
+            (ModelFamily::NghiAsr, ModelVariant::Full) => crate::config::NGHI_ASR_FULL_ENCODER,
         }
     }
 
@@ -115,6 +125,8 @@ impl ModelFamily {
             (ModelFamily::Gipformer65M, ModelVariant::Full) => crate::config::GIPFORMER_FULL_DECODER,
             (ModelFamily::SherpaZipformerVi2025, _) => crate::config::SHERPA_VI_2025_DECODER,
             (ModelFamily::ZipFormer30MStreaming, _) => crate::config::ZIPFORMER_STREAMING_DECODER,
+            (ModelFamily::NghiAsr, ModelVariant::Int8) => crate::config::NGHI_ASR_INT8_DECODER,
+            (ModelFamily::NghiAsr, ModelVariant::Full) => crate::config::NGHI_ASR_FULL_DECODER,
         }
     }
 
@@ -127,6 +139,8 @@ impl ModelFamily {
             (ModelFamily::Gipformer65M, ModelVariant::Full) => crate::config::GIPFORMER_FULL_JOINER,
             (ModelFamily::SherpaZipformerVi2025, _) => crate::config::SHERPA_VI_2025_JOINER,
             (ModelFamily::ZipFormer30MStreaming, _) => crate::config::ZIPFORMER_STREAMING_JOINER,
+            (ModelFamily::NghiAsr, ModelVariant::Int8) => crate::config::NGHI_ASR_INT8_JOINER,
+            (ModelFamily::NghiAsr, ModelVariant::Full) => crate::config::NGHI_ASR_FULL_JOINER,
         }
     }
 
@@ -136,6 +150,7 @@ impl ModelFamily {
             ModelFamily::Gipformer65M => crate::config::GIPFORMER_BPE,
             ModelFamily::SherpaZipformerVi2025 => crate::config::SHERPA_VI_2025_BPE,
             ModelFamily::ZipFormer30MStreaming => crate::config::ZIPFORMER_STREAMING_BPE,
+            ModelFamily::NghiAsr => crate::config::NGHI_ASR_BPE,
         }
     }
 
@@ -145,6 +160,7 @@ impl ModelFamily {
             ModelFamily::Gipformer65M => crate::config::GIPFORMER_TOKENS,
             ModelFamily::SherpaZipformerVi2025 => crate::config::SHERPA_VI_2025_TOKENS,
             ModelFamily::ZipFormer30MStreaming => crate::config::ZIPFORMER_STREAMING_TOKENS,
+            ModelFamily::NghiAsr => crate::config::NGHI_ASR_TOKENS,
         }
     }
 
@@ -157,6 +173,8 @@ impl ModelFamily {
             (ModelFamily::Gipformer65M, ModelVariant::Full) => crate::config::GIPFORMER_FULL_SIZE_BYTES,
             (ModelFamily::SherpaZipformerVi2025, _) => crate::config::SHERPA_VI_2025_SIZE_BYTES,
             (ModelFamily::ZipFormer30MStreaming, _) => crate::config::ZIPFORMER_STREAMING_SIZE_BYTES,
+            (ModelFamily::NghiAsr, ModelVariant::Int8) => crate::config::NGHI_ASR_INT8_SIZE_BYTES,
+            (ModelFamily::NghiAsr, ModelVariant::Full) => crate::config::NGHI_ASR_FULL_SIZE_BYTES,
         }
     }
 
@@ -310,6 +328,40 @@ mod tests {
         assert_ne!(
             ModelFamily::from_id("zipformer-vi-30m-streaming"),
             ModelFamily::ZipFormer30M
+        );
+    }
+
+    #[test]
+    fn nghi_asr_int8_and_full_files_subdir_and_from_id() {
+        let family = ModelFamily::NghiAsr;
+        assert_eq!(ModelFamily::from_id("nghi-asr"), family);
+        assert_eq!(family.id(), "nghi-asr");
+        assert!(!family.is_online_streaming());
+        assert_eq!(
+            family.available_variants(),
+            &[ModelVariant::Int8, ModelVariant::Full]
+        );
+        assert_eq!(
+            family.variant_subdir(ModelVariant::Int8),
+            "nghi-asr-int8"
+        );
+        assert_eq!(
+            family.variant_subdir(ModelVariant::Full),
+            "nghi-asr-full"
+        );
+        let int8 = family.model_files(ModelVariant::Int8);
+        assert_eq!(int8[0], "encoder-epoch-4-avg-4.int8.onnx");
+        assert_eq!(int8[1], "decoder-epoch-4-avg-4.int8.onnx");
+        assert_eq!(int8[2], "joiner-epoch-4-avg-4.int8.onnx");
+        assert_eq!(int8[3], "bpe.model");
+        assert_eq!(int8[4], "tokens.txt");
+        let full = family.model_files(ModelVariant::Full);
+        assert_eq!(full[0], "encoder-epoch-4-avg-4.onnx");
+        assert_eq!(full[1], "decoder-epoch-4-avg-4.onnx");
+        assert_eq!(full[2], "joiner-epoch-4-avg-4.onnx");
+        assert_eq!(
+            family.hf_url(ModelVariant::Int8),
+            "https://huggingface.co/NghiMe/NghiASR/resolve/main"
         );
     }
 }

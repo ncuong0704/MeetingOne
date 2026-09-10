@@ -22,6 +22,14 @@ import {
   DEFAULT_CUSTOM_OPENAI_MODEL,
 } from '@/constants/modelDefaults';
 
+const GEMINI_API_KEY_URL = 'https://aistudio.google.com/apikey';
+
+function openGeminiApiKeyPage() {
+  void invoke('open_external_url', { url: GEMINI_API_KEY_URL }).catch(() => {
+    window.open(GEMINI_API_KEY_URL, '_blank', 'noopener,noreferrer');
+  });
+}
+
 export interface ModelConfig {
   provider: 'claude' | 'openai' | 'openrouter' | 'custom-openai';
   model: string;
@@ -837,6 +845,22 @@ export const ModelSettingsModal = forwardRef<ModelSettingsModalRef, ModelSetting
                 placeholder="Để trống nếu không bắt buộc"
                 className="mt-1"
               />
+              <p className="mt-2 text-xs font-medium text-ink">Cách lấy API key Gemini</p>
+              <ol className="mt-1 list-decimal space-y-0.5 pl-4 text-xs text-ink-2">
+                <li>
+                  Mở{' '}
+                  <button
+                    type="button"
+                    onClick={openGeminiApiKeyPage}
+                    className="underline hover:text-ink"
+                  >
+                    Google AI Studio
+                  </button>
+                  {' '}và đăng nhập tài khoản Google.
+                </li>
+                <li>Bấm Create API key, chọn hoặc tạo Google Cloud project.</li>
+                <li>Sao chép key vừa tạo, dán vào ô phía trên, rồi bấm Lưu.</li>
+              </ol>
             </div>
 
             {/* Advanced Options (Collapsible) */}

@@ -492,11 +492,25 @@ async fn run_import<R: Runtime>(
     });
 
     let path_for_decode = source.clone();
-    let (audio_samples, duration_seconds) = tokio::task::spawn_blocking(move || {
-        load_audio_for_file_pipeline(&path_for_decode, Some(decode_progress))
+    let meeting_folder_for_persist = meeting_folder.clone();
+    let (audio_samples, duration_seconds, dest_filename) = match tokio::task::spawn_blocking(move || {
+        let (samples, duration) =
+            load_audio_for_file_pipeline(&path_for_decode, Some(decode_progress))?;
+        let dest = persist_imported_playback_audio(&meeting_folder_for_persist, &samples)?;
+        Ok::<_, anyhow::Error>((samples, duration, dest))
     })
     .await
-    .map_err(|e| anyhow!("Decode task join error: {}", e))??;
+    {
+        Ok(Ok(v)) => v,
+        Ok(Err(e)) => {
+            let _ = std::fs::remove_dir_all(&meeting_folder);
+            return Err(e);
+        }
+        Err(e) => {
+            let _ = std::fs::remove_dir_all(&meeting_folder);
+            return Err(anyhow!("Decode task join error: {}", e));
+        }
+    };
 
     info!(
         "Loaded audio for pipeline: {:.2}s, {} samples @ 16kHz mono",
@@ -510,18 +524,6 @@ async fn run_import<R: Runtime>(
         let _ = std::fs::remove_dir_all(&meeting_folder);
         return Err(anyhow!("Import cancelled"));
     }
-
-    // Persist only the playback audio: the 16 kHz PCM WAV ASR decoded. Playback and
-    // transcript timestamps stay in sync because the player uses this same decode
-    // (ffmpeg vs the browser's native decoder can disagree on MP3 frame timing).
-    // Do not also copy the original source file into the meeting folder.
-    let dest_filename = match persist_imported_playback_audio(&meeting_folder, &audio_samples) {
-        Ok(name) => name,
-        Err(e) => {
-            let _ = std::fs::remove_dir_all(&meeting_folder);
-            return Err(e);
-        }
-    };
 
     let file_provider = {
         let app_state = app

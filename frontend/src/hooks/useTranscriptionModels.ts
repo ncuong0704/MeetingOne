@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
   GIPFORMER_MODEL_ID,
+  NGHI_ASR_MODEL_ID,
   SHERPA_VI_2025_MODEL_ID,
   ZIPFORMER_MODEL_ID,
 } from '@/constants/modelDefaults';
@@ -36,6 +37,12 @@ const ASR_MODEL_OPTIONS: ModelOption[] = [
     name: GIPFORMER_MODEL_ID,
     displayName: '🇻🇳 Gipformer 65M Vietnamese ASR (~65 MB)',
     size_mb: 65,
+  },
+  {
+    provider: 'asr',
+    name: NGHI_ASR_MODEL_ID,
+    displayName: '🇻🇳 NghiASR Vietnamese Zipformer (~73 MB)',
+    size_mb: 73,
   },
   {
     provider: 'asr',

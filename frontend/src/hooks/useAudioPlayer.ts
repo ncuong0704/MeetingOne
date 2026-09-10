@@ -39,14 +39,21 @@ export const useAudioPlayer = (
 
         let url = convertFileSrc(filePath);
         if (prefersBlobPlayback(filePath)) {
-          const bytes = await invoke<number[]>('read_meeting_audio_file', {
-            folderPath: meetingFolderPath,
-          });
-          if (cancelled) return;
-          objectUrl = URL.createObjectURL(
-            new Blob([new Uint8Array(bytes)], { type: audioMimeType(filePath) }),
-          );
-          url = objectUrl;
+          try {
+            const bytes = await invoke<number[]>('read_meeting_audio_file', {
+              folderPath: meetingFolderPath,
+            });
+            if (cancelled) return;
+            objectUrl = URL.createObjectURL(
+              new Blob([new Uint8Array(bytes)], { type: audioMimeType(filePath) }),
+            );
+            url = objectUrl;
+          } catch (blobErr) {
+            const blobMsg = blobErr instanceof Error ? blobErr.message : String(blobErr);
+            if (!blobMsg.includes('FILE_TOO_LARGE_FOR_BLOB')) {
+              throw blobErr;
+            }
+          }
         }
 
         if (cancelled) {

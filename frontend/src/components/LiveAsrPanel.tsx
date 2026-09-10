@@ -1,9 +1,9 @@
 'use client';
 
 import { listen } from '@tauri-apps/api/event';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { SpeakerHotkeyDialog } from '@/components/SpeakerHotkeyDialog';
-import GeminiSttFields from '@/components/GeminiSttFields';
+import GeminiSttFields, { GeminiSttFieldsHandle } from '@/components/GeminiSttFields';
 import {
   ASR_MODELS,
   AsrAPI,
@@ -60,6 +60,7 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [hotkeyOpen, setHotkeyOpen] = useState(false);
+  const geminiFieldsRef = useRef<GeminiSttFieldsHandle>(null);
 
   const selectedModelInfo = ASR_MODELS.find((m) => m.id === selectedFamily);
   const effectiveVariant = resolveVariantForFamily(selectedFamily, selectedVariant);
@@ -148,6 +149,9 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
       provider,
     };
     try {
+      if (provider === 'gemini') {
+        await geminiFieldsRef.current?.saveKeyIfPresent();
+      }
       await TranscriptConfigAPI.saveLive(payload);
       if (provider === 'gemini') {
         setSaveMessage('Đã lưu Gemini cho ghi trực tiếp');
@@ -199,6 +203,7 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
       <SpeakerHotkeyDialog open={hotkeyOpen} onOpenChange={setHotkeyOpen} />
 
       <GeminiSttFields
+        ref={geminiFieldsRef}
         provider={provider}
         onProviderChange={setProvider}
         disabled={disabled}

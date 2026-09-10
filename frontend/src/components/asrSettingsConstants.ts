@@ -22,7 +22,8 @@ export function parseAsrFamily(id: string | undefined | null): AsrModelFamily {
     id === 'zipformer-vi-30m' ||
     id === 'gipformer-65m-rnnt' ||
     id === 'sherpa-onnx-zipformer-vi-2025-04-20' ||
-    id === 'zipformer-vi-30m-streaming'
+    id === 'zipformer-vi-30m-streaming' ||
+    id === 'nghi-asr'
   ) {
     return id;
   }

@@ -9,6 +9,7 @@ import {
   isMissingAudioInvokeError,
   mediaSrcAllowsBlobPlayback,
   prefersBlobPlayback,
+  shouldUseBlobPlayback,
 } from './meetingAudioPlayback.ts';
 
 test('imported 16 kHz WAV must load as a blob, live mp4 stays on convertFileSrc', () => {
@@ -16,6 +17,12 @@ test('imported 16 kHz WAV must load as a blob, live mp4 stays on convertFileSrc'
   assert.equal(prefersBlobPlayback('/tmp/meeting/AUDIO.WAV'), true);
   assert.equal(prefersBlobPlayback('C:\\Meetings\\foo\\audio.mp4'), false);
   assert.equal(prefersBlobPlayback('/tmp/meeting/audio.m4a'), false);
+});
+
+test('long WAV skips blob so the player does not load hundreds of MB into JS', () => {
+  assert.equal(shouldUseBlobPlayback('C:\\Meetings\\foo\\audio.wav', 8 * 1024 * 1024), true);
+  assert.equal(shouldUseBlobPlayback('C:\\Meetings\\foo\\audio.wav', 33 * 1024 * 1024), false);
+  assert.equal(shouldUseBlobPlayback('C:\\Meetings\\foo\\audio.mp4', 8 * 1024 * 1024), false);
 });
 
 test('audioMimeType matches the file extension', () => {

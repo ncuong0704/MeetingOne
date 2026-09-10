@@ -10,7 +10,8 @@ export type AsrModelFamily =
   | 'zipformer-vi-30m'
   | 'gipformer-65m-rnnt'
   | 'sherpa-onnx-zipformer-vi-2025-04-20'
-  | 'zipformer-vi-30m-streaming';
+  | 'zipformer-vi-30m-streaming'
+  | 'nghi-asr';
 export type ModelVariant = 'int8' | 'full';
 export type DecodingMethod = 'greedy_search' | 'modified_beam_search';
 export type AsrPathKind = 'live' | 'file';
@@ -144,6 +145,33 @@ export const ASR_MODELS: AsrModelInfo[] = [
       },
       full: {
         description: 'Bản full (~335 MB): chính xác nhất nhưng rất nặng.',
+        warning: 'Không khuyến nghị khi ghi âm liên tục — dễ tụt transcript.',
+      },
+    },
+  },
+  {
+    id: 'nghi-asr',
+    label: 'NghiASR',
+    hfRepo: 'NghiMe/NghiASR',
+    int8Size: '~73 MB',
+    fullSize: '~271 MB',
+    description: 'Tiếng Việt đời thường và code-switch Anh–Việt',
+    availableVariants: ['int8', 'full'],
+    variants: {
+      int8: {
+        description: 'Bản int8 (~73 MB): Zipformer VietCasual, WER 8.22%.',
+      },
+      full: {
+        description: 'Bản full (~271 MB): cùng checkpoint, chưa lượng tử.',
+      },
+    },
+    liveVariants: {
+      int8: {
+        description: 'Bản int8 (~73 MB): Zipformer VietCasual, WER 8.22%.',
+        warning: 'Nặng hơn 30M; cuộc họp dài có thể tụt transcript real-time.',
+      },
+      full: {
+        description: 'Bản full (~271 MB): cùng checkpoint, chưa lượng tử.',
         warning: 'Không khuyến nghị khi ghi âm liên tục — dễ tụt transcript.',
       },
     },

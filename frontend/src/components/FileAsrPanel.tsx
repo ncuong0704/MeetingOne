@@ -1,8 +1,8 @@
 'use client';
 
 import { listen } from '@tauri-apps/api/event';
-import { useCallback, useEffect, useState } from 'react';
-import GeminiSttFields from '@/components/GeminiSttFields';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import GeminiSttFields, { GeminiSttFieldsHandle } from '@/components/GeminiSttFields';
 import {
   ASR_MODELS,
   AsrAPI,
@@ -72,6 +72,7 @@ export default function FileAsrPanel({ config, disabled = false, onSaved }: File
   });
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const geminiFieldsRef = useRef<GeminiSttFieldsHandle>(null);
 
   const selectedModelInfo = ASR_MODELS.find((m) => m.id === selectedFamily);
   const roverModelBInfo = ASR_MODELS.find((m) => m.id === roverFamilyB);
@@ -202,6 +203,9 @@ export default function FileAsrPanel({ config, disabled = false, onSaved }: File
       provider,
     };
     try {
+      if (provider === 'gemini') {
+        await geminiFieldsRef.current?.saveKeyIfPresent();
+      }
       await TranscriptConfigAPI.saveFile(payload);
       if (provider === 'gemini') {
         setSaveMessage('Đã lưu Gemini cho nhập file');
@@ -250,6 +254,7 @@ export default function FileAsrPanel({ config, disabled = false, onSaved }: File
       </p>
 
       <GeminiSttFields
+        ref={geminiFieldsRef}
         provider={provider}
         onProviderChange={setProvider}
         disabled={disabled}

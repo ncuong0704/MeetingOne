@@ -710,12 +710,15 @@ pub fn write_pcm_wav(samples: &[f32], sample_rate: u32, output_path: &PathBuf) -
     file.write_all(b"data")?;
     file.write_all(&data_size.to_le_bytes())?;
 
-    let mut pcm = Vec::with_capacity(samples.len() * 2);
-    for &s in samples {
-        let v = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
-        pcm.extend_from_slice(&v.to_le_bytes());
+    let mut pcm = Vec::with_capacity(32_000);
+    for chunk in samples.chunks(16_000) {
+        pcm.clear();
+        for &s in chunk {
+            let v = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+            pcm.extend_from_slice(&v.to_le_bytes());
+        }
+        file.write_all(&pcm)?;
     }
-    file.write_all(&pcm)?;
 
     Ok(())
 }

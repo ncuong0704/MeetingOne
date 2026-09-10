@@ -6,6 +6,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 const REQUEST_TIMEOUT_DURATION: Duration = Duration::from_secs(300);
+/// Gemini 3.x thinking tokens count against this cap; 4096 cuts a minutes document mid-sentence.
+const CUSTOM_OPENAI_DEFAULT_MAX_TOKENS: u32 = 32768;
 
 // Generic structure for OpenAI-compatible API chat messages
 #[derive(Debug, Serialize)]
@@ -25,22 +27,8 @@ pub struct ChatRequest {
     pub temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub top_p: Option<f32>,
-}
-
-// Generic structure for OpenAI-compatible API chat responses
-#[derive(Deserialize, Debug)]
-pub struct ChatResponse {
-    pub choices: Vec<Choice>,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct Choice {
-    pub message: MessageContent,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct MessageContent {
-    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
 }
 
 // Claude-specific request structure
@@ -141,10 +129,7 @@ pub async fn generate_summary(
         LLMProvider::CustomOpenAI => {
             let endpoint = custom_openai_endpoint
                 .ok_or_else(|| "Custom OpenAI endpoint not configured".to_string())?;
-            (
-                format!("{}/chat/completions", endpoint.trim_end_matches('/')),
-                header::HeaderMap::new(),
-            )
+            (chat_completions_url(endpoint), header::HeaderMap::new())
         }
         LLMProvider::Claude => {
             let mut header_map = header::HeaderMap::new();
@@ -184,11 +169,22 @@ pub async fn generate_summary(
     let request_body = if provider != &LLMProvider::Claude {
         // For CustomOpenAI, apply optional parameters if provided.
         // If not provided, use defaults commonly expected for OpenAI-compatible servers.
-        let (max_tokens_val, temperature_val, top_p_val) = if provider == &LLMProvider::CustomOpenAI
+        let (max_tokens_val, temperature_val, top_p_val, reasoning_effort) =
+            if provider == &LLMProvider::CustomOpenAI
         {
-            (max_tokens.or(Some(4096)), temperature.or(Some(0.2)), top_p.or(Some(0.9)))
+            let reasoning = if api_url.contains("generativelanguage.googleapis.com") {
+                Some("low".to_string())
+            } else {
+                None
+            };
+            (
+                max_tokens.or(Some(CUSTOM_OPENAI_DEFAULT_MAX_TOKENS)),
+                temperature.or(Some(0.2)),
+                top_p.or(Some(0.9)),
+                reasoning,
+            )
         } else {
-            (None, None, None)
+            (None, None, None, None)
         };
 
         serde_json::json!(ChatRequest {
@@ -206,6 +202,7 @@ pub async fn generate_summary(
             max_tokens: max_tokens_val,
             temperature: temperature_val,
             top_p: top_p_val,
+            reasoning_effort,
         })
     } else {
         serde_json::json!(ClaudeRequest {
@@ -299,20 +296,108 @@ pub async fn generate_summary(
         Ok(content.to_string())
     } else {
         let chat_response = response
-            .json::<ChatResponse>()
+            .json::<serde_json::Value>()
             .await
             .map_err(|e| format!("Failed to parse LLM response: {}", e))?;
 
         info!("🐞 LLM Response received from {}", provider_name(provider));
 
-        let content = chat_response
-            .choices
-            .get(0)
-            .ok_or("No content in LLM response")?
-            .message
-            .content
-            .trim();
-        Ok(content.to_string())
+        let content = extract_completion_text(&chat_response)
+            .ok_or("No content in LLM response")?;
+        Ok(content.trim().to_string())
+    }
+}
+
+/// Build `{base}/chat/completions`, rewriting Gemini native REST to the OpenAI-compat base.
+pub fn chat_completions_url(endpoint: &str) -> String {
+    let trimmed = endpoint.trim().trim_end_matches('/');
+    let without_completions = trimmed
+        .strip_suffix("/chat/completions")
+        .unwrap_or(trimmed)
+        .trim_end_matches('/');
+    format!("{}/chat/completions", rewrite_gemini_native_base(without_completions))
+}
+
+fn rewrite_gemini_native_base(base: &str) -> String {
+    let lower = base.to_lowercase();
+    if lower.contains("generativelanguage.googleapis.com") && !lower.contains("/openai") {
+        return "https://generativelanguage.googleapis.com/v1beta/openai".to_string();
+    }
+    base.to_string()
+}
+
+/// Pull assistant text from OpenAI chat completions or Gemini native `candidates`.
+pub fn extract_completion_text(json: &serde_json::Value) -> Option<String> {
+    if let Some(text) = extract_choices_text(json) {
+        return Some(text);
+    }
+    extract_candidates_text(json)
+}
+
+/// True when the body is an OpenAI chat envelope, even if thinking used all tokens.
+pub fn looks_openai_compatible(json: &serde_json::Value) -> bool {
+    if extract_completion_text(json).is_some() {
+        return true;
+    }
+    if json.get("object").and_then(|v| v.as_str()) == Some("chat.completion") {
+        return true;
+    }
+    let Some(choices) = json.get("choices").and_then(|c| c.as_array()) else {
+        return false;
+    };
+    choices
+        .iter()
+        .any(|c| c.get("message").is_some() || c.get("delta").is_some())
+        || json.get("model").is_some()
+        || json.get("usage").is_some()
+}
+
+fn extract_choices_text(json: &serde_json::Value) -> Option<String> {
+    let choice = json.get("choices")?.as_array()?.first()?;
+    let message = choice.get("message").or_else(|| choice.get("delta"))?;
+    text_from_content_field(message.get("content"))
+        .or_else(|| text_from_content_field(message.get("reasoning_content")))
+        .or_else(|| text_from_content_field(message.get("reasoning")))
+}
+
+fn extract_candidates_text(json: &serde_json::Value) -> Option<String> {
+    let parts = json
+        .get("candidates")?
+        .as_array()?
+        .first()?
+        .get("content")?
+        .get("parts")?
+        .as_array()?;
+    let joined: String = parts
+        .iter()
+        .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
+        .collect();
+    nonempty_text(joined)
+}
+
+fn text_from_content_field(value: Option<&serde_json::Value>) -> Option<String> {
+    match value? {
+        serde_json::Value::String(s) => nonempty_text(s.clone()),
+        serde_json::Value::Array(parts) => {
+            let joined: String = parts
+                .iter()
+                .filter_map(|p| {
+                    p.get("text")
+                        .and_then(|t| t.as_str())
+                        .or_else(|| p.as_str())
+                })
+                .collect();
+            nonempty_text(joined)
+        }
+        _ => None,
+    }
+}
+
+fn nonempty_text(s: String) -> Option<String> {
+    if s.trim().is_empty() {
+        None
+    } else {
+        Some(s)
     }
 }
 
@@ -345,5 +430,81 @@ fn provider_name(provider: &LLMProvider) -> &str {
         LLMProvider::Claude => "Claude",
         LLMProvider::OpenRouter => "OpenRouter",
         LLMProvider::CustomOpenAI => "Custom OpenAI",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn rewrites_gemini_native_rest_to_openai_compat() {
+        assert_eq!(
+            chat_completions_url("https://generativelanguage.googleapis.com/v1beta"),
+            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        );
+        assert_eq!(
+            chat_completions_url(
+                "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent"
+            ),
+            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        );
+    }
+
+    #[test]
+    fn keeps_openai_compat_and_strips_duplicate_path() {
+        assert_eq!(
+            chat_completions_url("https://generativelanguage.googleapis.com/v1beta/openai"),
+            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        );
+        assert_eq!(
+            chat_completions_url(
+                "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+            ),
+            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+        );
+    }
+
+    #[test]
+    fn extracts_openai_and_gemini_payloads() {
+        let openai = json!({"choices":[{"message":{"content":"Xin chào"}}]});
+        assert_eq!(extract_completion_text(&openai).as_deref(), Some("Xin chào"));
+
+        let reasoning = json!({"choices":[{"message":{"reasoning_content":"ok"}}]});
+        assert_eq!(extract_completion_text(&reasoning).as_deref(), Some("ok"));
+
+        let parts = json!({"choices":[{"message":{"content":[{"type":"text","text":"Hi"}]}}]});
+        assert_eq!(extract_completion_text(&parts).as_deref(), Some("Hi"));
+
+        let native = json!({"candidates":[{"content":{"parts":[{"text":"Native"}]}}]});
+        assert_eq!(extract_completion_text(&native).as_deref(), Some("Native"));
+    }
+
+    #[test]
+    fn gemini_request_includes_low_reasoning_and_large_cap() {
+        let body = serde_json::to_value(ChatRequest {
+            model: "gemini-3.6-flash".into(),
+            messages: vec![],
+            max_tokens: Some(CUSTOM_OPENAI_DEFAULT_MAX_TOKENS),
+            temperature: Some(0.2),
+            top_p: Some(0.9),
+            reasoning_effort: Some("low".into()),
+        })
+        .unwrap();
+        assert_eq!(body["max_tokens"], 32768);
+        assert_eq!(body["reasoning_effort"], "low");
+    }
+
+    #[test]
+    fn thinking_envelope_without_text_still_looks_compatible() {
+        let empty_think = json!({
+            "object": "chat.completion",
+            "model": "gemini-3.1-flash-lite",
+            "choices": [{"message": {"role": "assistant"}, "finish_reason": "length"}],
+            "usage": {"completion_tokens": 5}
+        });
+        assert!(looks_openai_compatible(&empty_think));
+        assert!(extract_completion_text(&empty_think).is_none());
     }
 }

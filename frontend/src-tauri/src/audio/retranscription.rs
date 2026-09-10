@@ -608,6 +608,13 @@ pub fn resolve_meeting_audio_file_path(folder_path: String) -> Result<String, St
 pub fn read_meeting_audio_file(folder_path: String) -> Result<Vec<u8>, String> {
     let trimmed = folder_path.trim_end_matches(|c| c == '/' || c == '\\');
     let path = find_audio_file(Path::new(trimmed)).map_err(|e| e.to_string())?;
+    const MAX_BLOB_BYTES: u64 = 32 * 1024 * 1024;
+    let len = std::fs::metadata(&path)
+        .map_err(|e| e.to_string())?
+        .len();
+    if len > MAX_BLOB_BYTES {
+        return Err("FILE_TOO_LARGE_FOR_BLOB".to_string());
+    }
     std::fs::read(&path).map_err(|e| e.to_string())
 }
 
@@ -665,5 +672,17 @@ mod tests {
         let bytes = read_meeting_audio_file(dir.path().to_string_lossy().to_string())
             .expect("read wav");
         assert_eq!(bytes, b"RIFF-playback");
+    }
+
+    #[test]
+    fn read_meeting_audio_file_rejects_huge_wav() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audio.wav");
+        let file = std::fs::File::create(&path).unwrap();
+        file.set_len(33 * 1024 * 1024).unwrap();
+
+        let err = read_meeting_audio_file(dir.path().to_string_lossy().to_string())
+            .expect_err("huge wav");
+        assert!(err.contains("FILE_TOO_LARGE_FOR_BLOB"), "{err}");
     }
 }

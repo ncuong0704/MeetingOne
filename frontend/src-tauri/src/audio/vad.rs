@@ -33,6 +33,9 @@ pub const FILE_BATCH_VAD_THRESHOLDS: VadThresholds = VadThresholds {
     negative: 0.10,
 };
 
+/// File-import force-flush so a 3-hour continuous meeting does not sit in one buffer.
+pub const FILE_BATCH_MAX_SPEECH_SEC: u32 = 30;
+
 /// Represents a complete speech segment detected by VAD
 #[derive(Debug, Clone)]
 pub struct SpeechSegment {
@@ -328,12 +331,15 @@ impl ContinuousVadProcessor {
     }
 
     fn process_chunk(&mut self, chunk: &[f32]) -> Result<()> {
-        // Track accumulated speech buffer size to detect memory issues
         let current_speech_size = self.current_speech.len();
-        if current_speech_size > 1_000_000 {
-            // More than ~62 seconds of accumulated speech at 16kHz
-            warn!("VAD: Accumulated speech buffer is large: {} samples ({:.1}s) - possible memory issue",
-                  current_speech_size, current_speech_size as f64 / 16000.0);
+        if current_speech_size > 1_000_000
+            && current_speech_size <= 1_000_000 + self.chunk_size
+        {
+            warn!(
+                "VAD: Accumulated speech buffer is large: {} samples ({:.1}s) - possible memory issue",
+                current_speech_size,
+                current_speech_size as f64 / 16000.0
+            );
         }
 
         let transitions = self.session.process(chunk)
@@ -535,7 +541,12 @@ where
 {
     // All current callers are file-import/retranscription batch paths (no live-latency
     // constraint), so use the more permissive file-batch thresholds.
-    let mut processor = ContinuousVadProcessor::new(16000, redemption_time_ms, FILE_BATCH_VAD_THRESHOLDS)?;
+    let mut processor = ContinuousVadProcessor::new_with_max_speech(
+        16000,
+        redemption_time_ms,
+        FILE_BATCH_VAD_THRESHOLDS,
+        Some(FILE_BATCH_MAX_SPEECH_SEC),
+    )?;
 
     let total_samples = samples_mono_16k.len();
 
@@ -612,6 +623,18 @@ mod tests {
         assert_eq!(clamped_post_speech_pad(300), Duration::from_millis(300));
         assert_eq!(clamped_post_speech_pad(400), Duration::from_millis(400));
         assert_eq!(clamped_post_speech_pad(1200), Duration::from_millis(400));
+    }
+
+    #[test]
+    fn file_batch_vad_force_flushes_at_30s() {
+        let processor = ContinuousVadProcessor::new_with_max_speech(
+            16000,
+            2000,
+            FILE_BATCH_VAD_THRESHOLDS,
+            Some(FILE_BATCH_MAX_SPEECH_SEC),
+        )
+        .expect("processor");
+        assert_eq!(processor.max_speech_samples, Some(30 * 16000));
     }
 
     #[test]
