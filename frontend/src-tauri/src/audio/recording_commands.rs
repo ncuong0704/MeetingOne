@@ -35,6 +35,13 @@ use crate::state::AppState;
 // Re-export TranscriptUpdate for backward compatibility
 pub use super::transcription::TranscriptUpdate;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LiveSttMode {
+    Gemini,
+    LocalStreaming,
+    LocalChunked,
+}
+
 async fn live_streaming_enabled<R: Runtime>(app: &AppHandle<R>) -> bool {
     let cfg = SettingsRepository::get_path_asr_config(
         app.state::<AppState>().db_manager.pool(),
@@ -44,15 +51,30 @@ async fn live_streaming_enabled<R: Runtime>(app: &AppHandle<R>) -> bool {
     crate::asr_engine::model_family::ModelFamily::from_id(&cfg.family_id).is_online_streaming()
 }
 
+async fn live_stt_mode<R: Runtime>(app: &AppHandle<R>) -> LiveSttMode {
+    let provider = SettingsRepository::get_stt_provider(
+        app.state::<AppState>().db_manager.pool(),
+        crate::asr_engine::config::AsrPath::Live,
+    )
+    .await;
+    if provider == crate::audio::transcription::gemini_key::SttProvider::Gemini {
+        LiveSttMode::Gemini
+    } else if live_streaming_enabled(app).await {
+        LiveSttMode::LocalStreaming
+    } else {
+        LiveSttMode::LocalChunked
+    }
+}
+
 fn spawn_live_asr_task<R: Runtime>(
     app: AppHandle<R>,
     receiver: tokio::sync::mpsc::UnboundedReceiver<crate::audio::AudioChunk>,
-    streaming: bool,
+    mode: LiveSttMode,
 ) -> JoinHandle<()> {
-    if streaming {
-        transcription::start_streaming_task(app, receiver)
-    } else {
-        transcription::start_transcription_task(app, receiver)
+    match mode {
+        LiveSttMode::Gemini => transcription::start_gemini_live_task(app, receiver),
+        LiveSttMode::LocalStreaming => transcription::start_streaming_task(app, receiver),
+        LiveSttMode::LocalChunked => transcription::start_transcription_task(app, receiver),
     }
 }
 
@@ -328,9 +350,12 @@ async fn start_recording_with_meeting_name_inner<R: Runtime>(
     .await;
     info!("Using max segment length: {}s for live transcription", max_segment_seconds);
 
-    let streaming_asr = live_streaming_enabled(&app).await;
-    if streaming_asr {
-        info!("Live ASR path: OnlineRecognizer streaming (no VAD)");
+    let mode = live_stt_mode(&app).await;
+    let streaming_asr = mode != LiveSttMode::LocalChunked;
+    match mode {
+        LiveSttMode::Gemini => info!("Live STT path: Gemini Transcribe Live (no VAD)"),
+        LiveSttMode::LocalStreaming => info!("Live ASR path: OnlineRecognizer streaming (no VAD)"),
+        LiveSttMode::LocalChunked => {}
     }
 
     // Start recording with resolved devices (replaces start_recording_with_defaults_and_auto_save call)
@@ -351,16 +376,17 @@ async fn start_recording_with_meeting_name_inner<R: Runtime>(
     reset_speech_detected_flag();
     crate::audio::transcription::live_speaker::reset_session();
 
-    // Best-effort CAPU init before live transcription
-    if crate::capu_engine::commands::capu_is_model_downloaded(app.clone())
-        .await
-        .unwrap_or(false)
+    // Best-effort CAPU init before live transcription (local ASR only)
+    if mode != LiveSttMode::Gemini
+        && crate::capu_engine::commands::capu_is_model_downloaded(app.clone())
+            .await
+            .unwrap_or(false)
     {
         let _ = crate::capu_engine::commands::capu_init(app.clone()).await;
     }
 
     // Start optimized parallel transcription task and store handle
-    let task_handle = spawn_live_asr_task(app.clone(), transcription_receiver, streaming_asr);
+    let task_handle = spawn_live_asr_task(app.clone(), transcription_receiver, mode);
     {
         let mut global_task = TRANSCRIPTION_TASK.lock();
         *global_task = Some(task_handle);
@@ -597,9 +623,12 @@ async fn start_recording_with_devices_and_meeting_inner<R: Runtime>(
     .await;
     info!("Using max segment length: {}s for live transcription", max_segment_seconds);
 
-    let streaming_asr = live_streaming_enabled(&app).await;
-    if streaming_asr {
-        info!("Live ASR path: OnlineRecognizer streaming (no VAD)");
+    let mode = live_stt_mode(&app).await;
+    let streaming_asr = mode != LiveSttMode::LocalChunked;
+    match mode {
+        LiveSttMode::Gemini => info!("Live STT path: Gemini Transcribe Live (no VAD)"),
+        LiveSttMode::LocalStreaming => info!("Live ASR path: OnlineRecognizer streaming (no VAD)"),
+        LiveSttMode::LocalChunked => {}
     }
 
     let mic_label = mic_device
@@ -629,16 +658,17 @@ async fn start_recording_with_devices_and_meeting_inner<R: Runtime>(
     reset_speech_detected_flag();
     crate::audio::transcription::live_speaker::reset_session();
 
-    // Best-effort CAPU init before live transcription
-    if crate::capu_engine::commands::capu_is_model_downloaded(app.clone())
-        .await
-        .unwrap_or(false)
+    // Best-effort CAPU init before live transcription (local ASR only)
+    if mode != LiveSttMode::Gemini
+        && crate::capu_engine::commands::capu_is_model_downloaded(app.clone())
+            .await
+            .unwrap_or(false)
     {
         let _ = crate::capu_engine::commands::capu_init(app.clone()).await;
     }
 
     // Start optimized parallel transcription task and store handle
-    let task_handle = spawn_live_asr_task(app.clone(), transcription_receiver, streaming_asr);
+    let task_handle = spawn_live_asr_task(app.clone(), transcription_receiver, mode);
     {
         let mut global_task = TRANSCRIPTION_TASK.lock();
         *global_task = Some(task_handle);

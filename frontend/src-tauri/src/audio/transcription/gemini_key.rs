@@ -83,6 +83,10 @@ pub fn vocabulary_from_hotwords(text: &str) -> Vec<String> {
         .collect()
 }
 
+pub fn needs_local_asr(provider: SttProvider) -> bool {
+    provider == SttProvider::Asr
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -119,6 +123,12 @@ mod tests {
         assert_eq!(&bytes[0..2], &[0, 0]);
         assert_eq!(i16::from_le_bytes([bytes[2], bytes[3]]), 32767);
         assert_eq!(i16::from_le_bytes([bytes[4], bytes[5]]), -32767);
+    }
+
+    #[test]
+    fn gemini_skips_local_asr() {
+        assert!(!needs_local_asr(SttProvider::Gemini));
+        assert!(needs_local_asr(SttProvider::Asr));
     }
 
     #[test]

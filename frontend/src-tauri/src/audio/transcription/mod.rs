@@ -5,6 +5,7 @@
 pub mod asr_provider;
 pub mod engine;
 pub mod gemini_key;
+pub mod gemini_live;
 pub mod gemini_parse;
 pub mod live_speaker;
 pub mod speaker_directory;
@@ -17,5 +18,6 @@ pub use engine::{
     get_or_init_transcription_engine, validate_transcription_model_ready, TranscriptionEngine,
 };
 pub use provider::{TranscriptionError, TranscriptionProvider, TranscriptResult};
+pub use gemini_live::start_gemini_live_task;
 pub use streaming_worker::start_streaming_task;
 pub use worker::{reset_speech_detected_flag, start_transcription_task, TranscriptFinalized, TranscriptUpdate};
