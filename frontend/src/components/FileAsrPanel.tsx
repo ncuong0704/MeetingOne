@@ -2,6 +2,7 @@
 
 import { listen } from '@tauri-apps/api/event';
 import { useCallback, useEffect, useState } from 'react';
+import GeminiSttFields from '@/components/GeminiSttFields';
 import {
   ASR_MODELS,
   AsrAPI,
@@ -10,6 +11,7 @@ import {
   FileAsrConfig,
   ModelVariant,
   RoverAPI,
+  SttProvider,
   TranscriptConfigAPI,
   VariantStatus,
 } from '@/lib/asr';
@@ -46,6 +48,7 @@ export default function FileAsrPanel({ config, disabled = false, onSaved }: File
   const [decodingMethod, setDecodingMethod] = useState<DecodingMethod>(DEFAULT_DECODING);
   const [numActivePaths, setNumActivePaths] = useState(DEFAULT_PATHS);
   const [maxSegmentSeconds, setMaxSegmentSeconds] = useState(DEFAULT_MAX_SEGMENT_SECONDS);
+  const [provider, setProvider] = useState<SttProvider>('asr');
   const [roverEnabled, setRoverEnabled] = useState(false);
   const [roverFamilyB, setRoverFamilyB] = useState<AsrModelFamily>('gipformer-65m-rnnt');
   const [roverVariantB, setRoverVariantB] = useState<ModelVariant>('int8');
@@ -135,6 +138,7 @@ export default function FileAsrPanel({ config, disabled = false, onSaved }: File
         )
       );
     }
+    setProvider(config.provider === 'gemini' ? 'gemini' : 'asr');
   }, [config]);
 
   useEffect(() => {
@@ -195,10 +199,13 @@ export default function FileAsrPanel({ config, disabled = false, onSaved }: File
       roverEnabled,
       roverFamilyB: roverEnabled ? roverFamilyB : null,
       roverVariantB: roverEnabled ? roverEffectiveVariantB : null,
+      provider,
     };
     try {
       await TranscriptConfigAPI.saveFile(payload);
-      if (roverEnabled) {
+      if (provider === 'gemini') {
+        setSaveMessage('Đã lưu Gemini cho nhập file');
+      } else if (roverEnabled) {
         const freshA = await AsrAPI.getVariantStatus(selectedFamily, effectiveVariant);
         const freshB = await AsrAPI.getVariantStatus(roverFamilyB, roverEffectiveVariantB);
         setVariantStatuses((prev) => ({ ...prev, [effectiveVariant]: freshA }));
@@ -241,6 +248,14 @@ export default function FileAsrPanel({ config, disabled = false, onSaved }: File
         Dùng khi nhập file hoặc nhận dạng lại. ROVER chỉ áp dụng cho luồng file.
       </p>
 
+      <GeminiSttFields
+        provider={provider}
+        onProviderChange={setProvider}
+        disabled={disabled}
+      />
+
+      {provider === 'asr' && (
+      <>
       <div className="space-y-1.5">
         <label className="block text-sm font-medium text-ink">Model ASR</label>
         <select
@@ -403,6 +418,8 @@ export default function FileAsrPanel({ config, disabled = false, onSaved }: File
           className="w-full accent-primary disabled:opacity-50"
         />
       </div>
+      </>
+      )}
 
       <div className="flex items-center gap-3 pt-0.5">
         <button type="button" onClick={handleSave} disabled={isSaving || disabled} className={saveClass}>
