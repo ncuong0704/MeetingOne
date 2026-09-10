@@ -774,12 +774,13 @@ pub async fn api_save_live_asr_config<R: Runtime>(
     }
 
     let stt = crate::audio::transcription::gemini_key::SttProvider::from_db(provider.as_deref());
+    if stt == crate::audio::transcription::gemini_key::SttProvider::Gemini {
+        crate::audio::transcription::gemini_key::resolve_stt_api_key(pool).await?;
+    }
     if let Err(e) = SettingsRepository::save_live_provider(pool, stt.as_str()).await {
         return Err(e.to_string());
     }
-
     if stt == crate::audio::transcription::gemini_key::SttProvider::Gemini {
-        crate::audio::transcription::gemini_key::resolve_stt_api_key(pool).await?;
         return Ok(serde_json::json!({ "status": "success", "message": "Live ASR configuration saved" }));
     }
 
@@ -854,12 +855,13 @@ pub async fn api_save_file_asr_config<R: Runtime>(
     }
 
     let stt = crate::audio::transcription::gemini_key::SttProvider::from_db(provider.as_deref());
+    if stt == crate::audio::transcription::gemini_key::SttProvider::Gemini {
+        crate::audio::transcription::gemini_key::resolve_stt_api_key(pool).await?;
+    }
     if let Err(e) = SettingsRepository::save_file_provider(pool, stt.as_str()).await {
         return Err(e.to_string());
     }
-
     if stt == crate::audio::transcription::gemini_key::SttProvider::Gemini {
-        crate::audio::transcription::gemini_key::resolve_stt_api_key(pool).await?;
         return Ok(serde_json::json!({ "status": "success", "message": "File ASR configuration saved" }));
     }
 

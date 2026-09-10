@@ -25,10 +25,12 @@ pub async fn resolve_stt_api_key(pool: &sqlx::SqlitePool) -> Result<String, Stri
 
     let transcript_override = SettingsRepository::get_transcript_api_key(pool, "gemini")
         .await
-        .map_err(|e| e.to_string())?;
+        .ok()
+        .flatten();
     let custom_openai = SettingsRepository::get_api_key(pool, "custom-openai")
         .await
-        .map_err(|e| e.to_string())?;
+        .ok()
+        .flatten();
     let llm_provider_key = match SettingsRepository::get_model_config(pool).await {
         Ok(Some(cfg)) if !cfg.provider.is_empty() && cfg.provider != "custom-openai" => {
             SettingsRepository::get_api_key(pool, &cfg.provider)

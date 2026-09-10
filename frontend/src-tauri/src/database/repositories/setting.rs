@@ -144,6 +144,7 @@ impl SettingsRepository {
             "openai" => "openaiApiKey",
             "claude" => "anthropicApiKey",
             "openrouter" => "openRouterApiKey",
+            // LLM key on settings.geminiApiKey (STT override: transcript_settings.geminiApiKey)
             "gemini" => "geminiApiKey",
             _ => {
                 return Err(sqlx::Error::Protocol(
@@ -452,6 +453,7 @@ impl SettingsRepository {
         Ok(())
     }
 
+    /// Transcript Gemini override on transcript_settings.geminiApiKey (LLM key: settings.geminiApiKey).
     pub async fn save_transcript_api_key(
         pool: &SqlitePool,
         provider: &str,
@@ -484,7 +486,7 @@ impl SettingsRepository {
         )
         .fetch_optional(pool)
         .await?;
-        Ok(key.flatten())
+        Ok(key.flatten().filter(|s| !s.is_empty()))
     }
 
     pub async fn delete_transcript_api_key(
