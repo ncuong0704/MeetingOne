@@ -521,6 +521,8 @@ pub fn run() {
             api::api_save_file_asr_config,
             api::api_save_shared_transcript_config,
             api::api_get_transcript_api_key,
+            api::api_save_transcript_api_key,
+            api::api_delete_transcript_api_key,
             api::api_delete_meeting,
             api::api_get_meeting,
             api::api_get_meeting_metadata,

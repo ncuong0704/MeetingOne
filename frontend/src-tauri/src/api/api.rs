@@ -67,6 +67,10 @@ pub struct GetApiKeyRequest {
     pub provider: String,
 }
 
+fn default_stt_provider() -> String {
+    "asr".to_string()
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LiveAsrConfigDto {
     pub model: String,
@@ -78,6 +82,8 @@ pub struct LiveAsrConfigDto {
     pub num_active_paths: i32,
     #[serde(rename = "maxSegmentSeconds")]
     pub max_segment_seconds: i32,
+    #[serde(default = "default_stt_provider")]
+    pub provider: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -97,6 +103,8 @@ pub struct FileAsrConfigDto {
     pub rover_family_b: Option<String>,
     #[serde(rename = "roverVariantB")]
     pub rover_variant_b: Option<String>,
+    #[serde(default = "default_stt_provider")]
+    pub provider: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -462,6 +470,20 @@ pub async fn api_get_transcript_config<R: Runtime>(
                 SettingsRepository::get_path_asr_config(pool, crate::asr_engine::config::AsrPath::Live).await;
             let file_cfg =
                 SettingsRepository::get_path_asr_config(pool, crate::asr_engine::config::AsrPath::File).await;
+            let live_provider = SettingsRepository::get_stt_provider(
+                pool,
+                crate::asr_engine::config::AsrPath::Live,
+            )
+            .await
+            .as_str()
+            .to_string();
+            let file_provider = SettingsRepository::get_stt_provider(
+                pool,
+                crate::asr_engine::config::AsrPath::File,
+            )
+            .await
+            .as_str()
+            .to_string();
 
             Ok(TranscriptConfigBundle {
                 live: LiveAsrConfigDto {
@@ -470,6 +492,7 @@ pub async fn api_get_transcript_config<R: Runtime>(
                     decoding_method: live_cfg.decoding_method,
                     num_active_paths: live_cfg.num_active_paths,
                     max_segment_seconds: live_cfg.max_segment_seconds as i32,
+                    provider: live_provider,
                 },
                 file: FileAsrConfigDto {
                     model: file_cfg.family_id,
@@ -480,6 +503,7 @@ pub async fn api_get_transcript_config<R: Runtime>(
                     rover_enabled: file_cfg.rover_enabled,
                     rover_family_b: file_cfg.rover_family_b,
                     rover_variant_b: file_cfg.rover_variant_b,
+                    provider: file_provider,
                 },
                 shared: SharedTranscriptConfigDto {
                     hotwords: crate::asr_engine::hotwords::display_hotwords_text(
@@ -506,6 +530,7 @@ pub async fn api_get_transcript_config<R: Runtime>(
                     decoding_method: "modified_beam_search".to_string(),
                     num_active_paths: 15,
                     max_segment_seconds: crate::audio::common::DEFAULT_MAX_SEGMENT_SECONDS as i32,
+                    provider: "asr".to_string(),
                 },
                 file: FileAsrConfigDto {
                     model: crate::config::ZIPFORMER_MODEL_NAME.to_string(),
@@ -516,6 +541,7 @@ pub async fn api_get_transcript_config<R: Runtime>(
                     rover_enabled: false,
                     rover_family_b: None,
                     rover_variant_b: None,
+                    provider: "asr".to_string(),
                 },
                 shared: SharedTranscriptConfigDto {
                     hotwords: bundled_hotwords.clone(),
@@ -663,7 +689,7 @@ pub async fn api_save_transcript_config<R: Runtime>(
     }
 
     if let Some(key) = api_key {
-        if !key.is_empty() {
+        if !key.is_empty() && provider == "gemini" {
             log_info!("API key provided, saving for transcript provider...");
             if let Err(e) = SettingsRepository::save_transcript_api_key(pool, &provider, &key).await
             {
@@ -710,6 +736,7 @@ pub async fn api_save_live_asr_config<R: Runtime>(
     decoding_method: Option<String>,
     num_active_paths: Option<i32>,
     max_segment_seconds: Option<i32>,
+    provider: Option<String>,
     _auth_token: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let pool = state.db_manager.pool();
@@ -746,6 +773,16 @@ pub async fn api_save_live_asr_config<R: Runtime>(
         return Err(e.to_string());
     }
 
+    let stt = crate::audio::transcription::gemini_key::SttProvider::from_db(provider.as_deref());
+    if let Err(e) = SettingsRepository::save_live_provider(pool, stt.as_str()).await {
+        return Err(e.to_string());
+    }
+
+    if stt == crate::audio::transcription::gemini_key::SttProvider::Gemini {
+        crate::audio::transcription::gemini_key::resolve_stt_api_key(pool).await?;
+        return Ok(serde_json::json!({ "status": "success", "message": "Live ASR configuration saved" }));
+    }
+
     crate::asr_engine::commands::asr_validate_model_ready(
         app.clone(),
         Some(model.clone()),
@@ -770,6 +807,7 @@ pub async fn api_save_file_asr_config<R: Runtime>(
     rover_enabled: Option<bool>,
     rover_family_b: Option<String>,
     rover_variant_b: Option<String>,
+    provider: Option<String>,
     _auth_token: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let pool = state.db_manager.pool();
@@ -813,6 +851,16 @@ pub async fn api_save_file_asr_config<R: Runtime>(
     .await
     {
         return Err(e.to_string());
+    }
+
+    let stt = crate::audio::transcription::gemini_key::SttProvider::from_db(provider.as_deref());
+    if let Err(e) = SettingsRepository::save_file_provider(pool, stt.as_str()).await {
+        return Err(e.to_string());
+    }
+
+    if stt == crate::audio::transcription::gemini_key::SttProvider::Gemini {
+        crate::audio::transcription::gemini_key::resolve_stt_api_key(pool).await?;
+        return Ok(serde_json::json!({ "status": "success", "message": "File ASR configuration saved" }));
     }
 
     if rover_on {
@@ -921,6 +969,40 @@ pub async fn api_get_transcript_api_key<R: Runtime>(
             Err(e.to_string())
         }
     }
+}
+
+#[tauri::command]
+pub async fn api_save_transcript_api_key<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+    provider: String,
+    api_key: String,
+    _auth_token: Option<String>,
+) -> Result<serde_json::Value, String> {
+    if api_key.trim().is_empty() {
+        return Err("API key trống. Dùng xóa key thay vì lưu chuỗi rỗng.".to_string());
+    }
+    SettingsRepository::save_transcript_api_key(
+        &state.db_manager.pool(),
+        &provider,
+        api_key.trim(),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({ "status": "success", "message": "Transcript API key saved" }))
+}
+
+#[tauri::command]
+pub async fn api_delete_transcript_api_key<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+    provider: String,
+    _auth_token: Option<String>,
+) -> Result<serde_json::Value, String> {
+    SettingsRepository::delete_transcript_api_key(&state.db_manager.pool(), &provider)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({ "status": "success", "message": "Transcript API key deleted" }))
 }
 
 #[tauri::command]

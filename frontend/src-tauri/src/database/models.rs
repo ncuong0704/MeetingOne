@@ -232,6 +232,15 @@ pub struct TranscriptSetting {
     #[sqlx(rename = "fileRoverVariantB")]
     #[serde(rename = "fileRoverVariantB")]
     pub file_rover_variant_b: Option<String>,
+    #[sqlx(rename = "liveProvider")]
+    #[serde(rename = "liveProvider")]
+    pub live_provider: Option<String>,
+    #[sqlx(rename = "fileProvider")]
+    #[serde(rename = "fileProvider")]
+    pub file_provider: Option<String>,
+    #[sqlx(rename = "geminiApiKey")]
+    #[serde(rename = "geminiApiKey")]
+    pub gemini_api_key: Option<String>,
     #[sqlx(rename = "diarizationEnabled")]
     #[serde(rename = "diarizationEnabled")]
     pub diarization_enabled: bool,

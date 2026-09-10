@@ -20,6 +20,36 @@ impl SttProvider {
     }
 }
 
+pub async fn resolve_stt_api_key(pool: &sqlx::SqlitePool) -> Result<String, String> {
+    use crate::database::repositories::setting::SettingsRepository;
+
+    let transcript_override = SettingsRepository::get_transcript_api_key(pool, "gemini")
+        .await
+        .map_err(|e| e.to_string())?;
+    let custom_openai = SettingsRepository::get_api_key(pool, "custom-openai")
+        .await
+        .map_err(|e| e.to_string())?;
+    let llm_provider_key = match SettingsRepository::get_model_config(pool).await {
+        Ok(Some(cfg)) if !cfg.provider.is_empty() && cfg.provider != "custom-openai" => {
+            SettingsRepository::get_api_key(pool, &cfg.provider)
+                .await
+                .ok()
+                .flatten()
+        }
+        _ => None,
+    };
+
+    pick_stt_api_key(
+        transcript_override.as_deref(),
+        custom_openai.as_deref(),
+        llm_provider_key.as_deref(),
+    )
+    .ok_or_else(|| {
+        "Chưa có API key Gemini. Nhập key ở Cài đặt → Nhận dạng, hoặc key LLM (custom-openai / Gemini)."
+            .to_string()
+    })
+}
+
 pub fn pick_stt_api_key(
     transcript_override: Option<&str>,
     custom_openai: Option<&str>,

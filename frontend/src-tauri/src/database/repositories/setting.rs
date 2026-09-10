@@ -1,5 +1,6 @@
 use crate::database::models::{Setting, TranscriptSetting};
 use crate::asr_engine::config::{AsrPath, PathAsrConfig};
+use crate::audio::transcription::gemini_key::SttProvider;
 use crate::summary::CustomOpenAIConfig;
 use sqlx::SqlitePool;
 
@@ -107,6 +108,7 @@ impl SettingsRepository {
             "openai" => "openaiApiKey",
             "claude" => "anthropicApiKey",
             "openrouter" => "openRouterApiKey",
+            "gemini" => "geminiApiKey",
             _ => {
                 return Err(sqlx::Error::Protocol(
                     format!("Invalid provider: {}", provider).into(),
@@ -142,6 +144,7 @@ impl SettingsRepository {
             "openai" => "openaiApiKey",
             "claude" => "anthropicApiKey",
             "openrouter" => "openRouterApiKey",
+            "gemini" => "geminiApiKey",
             _ => {
                 return Err(sqlx::Error::Protocol(
                     format!("Invalid provider: {}", provider).into(),
@@ -263,6 +266,9 @@ impl SettingsRepository {
             file_rover_enabled: None,
             file_rover_family_b: None,
             file_rover_variant_b: None,
+            live_provider: None,
+            file_provider: None,
+            gemini_api_key: None,
             diarization_enabled: false,
             diarization_num_speakers: None,
         }
@@ -408,29 +414,92 @@ impl SettingsRepository {
         Self::get_path_asr_config(pool, AsrPath::Live).await.max_segment_seconds
     }
 
-    pub async fn save_transcript_api_key(
-        _pool: &SqlitePool,
+    pub fn stt_provider_for(row: &TranscriptSetting, path: AsrPath) -> SttProvider {
+        match path {
+            AsrPath::Live => SttProvider::from_db(row.live_provider.as_deref()),
+            AsrPath::File => SttProvider::from_db(row.file_provider.as_deref()),
+        }
+    }
+
+    pub async fn get_stt_provider(pool: &SqlitePool, path: AsrPath) -> SttProvider {
+        match Self::get_transcript_config(pool).await {
+            Ok(Some(row)) => Self::stt_provider_for(&row, path),
+            _ => SttProvider::Asr,
+        }
+    }
+
+    pub async fn save_live_provider(
+        pool: &SqlitePool,
         provider: &str,
-        _api_key: &str,
     ) -> std::result::Result<(), sqlx::Error> {
-        if provider != "asr" {
+        Self::ensure_transcript_settings_row(pool).await?;
+        sqlx::query("UPDATE transcript_settings SET liveProvider = $1 WHERE id = '1'")
+            .bind(SttProvider::from_db(Some(provider)).as_str())
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn save_file_provider(
+        pool: &SqlitePool,
+        provider: &str,
+    ) -> std::result::Result<(), sqlx::Error> {
+        Self::ensure_transcript_settings_row(pool).await?;
+        sqlx::query("UPDATE transcript_settings SET fileProvider = $1 WHERE id = '1'")
+            .bind(SttProvider::from_db(Some(provider)).as_str())
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn save_transcript_api_key(
+        pool: &SqlitePool,
+        provider: &str,
+        api_key: &str,
+    ) -> std::result::Result<(), sqlx::Error> {
+        if provider != "gemini" {
             return Err(sqlx::Error::Protocol(
-                format!("Unsupported transcript provider: {}. Only asr is supported.", provider).into(),
+                format!("Unsupported transcript provider: {}. Only gemini is supported.", provider).into(),
             ));
         }
+        Self::ensure_transcript_settings_row(pool).await?;
+        sqlx::query("UPDATE transcript_settings SET geminiApiKey = $1 WHERE id = '1'")
+            .bind(api_key)
+            .execute(pool)
+            .await?;
         Ok(())
     }
 
     pub async fn get_transcript_api_key(
-        _pool: &SqlitePool,
+        pool: &SqlitePool,
         provider: &str,
     ) -> std::result::Result<Option<String>, sqlx::Error> {
-        if provider != "asr" {
+        if provider != "gemini" {
             return Err(sqlx::Error::Protocol(
-                format!("Unsupported transcript provider: {}. Only asr is supported.", provider).into(),
+                format!("Unsupported transcript provider: {}. Only gemini is supported.", provider).into(),
             ));
         }
-        Ok(None)
+        let key = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT geminiApiKey FROM transcript_settings WHERE id = '1' LIMIT 1",
+        )
+        .fetch_optional(pool)
+        .await?;
+        Ok(key.flatten())
+    }
+
+    pub async fn delete_transcript_api_key(
+        pool: &SqlitePool,
+        provider: &str,
+    ) -> std::result::Result<(), sqlx::Error> {
+        if provider != "gemini" {
+            return Err(sqlx::Error::Protocol(
+                format!("Unsupported transcript provider: {}. Only gemini is supported.", provider).into(),
+            ));
+        }
+        sqlx::query("UPDATE transcript_settings SET geminiApiKey = NULL WHERE id = '1'")
+            .execute(pool)
+            .await?;
+        Ok(())
     }
 
     pub async fn delete_api_key(
@@ -449,6 +518,7 @@ impl SettingsRepository {
             "openai" => "openaiApiKey",
             "claude" => "anthropicApiKey",
             "openrouter" => "openRouterApiKey",
+            "gemini" => "geminiApiKey",
             _ => {
                 return Err(sqlx::Error::Protocol(
                     format!("Invalid provider: {}", provider).into(),

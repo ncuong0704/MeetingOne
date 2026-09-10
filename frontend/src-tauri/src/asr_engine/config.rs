@@ -163,6 +163,9 @@ mod tests {
             file_rover_enabled: Some(true),
             file_rover_family_b: Some("sherpa-onnx-zipformer-vi-2025-04-20".to_string()),
             file_rover_variant_b: Some("full".to_string()),
+            live_provider: None,
+            file_provider: None,
+            gemini_api_key: None,
             diarization_enabled: false,
             diarization_num_speakers: None,
         }
