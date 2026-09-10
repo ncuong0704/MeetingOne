@@ -44,13 +44,24 @@ pub async fn vocabulary_from_app<R: Runtime>(app: &AppHandle<R>) -> Vec<String> 
     vocabulary_from_hotwords(&text)
 }
 
+fn throw_if_cancelled(is_cancelled: impl Fn() -> bool, cancel_msg: &str) -> Result<()> {
+    if is_cancelled() {
+        Err(anyhow!("{cancel_msg}"))
+    } else {
+        Ok(())
+    }
+}
+
 pub async fn transcribe_file(
     api_key: &str,
     audio_path: &Path,
     duration_seconds: f64,
     vocabulary: &[String],
+    is_cancelled: impl Fn() -> bool,
+    cancel_msg: &str,
 ) -> Result<Vec<TranscriptSegment>> {
     reject_if_too_long(duration_seconds)?;
+    throw_if_cancelled(&is_cancelled, cancel_msg)?;
     let mime = mime_for_path(audio_path);
     let bytes = tokio::fs::read(audio_path)
         .await
@@ -64,14 +75,34 @@ pub async fn transcribe_file(
         "Gemini file STT: uploading {} bytes ({mime}) duration={duration_seconds:.1}s",
         bytes.len()
     );
-    let uri = upload_file(&client, api_key, &bytes, mime).await?;
-    let body = create_interaction(&client, api_key, PRIMARY_MODEL, &uri, mime, vocabulary).await?;
+    let uri = upload_file(&client, api_key, &bytes, mime, &is_cancelled, cancel_msg).await?;
+    throw_if_cancelled(&is_cancelled, cancel_msg)?;
+    let body = create_interaction(
+        &client,
+        api_key,
+        PRIMARY_MODEL,
+        &uri,
+        mime,
+        vocabulary,
+        &is_cancelled,
+        cancel_msg,
+    )
+    .await?;
+    throw_if_cancelled(&is_cancelled, cancel_msg)?;
     let text = extract_interaction_text(&body);
     let timed = timed_from_interaction(&body);
     Ok(segments_from_file_output(&text, &timed, duration_seconds))
 }
 
-async fn upload_file(client: &Client, api_key: &str, bytes: &[u8], mime: &str) -> Result<String> {
+async fn upload_file(
+    client: &Client,
+    api_key: &str,
+    bytes: &[u8],
+    mime: &str,
+    is_cancelled: &impl Fn() -> bool,
+    cancel_msg: &str,
+) -> Result<String> {
+    throw_if_cancelled(is_cancelled, cancel_msg)?;
     let start = client
         .post(UPLOAD_START_URL)
         .header("x-goog-api-key", api_key)
@@ -97,6 +128,7 @@ async fn upload_file(client: &Client, api_key: &str, bytes: &[u8], mime: &str) -
         .context("Invalid x-goog-upload-url header")?
         .to_string();
 
+    throw_if_cancelled(is_cancelled, cancel_msg)?;
     let uploaded = client
         .post(&upload_url)
         .header("Content-Length", bytes.len().to_string())
@@ -111,6 +143,7 @@ async fn upload_file(client: &Client, api_key: &str, bytes: &[u8], mime: &str) -
         return Err(http_error("upload finalize", uploaded).await);
     }
 
+    throw_if_cancelled(is_cancelled, cancel_msg)?;
     let body: Value = uploaded
         .json()
         .await
@@ -130,6 +163,8 @@ async fn create_interaction(
     uri: &str,
     mime: &str,
     vocabulary: &[String],
+    is_cancelled: &impl Fn() -> bool,
+    cancel_msg: &str,
 ) -> Result<Value> {
     let mut transcription_config = json!({ "mode": "smart" });
     if !vocabulary.is_empty() {
@@ -137,6 +172,7 @@ async fn create_interaction(
     }
     let mut model = model;
     loop {
+        throw_if_cancelled(is_cancelled, cancel_msg)?;
         let payload = json!({
             "model": model,
             "input": [{
@@ -273,5 +309,22 @@ mod tests {
         assert_eq!(timed.len(), 2);
         assert_eq!(timed[0], ("A".to_string(), 0.0, 1.2));
         assert_eq!(timed[1], ("B".to_string(), 1.2, 3.0));
+    }
+
+    #[test]
+    fn cancel_check_uses_caller_message() {
+        assert!(throw_if_cancelled(|| false, "Import cancelled").is_ok());
+        assert_eq!(
+            throw_if_cancelled(|| true, "Import cancelled")
+                .unwrap_err()
+                .to_string(),
+            "Import cancelled"
+        );
+        assert_eq!(
+            throw_if_cancelled(|| true, "Retranscription cancelled")
+                .unwrap_err()
+                .to_string(),
+            "Retranscription cancelled"
+        );
     }
 }

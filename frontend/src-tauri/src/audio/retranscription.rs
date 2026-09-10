@@ -206,7 +206,15 @@ async fn run_retranscription<R: Runtime>(
         if RETRANSCRIPTION_CANCELLED.load(Ordering::SeqCst) {
             return Err(anyhow!("Retranscription cancelled"));
         }
-        transcribe_file(&api_key, &audio_path, duration_seconds, &vocab).await?
+        transcribe_file(
+            &api_key,
+            &audio_path,
+            duration_seconds,
+            &vocab,
+            || RETRANSCRIPTION_CANCELLED.load(Ordering::SeqCst),
+            "Retranscription cancelled",
+        )
+        .await?
     } else {
     emit_progress(&app, &meeting_id, "vad", 15, "Detecting speech segments...");
 

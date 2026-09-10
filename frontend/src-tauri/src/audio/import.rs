@@ -551,7 +551,15 @@ async fn run_import<R: Runtime>(
                     .map_err(|e| anyhow!(e))?;
                 let vocab = vocabulary_from_app(&app).await;
                 let wav = meeting_folder.join(dest_filename);
-                transcribe_file(&api_key, &wav, duration_seconds, &vocab).await
+                transcribe_file(
+                    &api_key,
+                    &wav,
+                    duration_seconds,
+                    &vocab,
+                    || IMPORT_CANCELLED.load(Ordering::SeqCst),
+                    "Import cancelled",
+                )
+                .await
             }
             .await;
             match gemini_result {
