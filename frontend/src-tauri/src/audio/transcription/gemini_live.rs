@@ -24,6 +24,8 @@ const KEY_MISSING_MSG: &str =
     "Chưa có API key Gemini. Nhập key ở Cài đặt → Nhận dạng, hoặc key LLM (custom-openai / Gemini).";
 const AUTH_MSG: &str =
     "API key Gemini không hợp lệ hoặc bị từ chối. Kiểm tra key trong Cài đặt → Nhận dạng.";
+const QUOTA_MSG: &str =
+    "Hết hạn mức Gemini Transcribe Live. Kiểm tra quota API rồi thử lại.";
 const DISCONNECT_MSG: &str = "Mất kết nối Gemini Transcribe Live. Kiểm tra mạng rồi ghi lại.";
 const MODEL_MSG: &str = "Model Gemini Transcribe Live không khả dụng. Thử lại sau hoặc đổi nhà cung cấp STT.";
 
@@ -31,6 +33,7 @@ const MODEL_MSG: &str = "Model Gemini Transcribe Live không khả dụng. Thử
 enum SessionEnd {
     ReceiverClosed,
     Auth,
+    Quota,
     ModelNotFound,
     NeedReconnect,
 }
@@ -101,6 +104,10 @@ pub fn start_gemini_live_task<R: Runtime>(
                     emit_error(&app, "Gemini STT authentication failed", AUTH_MSG);
                     return;
                 }
+                SessionEnd::Quota => {
+                    emit_error(&app, "Gemini STT quota exhausted", QUOTA_MSG);
+                    return;
+                }
                 SessionEnd::ModelNotFound => {
                     if model == PRIMARY_MODEL {
                         warn!("Gemini live model not found; retrying with preview");
@@ -154,29 +161,54 @@ fn build_setup(model: &str, vocab: &[String], resumption: Option<&str>) -> Value
     })
 }
 
-fn is_http_auth(err: &WsError) -> bool {
-    match err {
-        WsError::Http(resp) => matches!(resp.status().as_u16(), 401 | 403),
-        _ => {
-            let s = err.to_string();
-            s.contains("401") || s.contains("403")
-        }
+fn classify_http_status(status: u16) -> Option<SessionEnd> {
+    match status {
+        401 | 403 => Some(SessionEnd::Auth),
+        429 => Some(SessionEnd::Quota),
+        _ => None,
     }
+}
+
+fn classify_ws_error(err: &WsError) -> Option<SessionEnd> {
+    match err {
+        WsError::Http(resp) => classify_http_status(resp.status().as_u16()),
+        _ => classify_error_text(&err.to_string()),
+    }
+}
+
+fn classify_error_text(text: &str) -> Option<SessionEnd> {
+    let lower = text.to_lowercase();
+    if lower.contains("401") || lower.contains("403") {
+        return Some(SessionEnd::Auth);
+    }
+    if lower.contains("429")
+        || lower.contains("quota")
+        || lower.contains("resource exhausted")
+        || lower.contains("resource_exhausted")
+    {
+        return Some(SessionEnd::Quota);
+    }
+    None
 }
 
 fn classify_json_error(value: &Value) -> Option<SessionEnd> {
     let err = value.get("error")?;
     let code = err.get("code").and_then(|c| c.as_u64()).unwrap_or(0);
     let status = err.get("status").and_then(|s| s.as_str()).unwrap_or("");
-    let msg = err
-        .get("message")
-        .and_then(|s| s.as_str())
-        .unwrap_or("")
-        .to_lowercase();
-    if code == 401 || code == 403 || status == "UNAUTHENTICATED" || status == "PERMISSION_DENIED" {
+    let msg = err.get("message").and_then(|s| s.as_str()).unwrap_or("");
+    if let Some(end) = classify_http_status(code as u16) {
+        return Some(end);
+    }
+    if status == "UNAUTHENTICATED" || status == "PERMISSION_DENIED" {
         return Some(SessionEnd::Auth);
     }
-    if code == 404 || status == "NOT_FOUND" || msg.contains("not found") {
+    if status == "RESOURCE_EXHAUSTED" {
+        return Some(SessionEnd::Quota);
+    }
+    if let Some(end) = classify_error_text(msg) {
+        return Some(end);
+    }
+    if code == 404 || status == "NOT_FOUND" || msg.to_lowercase().contains("not found") {
         return Some(SessionEnd::ModelNotFound);
     }
     None
@@ -313,8 +345,8 @@ async fn run_session<R: Runtime>(
         Ok(pair) => pair,
         Err(e) => {
             warn!("Gemini live connect failed: {e}");
-            if is_http_auth(&e) {
-                return SessionEnd::Auth;
+            if let Some(end) = classify_ws_error(&e) {
+                return end;
             }
             return SessionEnd::NeedReconnect;
         }
@@ -361,8 +393,8 @@ async fn run_session<R: Runtime>(
                     None => return SessionEnd::NeedReconnect,
                     Some(Err(e)) => {
                         warn!("Gemini live setup read failed: {e}");
-                        if is_http_auth(&e) {
-                            return SessionEnd::Auth;
+                        if let Some(end) = classify_ws_error(&e) {
+                            return end;
                         }
                         return SessionEnd::NeedReconnect;
                     }
@@ -370,6 +402,9 @@ async fn run_session<R: Runtime>(
                         let reason = frame.as_ref().map(|f| f.reason.to_string()).unwrap_or_default();
                         if is_model_not_found_text(&reason) {
                             return SessionEnd::ModelNotFound;
+                        }
+                        if let Some(end) = classify_error_text(&reason) {
+                            return end;
                         }
                         return SessionEnd::NeedReconnect;
                     }
@@ -417,8 +452,8 @@ async fn run_session<R: Runtime>(
                     None => return SessionEnd::NeedReconnect,
                     Some(Err(e)) => {
                         warn!("Gemini live read failed: {e}");
-                        if is_http_auth(&e) {
-                            return SessionEnd::Auth;
+                        if let Some(end) = classify_ws_error(&e) {
+                            return end;
                         }
                         return SessionEnd::NeedReconnect;
                     }
@@ -426,6 +461,9 @@ async fn run_session<R: Runtime>(
                         let reason = frame.as_ref().map(|f| f.reason.to_string()).unwrap_or_default();
                         if is_model_not_found_text(&reason) {
                             return SessionEnd::ModelNotFound;
+                        }
+                        if let Some(end) = classify_error_text(&reason) {
+                            return end;
                         }
                         return SessionEnd::NeedReconnect;
                     }
@@ -495,5 +533,19 @@ mod tests {
             "error": { "code": 403, "status": "PERMISSION_DENIED", "message": "denied" }
         });
         assert_eq!(classify_json_error(&v), Some(SessionEnd::Auth));
+    }
+
+    #[test]
+    fn gemini_classifies_quota_as_fatal() {
+        let by_code = json!({ "error": { "code": 429, "message": "rate limit" } });
+        assert_eq!(classify_json_error(&by_code), Some(SessionEnd::Quota));
+
+        let by_status = json!({
+            "error": { "status": "RESOURCE_EXHAUSTED", "message": "quota exceeded" }
+        });
+        assert_eq!(classify_json_error(&by_status), Some(SessionEnd::Quota));
+        assert_eq!(classify_http_status(429), Some(SessionEnd::Quota));
+        assert_eq!(classify_error_text("429 Too Many Requests"), Some(SessionEnd::Quota));
+        assert_eq!(classify_http_status(401), Some(SessionEnd::Auth));
     }
 }

@@ -268,6 +268,23 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
     result
 }
 
+fn emit_validation_error<R: Runtime>(app: &AppHandle<R>, validation_error: &str) {
+    let key_err = crate::audio::transcription::gemini_key::is_stt_key_error(validation_error);
+    let user_message = if key_err {
+        validation_error
+    } else {
+        "Recording cannot start: Transcription model is still downloading. Please wait for the download to complete."
+    };
+    let _ = app.emit(
+        "transcription-error",
+        serde_json::json!({
+            "error": validation_error,
+            "userMessage": user_message,
+            "actionable": key_err
+        }),
+    );
+}
+
 async fn start_recording_with_meeting_name_inner<R: Runtime>(
     app: AppHandle<R>,
     meeting_name: Option<String>,
@@ -282,15 +299,7 @@ async fn start_recording_with_meeting_name_inner<R: Runtime>(
     info!("🔍 Validating transcription model availability before starting recording...");
     if let Err(validation_error) = transcription::validate_transcription_model_ready(&app).await {
         error!("Model validation failed: {}", validation_error);
-
-        // Emit error event for frontend - actionable: false to show toast instead of modal
-        // (download progress is already shown in top-right toast)
-        let _ = app.emit("transcription-error", serde_json::json!({
-            "error": validation_error,
-            "userMessage": "Recording cannot start: Transcription model is still downloading. Please wait for the download to complete.",
-            "actionable": false
-        }));
-
+        emit_validation_error(&app, &validation_error);
         return Err(validation_error);
     }
     info!("✅ Transcription model validation passed");
@@ -547,15 +556,7 @@ async fn start_recording_with_devices_and_meeting_inner<R: Runtime>(
     info!("🔍 Validating transcription model availability before starting recording...");
     if let Err(validation_error) = transcription::validate_transcription_model_ready(&app).await {
         error!("Model validation failed: {}", validation_error);
-
-        // Emit error event for frontend - actionable: false to show toast instead of modal
-        // (download progress is already shown in top-right toast)
-        let _ = app.emit("transcription-error", serde_json::json!({
-            "error": validation_error,
-            "userMessage": "Recording cannot start: Transcription model is still downloading. Please wait for the download to complete.",
-            "actionable": false
-        }));
-
+        emit_validation_error(&app, &validation_error);
         return Err(validation_error);
     }
     info!("✅ Transcription model validation passed");
@@ -906,22 +907,26 @@ pub async fn stop_recording<R: Runtime>(
     }
 
     // Step 2.5: Apply CAPU once over the full live transcript (after ASR drain).
-    let _ = app.emit(
-        "recording-shutdown-progress",
-        serde_json::json!({
-            "stage": "applying_punctuation",
-            "message": "Đang thêm dấu câu...",
-            "progress": 55
-        }),
-    );
+    // Gemini SMART mode already punctuates; do not run local CAPU on that path.
+    let skip_capu = live_stt_mode(&app).await == LiveSttMode::Gemini;
+    if !skip_capu {
+        let _ = app.emit(
+            "recording-shutdown-progress",
+            serde_json::json!({
+                "stage": "applying_punctuation",
+                "message": "Đang thêm dấu câu...",
+                "progress": 55
+            }),
+        );
 
-    // Ensure CAPU engine is loaded before finalize (startup init may still be in progress).
-    if crate::capu_engine::commands::capu_is_model_downloaded(app.clone())
-        .await
-        .unwrap_or(false)
-    {
-        if let Err(e) = crate::capu_engine::commands::capu_init(app.clone()).await {
-            warn!("CAPU init before live finalize failed: {}", e);
+        // Ensure CAPU engine is loaded before finalize (startup init may still be in progress).
+        if crate::capu_engine::commands::capu_is_model_downloaded(app.clone())
+            .await
+            .unwrap_or(false)
+        {
+            if let Err(e) = crate::capu_engine::commands::capu_init(app.clone()).await {
+                warn!("CAPU init before live finalize failed: {}", e);
+            }
         }
     }
 
@@ -936,27 +941,29 @@ pub async fn stop_recording<R: Runtime>(
         }
     }
 
-    if let Some(ref manager) = manager_for_cleanup {
-        let raw_segments = manager.get_transcript_segments();
-        let finalized_batches =
-            crate::capu_engine::live_finalize::finalize_live_with_capu(&raw_segments);
-        let sentence_count = finalized_batches.len();
-        manager.apply_live_capu_results(&finalized_batches);
-        for finalized in finalized_batches {
-            let payload = crate::audio::transcription::TranscriptFinalized {
-                source_sequence_ids: finalized.source_ids,
-                text: finalized.text,
-                audio_start_time: finalized.audio_start_time,
-                audio_end_time: finalized.audio_end_time,
-            };
-            if let Err(e) = app.emit("transcript-finalized", &payload) {
-                warn!("Failed to emit transcript-finalized after live CAPU: {}", e);
+    if !skip_capu {
+        if let Some(ref manager) = manager_for_cleanup {
+            let raw_segments = manager.get_transcript_segments();
+            let finalized_batches =
+                crate::capu_engine::live_finalize::finalize_live_with_capu(&raw_segments);
+            let sentence_count = finalized_batches.len();
+            manager.apply_live_capu_results(&finalized_batches);
+            for finalized in finalized_batches {
+                let payload = crate::audio::transcription::TranscriptFinalized {
+                    source_sequence_ids: finalized.source_ids,
+                    text: finalized.text,
+                    audio_start_time: finalized.audio_start_time,
+                    audio_end_time: finalized.audio_end_time,
+                };
+                if let Err(e) = app.emit("transcript-finalized", &payload) {
+                    warn!("Failed to emit transcript-finalized after live CAPU: {}", e);
+                }
             }
+            info!(
+                "✅ Live CAPU finalize applied ({} sentence(s))",
+                sentence_count
+            );
         }
-        info!(
-            "✅ Live CAPU finalize applied ({} sentence(s))",
-            sentence_count
-        );
     }
 
     // Step 3: Now safely unload Whisper model after ALL chunks are processed

@@ -87,6 +87,11 @@ pub fn needs_local_asr(provider: SttProvider) -> bool {
     provider == SttProvider::Asr
 }
 
+pub fn is_stt_key_error(msg: &str) -> bool {
+    let lower = msg.to_lowercase();
+    lower.contains("api key") || lower.contains("gemini") || lower.contains("key")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -129,6 +134,16 @@ mod tests {
     fn gemini_skips_local_asr() {
         assert!(!needs_local_asr(SttProvider::Gemini));
         assert!(needs_local_asr(SttProvider::Asr));
+    }
+
+    #[test]
+    fn gemini_key_error_matches_resolve_message() {
+        assert!(is_stt_key_error(
+            "Chưa có API key Gemini. Nhập key ở Cài đặt → Nhận dạng, hoặc key LLM (custom-openai / Gemini)."
+        ));
+        assert!(!is_stt_key_error(
+            "Recording cannot start: Transcription model is still downloading. Please wait for the download to complete."
+        ));
     }
 
     #[test]
