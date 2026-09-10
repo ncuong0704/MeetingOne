@@ -4,6 +4,7 @@
 
 pub mod asr_provider;
 pub mod engine;
+pub mod gemini_file;
 pub mod gemini_key;
 pub mod gemini_live;
 pub mod gemini_parse;

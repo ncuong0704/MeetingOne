@@ -2,6 +2,10 @@
 
 use crate::audio::audio_processing::create_meeting_folder;
 use crate::audio::decoder::load_audio_for_file_pipeline;
+use crate::audio::transcription::gemini_file::{
+    reject_if_too_long, transcribe_file, vocabulary_from_app,
+};
+use crate::audio::transcription::gemini_key::{resolve_stt_api_key, SttProvider};
 use crate::audio::vad::get_speech_chunks_with_progress;
 use super::common::write_transcripts_json;
 use super::file_batch_prepare::{boost_audio_for_vad, prepare_file_asr_segments};
@@ -169,6 +173,41 @@ async fn run_retranscription<R: Runtime>(
         audio_samples.len()
     );
 
+    let file_provider = {
+        let app_state = app
+            .try_state::<AppState>()
+            .ok_or_else(|| anyhow!("App state not available"))?;
+        crate::database::repositories::setting::SettingsRepository::get_stt_provider(
+            app_state.db_manager.pool(),
+            crate::asr_engine::config::AsrPath::File,
+        )
+        .await
+    };
+
+    let mut segments = if file_provider == SttProvider::Gemini {
+        if RETRANSCRIPTION_CANCELLED.load(Ordering::SeqCst) {
+            return Err(anyhow!("Retranscription cancelled"));
+        }
+        reject_if_too_long(duration_seconds)?;
+        emit_progress(
+            &app,
+            &meeting_id,
+            "transcribing",
+            25,
+            "Đang nhận dạng bằng Gemini...",
+        );
+        let app_state = app
+            .try_state::<AppState>()
+            .ok_or_else(|| anyhow!("App state not available"))?;
+        let api_key = resolve_stt_api_key(app_state.db_manager.pool())
+            .await
+            .map_err(|e| anyhow!(e))?;
+        let vocab = vocabulary_from_app(&app).await;
+        if RETRANSCRIPTION_CANCELLED.load(Ordering::SeqCst) {
+            return Err(anyhow!("Retranscription cancelled"));
+        }
+        transcribe_file(&api_key, &audio_path, duration_seconds, &vocab).await?
+    } else {
     emit_progress(&app, &meeting_id, "vad", 15, "Detecting speech segments...");
 
     if RETRANSCRIPTION_CANCELLED.load(Ordering::SeqCst) {
@@ -290,7 +329,7 @@ async fn run_retranscription<R: Runtime>(
 
     let app_for_progress = app.clone();
     let meeting_id_for_progress = meeting_id.clone();
-    let mut segments = crate::audio::batch_transcribe::batch_transcribe(
+    crate::audio::batch_transcribe::batch_transcribe(
         &app,
         processable_segments,
         leading_context_samples,
@@ -307,7 +346,8 @@ async fn run_retranscription<R: Runtime>(
         },
         || RETRANSCRIPTION_CANCELLED.load(Ordering::SeqCst),
     )
-    .await?;
+    .await?
+    };
 
     info!("Transcription complete: {} segments", segments.len());
 

@@ -79,8 +79,18 @@ pub fn vocabulary_from_hotwords(text: &str) -> Vec<String> {
         .map(str::trim)
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
         .take(100)
+        .map(strip_sherpa_score)
         .map(|s| s.to_string())
         .collect()
+}
+
+fn strip_sherpa_score(line: &str) -> &str {
+    match line.rsplit_once(':') {
+        Some((phrase, score)) if !phrase.is_empty() && score.trim().parse::<f32>().is_ok() => {
+            phrase.trim()
+        }
+        _ => line,
+    }
 }
 
 pub fn needs_local_asr(provider: SttProvider) -> bool {
@@ -157,5 +167,11 @@ mod tests {
         let v = vocabulary_from_hotwords(&text);
         assert_eq!(v[0], "ACT");
         assert_eq!(v.len(), 100);
+    }
+
+    #[test]
+    fn vocabulary_strips_sherpa_score_suffix() {
+        let v = vocabulary_from_hotwords("ACT:2.5\nỦY BAN NHÂN DÂN :2.5\nplain");
+        assert_eq!(v, vec!["ACT", "ỦY BAN NHÂN DÂN", "plain"]);
     }
 }

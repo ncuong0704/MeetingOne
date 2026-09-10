@@ -2,6 +2,10 @@
 
 use crate::api::TranscriptSegment;
 use crate::audio::decoder::{decode_audio_file, load_audio_for_file_pipeline};
+use crate::audio::transcription::gemini_file::{
+    reject_if_too_long, transcribe_file, vocabulary_from_app,
+};
+use crate::audio::transcription::gemini_key::{resolve_stt_api_key, SttProvider};
 use crate::audio::vad::get_speech_chunks_with_progress;
 use crate::state::AppState;
 use anyhow::{anyhow, Result};
@@ -519,12 +523,68 @@ async fn run_import<R: Runtime>(
         }
     };
 
-    info!(
-        "Audio ready for VAD (raw decode, preprocess deferred until after VAD concat): {} samples",
-        audio_samples.len()
-    );
+    let file_provider = {
+        let app_state = app
+            .try_state::<AppState>()
+            .ok_or_else(|| anyhow!("App state not available"))?;
+        crate::database::repositories::setting::SettingsRepository::get_stt_provider(
+            app_state.db_manager.pool(),
+            crate::asr_engine::config::AsrPath::File,
+        )
+        .await
+    };
 
-    emit_progress(&app, "vad", 25, "Detecting speech segments...");
+    let (mut segments, total_segments, processable_count, prepare_stats) =
+        if file_provider == SttProvider::Gemini {
+            if IMPORT_CANCELLED.load(Ordering::SeqCst) {
+                let _ = std::fs::remove_dir_all(&meeting_folder);
+                return Err(anyhow!("Import cancelled"));
+            }
+            emit_progress(&app, "transcribing", 30, "Đang nhận dạng bằng Gemini...");
+            let gemini_result = async {
+                reject_if_too_long(duration_seconds)?;
+                let app_state = app
+                    .try_state::<AppState>()
+                    .ok_or_else(|| anyhow!("App state not available"))?;
+                let api_key = resolve_stt_api_key(app_state.db_manager.pool())
+                    .await
+                    .map_err(|e| anyhow!(e))?;
+                let vocab = vocabulary_from_app(&app).await;
+                let wav = meeting_folder.join(dest_filename);
+                transcribe_file(&api_key, &wav, duration_seconds, &vocab).await
+            }
+            .await;
+            match gemini_result {
+                Ok(segs) => {
+                    bench.mark("transcribe");
+                    let n = segs.len();
+                    (
+                        segs,
+                        0usize,
+                        n,
+                        super::file_batch_prepare::FilePrepareStats {
+                            vad_segments_in: 0,
+                            vad_ranges_merged: 0,
+                            asr_chunks_out: 0,
+                            preprocess_sec: 0.0,
+                            concat_speech_sec: 0.0,
+                            speech_coverage_pct: 0.0,
+                            used_full_audio_fallback: false,
+                        },
+                    )
+                }
+                Err(e) => {
+                    let _ = std::fs::remove_dir_all(&meeting_folder);
+                    return Err(e);
+                }
+            }
+        } else {
+            info!(
+                "Audio ready for VAD (raw decode, preprocess deferred until after VAD concat): {} samples",
+                audio_samples.len()
+            );
+
+            emit_progress(&app, "vad", 25, "Detecting speech segments...");
 
     // Check for cancellation
     if IMPORT_CANCELLED.load(Ordering::SeqCst) {
@@ -727,37 +787,41 @@ async fn run_import<R: Runtime>(
         )
     };
 
-    let app_for_progress = app.clone();
-    let mut segments = match crate::audio::batch_transcribe::batch_transcribe(
-        &app,
-        processable_segments,
-        leading_context_samples,
-        primary,
-        move |done, total| {
-            let progress = 30 + ((done as f32 / total.max(1) as f32) * 50.0) as u32;
-            emit_progress(
-                &app_for_progress,
-                "transcribing",
-                progress,
-                &format!("Transcribing segment {} of {}...", done, total),
-            );
-        },
-        || IMPORT_CANCELLED.load(Ordering::SeqCst),
-    )
-    .await
-    {
-        Ok(segments) => segments,
-        Err(e) => {
-            // Cancellation (or any other transcription failure) leaves the copied audio
-            // file and meeting folder behind unless we clean up here — every other
-            // early-return path in this function already does this same cleanup.
-            let _ = std::fs::remove_dir_all(&meeting_folder);
-            return Err(e);
-        }
-    };
+            let app_for_progress = app.clone();
+            let segments = match crate::audio::batch_transcribe::batch_transcribe(
+                &app,
+                processable_segments,
+                leading_context_samples,
+                primary,
+                move |done, total| {
+                    let progress = 30 + ((done as f32 / total.max(1) as f32) * 50.0) as u32;
+                    emit_progress(
+                        &app_for_progress,
+                        "transcribing",
+                        progress,
+                        &format!("Transcribing segment {} of {}...", done, total),
+                    );
+                },
+                || IMPORT_CANCELLED.load(Ordering::SeqCst),
+            )
+            .await
+            {
+                Ok(segments) => segments,
+                Err(e) => {
+                    // Cancellation (or any other transcription failure) leaves the copied audio
+                    // file and meeting folder behind unless we clean up here — every other
+                    // early-return path in this function already does this same cleanup.
+                    let _ = std::fs::remove_dir_all(&meeting_folder);
+                    return Err(e);
+                }
+            };
+
+            info!("Transcription complete: {} segments", segments.len());
+            bench.mark("transcribe");
+            (segments, total_segments, processable_count, prepare_stats)
+        };
 
     info!("Transcription complete: {} segments", segments.len());
-    bench.mark("transcribe");
 
     // Check for cancellation
     if IMPORT_CANCELLED.load(Ordering::SeqCst) {
