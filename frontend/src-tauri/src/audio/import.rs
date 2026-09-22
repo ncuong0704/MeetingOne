@@ -519,6 +519,15 @@ async fn run_import<R: Runtime>(
     );
     bench.mark("decode_resample");
 
+    // Fire-and-forget: build the playback MP4 sidecar now, in parallel with the
+    // VAD/ASR work below (which takes far longer), so a long import's audio is
+    // already playable with no on-demand transcode wait by the time the user opens it.
+    crate::audio::retranscription::spawn_playback_prepare(
+        app.clone(),
+        meeting_folder.to_string_lossy().into_owned(),
+        meeting_folder.join(dest_filename),
+    );
+
     // Check for cancellation
     if IMPORT_CANCELLED.load(Ordering::SeqCst) {
         let _ = std::fs::remove_dir_all(&meeting_folder);

@@ -34,10 +34,8 @@ export function AudioPlayer({
   onTimeUpdate,
   onReady,
 }: AudioPlayerProps) {
-  const { isPlaying, currentTime, duration, error, play, pause, seek } = useAudioPlayer(
-    meetingFolderPath,
-    onTimeUpdate,
-  );
+  const { isPlaying, currentTime, duration, error, isPreparing, prepareProgress, play, pause, seek } =
+    useAudioPlayer(meetingFolderPath, onTimeUpdate);
 
   // Expose seek to parent via ref
   if (seekRef) {
@@ -83,6 +81,27 @@ export function AudioPlayer({
       <div className="flex items-center gap-2 border-b border-orange-100 bg-orange-50 px-4 py-2.5">
         <MicOff className="h-3.5 w-3.5 shrink-0 text-orange-500" />
         <span className="text-xs text-orange-600">Không thể phát file ghi âm. Thử mở thư mục cuộc họp và phát file trên máy.</span>
+      </div>
+    );
+  }
+
+  if (error === 'PREPARE_FAILED') {
+    return (
+      <div className="flex items-center gap-2 border-b border-orange-100 bg-orange-50 px-4 py-2.5">
+        <MicOff className="h-3.5 w-3.5 shrink-0 text-orange-500" />
+        <span className="text-xs text-orange-600">Không thể chuẩn bị file âm thanh để phát. Vui lòng thử lại sau.</span>
+      </div>
+    );
+  }
+
+  if (isPreparing) {
+    return (
+      <div className="flex items-center gap-2 border-b border-rule bg-paper px-4 py-2.5">
+        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+        <span className="text-xs text-muted-foreground">
+          Đang nén âm thanh để phát lần đầu
+          {prepareProgress > 0 ? ` — ${prepareProgress}%` : '…'}
+        </span>
       </div>
     );
   }

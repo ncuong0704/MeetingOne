@@ -13,9 +13,10 @@ use super::constants::AUDIO_EXTENSIONS;
 use crate::state::AppState;
 use anyhow::{anyhow, Result};
 use log::{debug, error, info, warn};
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 static RETRANSCRIPTION_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
@@ -593,6 +594,11 @@ pub async fn is_retranscription_in_progress_command() -> bool {
 /// WAV larger than this is not sent through JS IPC (a 3-hour import freezes WebView2).
 const MAX_BLOB_BYTES: u64 = 32 * 1024 * 1024;
 
+/// At most one ffmpeg transcode runs at any moment; queued prepares wait here.
+/// Keeps CPU load predictable on weak machines instead of stacking one encoder
+/// per opened meeting on top of ASR/UI work.
+static TRANSCODE_GATE: Lazy<tokio::sync::Mutex<()>> = Lazy::new(|| tokio::sync::Mutex::new(()));
+
 fn playback_mp4_sidecar(wav: &Path) -> PathBuf {
     wav.with_file_name("audio_playback.mp4")
 }
@@ -619,14 +625,68 @@ fn sidecar_is_fresh(wav: &Path, sidecar: &Path) -> bool {
     }
 }
 
-fn transcode_wav_to_aac_mp4(wav: &Path, dest: &Path) -> Result<(), String> {
+/// Hard ceiling on one transcode. AAC-encoding speech is far faster than realtime,
+/// so even a 3-hour recording finishes well under this; it exists to fail loudly
+/// instead of leaving a worker stuck on a wedged ffmpeg.
+const FFMPEG_TRANSCODE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
+fn transcode_tmp_path(dest: &Path) -> PathBuf {
+    let mut name = dest.as_os_str().to_os_string();
+    name.push(".tmp");
+    PathBuf::from(name)
+}
+
+/// PCM WAV duration from the RIFF header (data size / byte rate), used to turn
+/// ffmpeg's `out_time` into a percentage for the UI. None for odd headers —
+/// callers then just skip progress events.
+fn wav_duration_seconds(path: &Path) -> Option<f64> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut head = vec![0u8; 4096];
+    let n = file.read(&mut head).ok()?;
+    head.truncate(n);
+    if head.len() < 12 || &head[0..4] != b"RIFF" || &head[8..12] != b"WAVE" {
+        return None;
+    }
+    let u32le = |off: usize| -> u32 {
+        u32::from_le_bytes([head[off], head[off + 1], head[off + 2], head[off + 3]])
+    };
+    let mut byte_rate = None;
+    let mut data_size = None;
+    let mut off = 12;
+    while off + 8 <= head.len() {
+        let id = &head[off..off + 4];
+        let size = u32le(off + 4) as usize;
+        let body = off + 8;
+        if id == b"fmt " && body + 12 <= head.len() {
+            byte_rate = Some(u32le(body + 8));
+        } else if id == b"data" {
+            data_size = Some(size as u64);
+        }
+        if byte_rate.is_some() && data_size.is_some() {
+            break;
+        }
+        off = body + size + (size & 1); // RIFF chunks are word-aligned
+    }
+    let rate = byte_rate.filter(|r| *r > 0)?;
+    Some(data_size? as f64 / rate as f64)
+}
+
+fn transcode_wav_to_aac_mp4(
+    wav: &Path,
+    dest: &Path,
+    mut on_progress: impl FnMut(f64),
+) -> Result<(), String> {
     let ffmpeg_path = super::ffmpeg::find_ffmpeg_path().ok_or_else(|| {
         "FFmpeg not found. Cannot prepare a long recording for playback.".to_string()
     })?;
     let wav_str = wav
         .to_str()
         .ok_or_else(|| format!("WAV path is not valid UTF-8: {}", wav.display()))?;
-    let dest_str = dest
+    // Encode into a temp file and rename on success, so a crash/kill can never
+    // leave a half-written sidecar that `sidecar_is_fresh` would trust later.
+    let tmp = transcode_tmp_path(dest);
+    let tmp_str = tmp
         .to_str()
         .ok_or_else(|| format!("Playback path is not valid UTF-8: {}", dest.display()))?;
 
@@ -635,75 +695,319 @@ fn transcode_wav_to_aac_mp4(wav: &Path, dest: &Path) -> Result<(), String> {
         "-hide_banner",
         "-loglevel",
         "error",
+        "-nostats",
+        "-progress",
+        "pipe:1",
         "-y",
         "-i",
         wav_str,
+        // CPU-polite: cap encoder threads so weak machines stay responsive while
+        // the app's UI/ASR work continues; speech AAC still encodes far faster
+        // than realtime on two threads.
+        "-threads",
+        "2",
         "-c:a",
         "aac",
+        // 16 kHz mono speech: 96k is transparent for AAC-LC at this rate and
+        // keeps the sidecar (and the disk I/O to write it) half the size.
         "-b:a",
-        "192k",
+        "96k",
         "-profile:a",
         "aac_low",
         "-movflags",
         "+faststart",
         "-f",
         "mp4",
-        dest_str,
+        tmp_str,
     ]);
+    command.stdout(std::process::Stdio::piped());
+    command.stderr(std::process::Stdio::piped());
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        command.creation_flags(CREATE_NO_WINDOW);
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x4000_0000;
+        command.creation_flags(CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS);
     }
 
-    let output = command
-        .output()
+    let mut child = command
+        .spawn()
         .map_err(|e| format!("Failed to run FFmpeg: {e}"))?;
-    if !output.status.success() {
-        let _ = std::fs::remove_file(dest);
-        let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // Drain both pipes concurrently: stdout carries `-progress` key=value lines
+    // (latest out_time_us lands in the atomic), stderr is kept for diagnostics.
+    // Without readers a chatty child deadlocks on a full pipe.
+    let out_time_us = std::sync::Arc::new(AtomicU64::new(0));
+    if let Some(stdout) = child.stdout.take() {
+        let sink = std::sync::Arc::clone(&out_time_us);
+        std::thread::spawn(move || {
+            use std::io::{BufRead, BufReader};
+            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                if let Some(value) = line.strip_prefix("out_time_us=") {
+                    if let Ok(us) = value.trim().parse::<u64>() {
+                        sink.store(us, Ordering::Relaxed);
+                    }
+                }
+            }
+        });
+    }
+    let stderr_buf = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    if let Some(mut stderr) = child.stderr.take() {
+        let buf = std::sync::Arc::clone(&stderr_buf);
+        std::thread::spawn(move || {
+            use std::io::Read;
+            let mut collected = String::new();
+            let _ = stderr.read_to_string(&mut collected);
+            if let Ok(mut guard) = buf.lock() {
+                *guard = collected;
+            }
+        });
+    }
+
+    let start = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if start.elapsed() > FFMPEG_TRANSCODE_TIMEOUT {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = std::fs::remove_file(&tmp);
+                    return Err("FFmpeg transcode timed out".to_string());
+                }
+                on_progress(out_time_us.load(Ordering::Relaxed) as f64 / 1_000_000.0);
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+            Err(e) => {
+                let _ = std::fs::remove_file(&tmp);
+                return Err(format!("Failed to poll FFmpeg: {e}"));
+            }
+        }
+    };
+
+    if !status.success() {
+        let _ = std::fs::remove_file(&tmp);
+        let stderr = stderr_buf.lock().map(|g| g.clone()).unwrap_or_default();
         return Err(format!("FFmpeg transcode failed: {stderr}"));
     }
-    if !dest.exists() || std::fs::metadata(dest).map(|m| m.len()).unwrap_or(0) == 0 {
+    std::fs::rename(&tmp, dest).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("Failed to finalize playback MP4: {e}")
+    })?;
+    if std::fs::metadata(dest).map(|m| m.len()).unwrap_or(0) == 0 {
         let _ = std::fs::remove_file(dest);
         return Err("FFmpeg did not write a playback MP4".to_string());
     }
     Ok(())
 }
 
-/// WebView2 cannot play 16 kHz PCM WAV via convertFileSrc. Small WAV stays as-is
-/// (frontend blobs it). Long WAV is transcoded to AAC MP4 on disk once, then reused.
-fn ensure_webview_playable_path(path: PathBuf) -> Result<PathBuf, String> {
+/// What the player should do with a meeting folder right now. Serialized to the
+/// frontend as `{"status":"ready","path":...}` or `{"status":"preparing"}`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub enum MeetingAudioResolution {
+    /// A playable file is on disk; `path` is absolute.
+    Ready { path: String },
+    /// A background transcode was just kicked off. The frontend receives
+    /// `meeting-audio-progress` (`MeetingAudioPrepareProgress`) while it runs and
+    /// `meeting-audio-status` (`MeetingAudioStatus`) when it is playable.
+    Preparing,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeetingAudioStatus {
+    pub folder_path: String,
+    pub ready: bool,
+    pub path: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MeetingAudioPrepareProgress {
+    folder_path: String,
+    percent: u32,
+}
+
+enum ResolvedPlayback {
+    Ready(PathBuf),
+    NeedsPrepare(PathBuf),
+}
+
+/// Fire-and-forget: make `wav` playable entirely off the user's path. Serialized
+/// through `TRANSCODE_GATE` (one ffmpeg at a time, CPU-capped inside), re-checks
+/// sidecar freshness under the gate so queued duplicates do no work, and notifies
+/// the UI via `meeting-audio-status` in every outcome — including errors, so the
+/// frontend never waits on an event that will not come.
+pub(crate) fn spawn_playback_prepare<R: Runtime>(
+    app: AppHandle<R>,
+    folder_path: String,
+    wav: PathBuf,
+) {
+    tauri::async_runtime::spawn(async move {
+        let _gate = TRANSCODE_GATE.lock().await;
+
+        let status_error = |app: &AppHandle<R>, folder_path: &str, error: String| {
+            let _ = app.emit(
+                "meeting-audio-status",
+                MeetingAudioStatus {
+                    folder_path: folder_path.to_string(),
+                    ready: false,
+                    path: None,
+                    error: Some(error),
+                },
+            );
+        };
+
+        let size = match std::fs::metadata(&wav) {
+            Ok(meta) => meta.len(),
+            Err(e) => {
+                status_error(&app, &folder_path, format!("Cannot read audio file: {e}"));
+                return;
+            }
+        };
+        if !playback_file_needs_mp4_transcode(&wav, size) {
+            // Small enough not to need a sidecar after all (e.g. replaced file).
+            let _ = app.emit(
+                "meeting-audio-status",
+                MeetingAudioStatus {
+                    folder_path,
+                    ready: true,
+                    path: Some(wav.to_string_lossy().into_owned()),
+                    error: None,
+                },
+            );
+            return;
+        }
+        let sidecar = playback_mp4_sidecar(&wav);
+        if sidecar_is_fresh(&wav, &sidecar) {
+            let _ = app.emit(
+                "meeting-audio-status",
+                MeetingAudioStatus {
+                    folder_path,
+                    ready: true,
+                    path: Some(sidecar.to_string_lossy().into_owned()),
+                    error: None,
+                },
+            );
+            return;
+        }
+
+        info!(
+            "Preparing playback MP4 sidecar in background for {}",
+            wav.display()
+        );
+        let wav_for_task = wav.clone();
+        let sidecar_for_task = sidecar.clone();
+        let folder_for_progress = folder_path.clone();
+        let app_for_progress = app.clone();
+        let duration = wav_duration_seconds(&wav);
+        let mut last_percent = u32::MAX;
+        let result = tokio::task::spawn_blocking(move || {
+            transcode_wav_to_aac_mp4(&wav_for_task, &sidecar_for_task, |seconds| {
+                let total = duration.unwrap_or(0.0);
+                if total <= 0.0 {
+                    return;
+                }
+                let percent = ((seconds / total).clamp(0.0, 1.0) * 100.0) as u32;
+                if percent != last_percent {
+                    last_percent = percent;
+                    let _ = app_for_progress.emit(
+                        "meeting-audio-progress",
+                        MeetingAudioPrepareProgress {
+                            folder_path: folder_for_progress.clone(),
+                            percent,
+                        },
+                    );
+                }
+            })
+        })
+        .await
+        .map_err(|e| format!("Transcode task panicked: {e}"))
+        .and_then(|r| r);
+
+        match result {
+            Ok(()) => {
+                let _ = app.emit(
+                    "meeting-audio-status",
+                    MeetingAudioStatus {
+                        folder_path,
+                        ready: true,
+                        path: Some(sidecar.to_string_lossy().into_owned()),
+                        error: None,
+                    },
+                );
+            }
+            Err(e) => {
+                warn!("Playback sidecar prepare failed for {}: {}", wav.display(), e);
+                status_error(&app, &folder_path, e);
+            }
+        }
+    });
+}
+
+fn resolve_playback_sync(folder_path: String) -> Result<ResolvedPlayback, String> {
+    let trimmed = folder_path.trim_end_matches(|c| c == '/' || c == '\\');
+    let path = find_audio_file(Path::new(trimmed)).map_err(|e| e.to_string())?;
     let size = std::fs::metadata(&path)
         .map_err(|e| e.to_string())?
         .len();
     if !playback_file_needs_mp4_transcode(&path, size) {
-        return Ok(path);
+        return Ok(ResolvedPlayback::Ready(path));
     }
     let sidecar = playback_mp4_sidecar(&path);
     if sidecar_is_fresh(&path, &sidecar) {
-        return Ok(sidecar);
+        return Ok(ResolvedPlayback::Ready(sidecar));
     }
-    transcode_wav_to_aac_mp4(&path, &sidecar)?;
-    Ok(sidecar)
+    // Never transcode inline: this must answer in milliseconds. The caller kicks
+    // off `spawn_playback_prepare` and reports `Preparing` to the UI instead.
+    Ok(ResolvedPlayback::NeedsPrepare(path))
 }
 
-/// Returns absolute path to the meeting audio file prepared for in-app playback.
+/// Returns the playback-ready path, or `Preparing` while a background transcode
+/// runs. The file-existence/freshness checks run on the blocking-task pool — a
+/// plain (non-`async`) `#[tauri::command]` executes on the main/event-loop thread,
+/// which previously froze the whole WebView for the duration of the work.
 #[tauri::command]
-pub fn resolve_meeting_audio_file_path(folder_path: String) -> Result<String, String> {
-    let trimmed = folder_path.trim_end_matches(|c| c == '/' || c == '\\');
-    let folder = Path::new(trimmed);
-    let path = find_audio_file(folder).map_err(|e| e.to_string())?;
-    ensure_webview_playable_path(path).map(|p| p.to_string_lossy().to_string())
+pub async fn resolve_meeting_audio_file_path<R: Runtime>(
+    app: AppHandle<R>,
+    folder_path: String,
+) -> Result<MeetingAudioResolution, String> {
+    let folder_for_sync = folder_path.clone();
+    let outcome = tokio::task::spawn_blocking(move || resolve_playback_sync(folder_for_sync))
+        .await
+        .map_err(|e| format!("Audio resolve task panicked: {e}"))??;
+    match outcome {
+        ResolvedPlayback::Ready(path) => Ok(MeetingAudioResolution::Ready {
+            path: path.to_string_lossy().into_owned(),
+        }),
+        ResolvedPlayback::NeedsPrepare(wav) => {
+            spawn_playback_prepare(app, folder_path, wav);
+            Ok(MeetingAudioResolution::Preparing)
+        }
+    }
 }
 
 /// Bytes of the meeting playback file. Used for imported 16 kHz WAV: WebView2's
 /// `<audio>` element often rejects `convertFileSrc` for PCM WAV even when the
 /// file exists (MEDIA_ERR_SRC_NOT_SUPPORTED), which the UI used to show as
 /// "no recording saved".
+///
+/// Returns a raw IPC response (an ArrayBuffer on the JS side): a `Vec<u8>` result
+/// would be JSON-serialized as an array of numbers — roughly 3x the byte count —
+/// and WebView2's `JSON.parse` of a ~30 MB file's array froze the UI for seconds.
 #[tauri::command]
-pub fn read_meeting_audio_file(folder_path: String) -> Result<Vec<u8>, String> {
+pub async fn read_meeting_audio_file(
+    folder_path: String,
+) -> Result<tauri::ipc::Response, String> {
+    let bytes = tokio::task::spawn_blocking(move || read_meeting_audio_file_sync(folder_path))
+        .await
+        .map_err(|e| format!("Audio read task panicked: {e}"))??;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+fn read_meeting_audio_file_sync(folder_path: String) -> Result<Vec<u8>, String> {
     let trimmed = folder_path.trim_end_matches(|c| c == '/' || c == '\\');
     let path = find_audio_file(Path::new(trimmed)).map_err(|e| e.to_string())?;
     let len = std::fs::metadata(&path)
@@ -766,7 +1070,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("audio.wav"), b"RIFF-playback").unwrap();
 
-        let bytes = read_meeting_audio_file(dir.path().to_string_lossy().to_string())
+        let bytes = read_meeting_audio_file_sync(dir.path().to_string_lossy().to_string())
             .expect("read wav");
         assert_eq!(bytes, b"RIFF-playback");
     }
@@ -778,7 +1082,7 @@ mod tests {
         let file = std::fs::File::create(&path).unwrap();
         file.set_len(33 * 1024 * 1024).unwrap();
 
-        let err = read_meeting_audio_file(dir.path().to_string_lossy().to_string())
+        let err = read_meeting_audio_file_sync(dir.path().to_string_lossy().to_string())
             .expect_err("huge wav");
         assert!(err.contains("FILE_TOO_LARGE_FOR_BLOB"), "{err}");
     }
@@ -832,10 +1136,34 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("audio.wav"), b"RIFF-playback").unwrap();
 
-        let resolved = resolve_meeting_audio_file_path(dir.path().to_string_lossy().to_string())
-            .expect("resolve wav");
-        assert!(resolved.ends_with("audio.wav"), "{resolved}");
+        match resolve_playback_sync(dir.path().to_string_lossy().to_string())
+            .expect("resolve wav")
+        {
+            ResolvedPlayback::Ready(path) => {
+                assert!(path.ends_with("audio.wav"), "{path:?}")
+            }
+            ResolvedPlayback::NeedsPrepare(_) => panic!("small wav must resolve Ready"),
+        }
         assert!(!dir.path().join("audio_playback.mp4").exists());
+    }
+
+    #[test]
+    fn large_wav_without_sidecar_needs_prepare_without_running_ffmpeg() {
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("audio.wav");
+        let file = std::fs::File::create(&wav).unwrap();
+        file.set_len(MAX_BLOB_BYTES + 1).unwrap();
+        drop(file);
+
+        match resolve_playback_sync(dir.path().to_string_lossy().to_string())
+            .expect("resolve large wav")
+        {
+            ResolvedPlayback::NeedsPrepare(path) => assert_eq!(path, wav),
+            ResolvedPlayback::Ready(_) => panic!("large wav without fresh sidecar must not block"),
+        }
+        // Critically: no synchronous ffmpeg ran, no partial sidecar left behind.
+        assert!(!dir.path().join("audio_playback.mp4").exists());
+        assert!(!dir.path().join("audio_playback.mp4.tmp").exists());
     }
 
     #[test]
@@ -848,12 +1176,73 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(20));
         std::fs::write(dir.path().join("audio_playback.mp4"), b"cached-mp4").unwrap();
 
-        let resolved = resolve_meeting_audio_file_path(dir.path().to_string_lossy().to_string())
-            .expect("resolve sidecar");
-        assert!(
-            resolved.ends_with("audio_playback.mp4"),
-            "{resolved}"
-        );
+        match resolve_playback_sync(dir.path().to_string_lossy().to_string())
+            .expect("resolve sidecar")
+        {
+            ResolvedPlayback::Ready(path) => {
+                assert!(path.ends_with("audio_playback.mp4"), "{path:?}")
+            }
+            ResolvedPlayback::NeedsPrepare(_) => panic!("fresh sidecar must resolve Ready"),
+        }
+    }
+
+    #[test]
+    fn wav_duration_reads_byte_rate_and_data_size() {
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("audio.wav");
+        let mut bytes: Vec<u8> = Vec::new();
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&36u32.to_le_bytes());
+        bytes.extend_from_slice(b"WAVE");
+        bytes.extend_from_slice(b"fmt ");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // mono
+        bytes.extend_from_slice(&16_000u32.to_le_bytes()); // sample rate
+        bytes.extend_from_slice(&32_000u32.to_le_bytes()); // byte rate
+        bytes.extend_from_slice(&2u16.to_le_bytes()); // block align
+        bytes.extend_from_slice(&16u16.to_le_bytes()); // bits per sample
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&3_200_000u32.to_le_bytes()); // 100 s @ 32 kB/s
+        std::fs::write(&wav, &bytes).unwrap();
+
+        assert_eq!(wav_duration_seconds(&wav), Some(100.0));
+    }
+
+    #[test]
+    fn wav_duration_walks_chunks_and_pads_odd_sizes() {
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("audio.wav");
+        let mut bytes: Vec<u8> = Vec::new();
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&0u32.to_le_bytes());
+        bytes.extend_from_slice(b"WAVE");
+        bytes.extend_from_slice(b"LIST");
+        bytes.extend_from_slice(&3u32.to_le_bytes()); // odd size -> needs pad byte
+        bytes.extend_from_slice(b"abc");
+        bytes.extend_from_slice(&[0u8]); // padding
+        bytes.extend_from_slice(b"fmt ");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&8_000u32.to_le_bytes());
+        bytes.extend_from_slice(&16_000u32.to_le_bytes()); // 16 kB/s
+        bytes.extend_from_slice(&2u16.to_le_bytes());
+        bytes.extend_from_slice(&16u16.to_le_bytes());
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&1_600_000u32.to_le_bytes()); // 100 s
+        std::fs::write(&wav, &bytes).unwrap();
+
+        assert_eq!(wav_duration_seconds(&wav), Some(100.0));
+    }
+
+    #[test]
+    fn wav_duration_returns_none_for_non_wav_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let wav = dir.path().join("audio.wav");
+        std::fs::write(&wav, b"not-a-wav-at-all").unwrap();
+
+        assert_eq!(wav_duration_seconds(&wav), None);
     }
 
     #[test]
