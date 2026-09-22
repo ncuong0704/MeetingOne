@@ -5,7 +5,6 @@ import type { TemplateInfo } from '@/components/TemplateSettings/types';
 const BUILTIN_TEMPLATE_IDS = [
   'daily_standup',
   'standard_meeting',
-  'theo_mau_act',
   'theo_mau_act_no_table',
   'project_sync',
   'retrospective',

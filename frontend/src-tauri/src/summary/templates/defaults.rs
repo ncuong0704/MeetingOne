@@ -9,9 +9,6 @@ pub const DAILY_STANDUP: &str = include_str!("../../../templates/daily_standup.j
 /// Standard meeting notes template
 pub const STANDARD_MEETING: &str = include_str!("../../../templates/standard_meeting.json");
 
-/// ACT-format meeting conclusions template with tables
-pub const THEO_MAU_ACT: &str = include_str!("../../../templates/theo_mau_act.json");
-
 /// ACT-format meeting conclusions template without tables
 pub const THEO_MAU_ACT_NO_TABLE: &str = include_str!("../../../templates/theo_mau_act_no_table.json");
 
@@ -31,7 +28,6 @@ pub fn get_builtin_templates() -> Vec<(&'static str, &'static str)> {
     vec![
         ("daily_standup", DAILY_STANDUP),
         ("standard_meeting", STANDARD_MEETING),
-        ("theo_mau_act", THEO_MAU_ACT),
         ("theo_mau_act_no_table", THEO_MAU_ACT_NO_TABLE),
         ("project_sync", PROJECT_SYNC),
         ("retrospective", RETROSPECTIVE),
@@ -50,7 +46,6 @@ pub fn get_builtin_template(id: &str) -> Option<&'static str> {
     match id {
         "daily_standup" => Some(DAILY_STANDUP),
         "standard_meeting" => Some(STANDARD_MEETING),
-        "theo_mau_act" => Some(THEO_MAU_ACT),
         "theo_mau_act_no_table" => Some(THEO_MAU_ACT_NO_TABLE),
         "project_sync" => Some(PROJECT_SYNC),
         "retrospective" => Some(RETROSPECTIVE),
@@ -64,7 +59,6 @@ pub fn list_builtin_template_ids() -> Vec<&'static str> {
     vec![
         "daily_standup",
         "standard_meeting",
-        "theo_mau_act",
         "theo_mau_act_no_table",
         "project_sync",
         "retrospective",
@@ -93,7 +87,8 @@ mod tests {
     fn test_get_builtin_template() {
         assert!(get_builtin_template("daily_standup").is_some());
         assert!(get_builtin_template("standard_meeting").is_some());
-        assert!(get_builtin_template("theo_mau_act").is_some());
+        assert!(get_builtin_template("theo_mau_act_no_table").is_some());
+        assert!(get_builtin_template("theo_mau_act").is_none());
         assert!(get_builtin_template("nonexistent").is_none());
     }
 }

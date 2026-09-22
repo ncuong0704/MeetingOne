@@ -95,7 +95,6 @@ File JSON mô tả các **section** (mục) của báo cáo:
 ```
 frontend/src-tauri/templates/
 ├── theo_mau_act_no_table.json   ← mặc định hiện tại
-├── theo_mau_act.json
 ├── standard_meeting.json
 ├── daily_standup.json
 └── ...
@@ -408,7 +407,6 @@ Cuộc họp giao ban tuần 12 tập trung vào kết quả kinh doanh tháng 3
 | ID | Tên | Phù hợp khi |
 |----|-----|-------------|
 | `theo_mau_act_no_table` | Theo mẫu ACT — Không bảng | **Mặc định** — giao ban ACT, văn bản hành chính |
-| `theo_mau_act` | Theo mẫu ACT — Có bảng | Báo cáo formal, in ấn |
 | `standard_meeting` | Biên bản họp thông thường | Cuộc họp nội bộ, action items 5 cột |
 | `daily_standup` | Họp nhanh hàng ngày | Standup Scrum |
 | `project_sync` | Cập nhật dự án | Tiến độ, rủi ro |

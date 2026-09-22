@@ -301,7 +301,6 @@ mod tests {
         let ids = list_template_ids();
         assert!(ids.contains(&"daily_standup".to_string()));
         assert!(ids.contains(&"standard_meeting".to_string()));
-        assert!(ids.contains(&"theo_mau_act".to_string()));
         assert!(ids.contains(&"theo_mau_act_no_table".to_string()));
         assert!(ids.contains(&"project_sync".to_string()));
         assert!(ids.contains(&"retrospective".to_string()));
