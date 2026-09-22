@@ -12,24 +12,40 @@ const SSO_ERROR_MESSAGES: Record<string, string> = {
   no_email: 'Tài khoản AMS chưa có email. Liên hệ đội AMS.',
   sso_timeout: 'Hết thời gian đăng nhập. Vui lòng thử lại.',
   sso_error: 'Lỗi kết nối AMS. Vui lòng thử lại sau.',
+  callback_port_busy:
+    'Cổng đăng nhập (34517) đang bị chiếm — có thể một app ACT MeetingOne khác đang mở. Đóng app khác rồi thử lại.',
+  browser_open_failed: 'Không mở được trình duyệt. Kiểm tra trình duyệt mặc định của máy rồi thử lại.',
+  ams_unreachable:
+    'Không kết nối được máy chủ AMS (ams.vienthongact.vn). Kiểm tra kết nối mạng nội bộ / VPN rồi thử lại.',
+  ams_stale_token:
+    'AMS đang trả token của phiên đăng nhập cũ đã hết hạn. Mở ams.vienthongact.vn trên trình duyệt, đăng xuất, rồi đăng nhập lại.',
+  ams_token_error: 'Máy chủ AMS từ chối bước xác thực token. Liên hệ đội AMS kèm chi tiết bên dưới.',
+  ams_userinfo_error: 'Máy chủ AMS trả lỗi thông tin tài khoản. Liên hệ đội AMS kèm chi tiết bên dưới.',
   session_revoked:
     'Phiên đăng nhập đã hết hạn hoặc tài khoản AMS đã bị thu hồi. Vui lòng đăng nhập lại.',
 };
 
-function mapLoginError(err: unknown): string {
-  const message = String(err);
-  const known = Object.keys(SSO_ERROR_MESSAGES).find(code => message.includes(code));
-  return known ? SSO_ERROR_MESSAGES[known] : SSO_ERROR_MESSAGES.sso_error;
+type LoginError = { message: string; detail?: string };
+
+function mapLoginError(err: unknown): LoginError {
+  const raw = String(err);
+  const separator = raw.indexOf(':');
+  const code = (separator === -1 ? raw : raw.slice(0, separator)).trim();
+  const detail = (separator === -1 ? '' : raw.slice(separator + 1)).trim() || undefined;
+  const message = SSO_ERROR_MESSAGES[code] ?? SSO_ERROR_MESSAGES.sso_error;
+  return { message, detail };
 }
 
 export function LoginPage() {
   const { login, sessionRevoked, clearSessionRevoked } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
 
   useEffect(() => {
     if (sessionRevoked) {
       setError(SSO_ERROR_MESSAGES.session_revoked);
+      setErrorDetail(null);
       clearSessionRevoked();
     }
   }, [sessionRevoked, clearSessionRevoked]);
@@ -37,10 +53,13 @@ export function LoginPage() {
   const handleLogin = async () => {
     setLoading(true);
     setError(null);
+    setErrorDetail(null);
     try {
       await login();
     } catch (err) {
-      setError(mapLoginError(err));
+      const mapped = mapLoginError(err);
+      setError(mapped.message);
+      setErrorDetail(mapped.detail ?? null);
     } finally {
       setLoading(false);
     }
@@ -63,7 +82,16 @@ export function LoginPage() {
           <div className="login-sub">Đăng nhập bằng tài khoản nội bộ ACT</div>
         </div>
 
-        {error && <div className="login-error">{error}</div>}
+        {error && (
+          <div className="login-error">
+            {error}
+            {errorDetail && (
+              <div className="login-error-detail" title={errorDetail}>
+                {errorDetail}
+              </div>
+            )}
+          </div>
+        )}
 
         <button
           className={`login-btn${loading ? ' is-loading' : ''}`}
