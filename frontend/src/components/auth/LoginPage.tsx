@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Image from 'next/image';
 import { BRAND_LOGO_PATH, BRAND_NAME } from '@/constants/brand';
 import { useAuth } from '@/contexts/AuthContext';
@@ -17,12 +17,8 @@ const SSO_ERROR_MESSAGES: Record<string, string> = {
   browser_open_failed: 'Không mở được trình duyệt. Kiểm tra trình duyệt mặc định của máy rồi thử lại.',
   ams_unreachable:
     'Không kết nối được máy chủ AMS (ams.vienthongact.vn). Kiểm tra kết nối mạng nội bộ / VPN rồi thử lại.',
-  ams_stale_token:
-    'AMS đang trả token của phiên đăng nhập cũ đã hết hạn. Mở ams.vienthongact.vn trên trình duyệt, đăng xuất, rồi đăng nhập lại.',
   ams_token_error: 'Máy chủ AMS từ chối bước xác thực token. Liên hệ đội AMS kèm chi tiết bên dưới.',
   ams_userinfo_error: 'Máy chủ AMS trả lỗi thông tin tài khoản. Liên hệ đội AMS kèm chi tiết bên dưới.',
-  session_revoked:
-    'Phiên đăng nhập đã hết hạn hoặc tài khoản AMS đã bị thu hồi. Vui lòng đăng nhập lại.',
 };
 
 type LoginError = { message: string; detail?: string };
@@ -37,18 +33,10 @@ function mapLoginError(err: unknown): LoginError {
 }
 
 export function LoginPage() {
-  const { login, sessionRevoked, clearSessionRevoked } = useAuth();
+  const { login } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (sessionRevoked) {
-      setError(SSO_ERROR_MESSAGES.session_revoked);
-      setErrorDetail(null);
-      clearSessionRevoked();
-    }
-  }, [sessionRevoked, clearSessionRevoked]);
 
   const handleLogin = async () => {
     setLoading(true);

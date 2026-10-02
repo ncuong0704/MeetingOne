@@ -19,12 +19,6 @@ const CALLBACK_PORT: u16 = 34517;
 const CALLBACK_PATH: &str = "/auth/callback";
 const LOGIN_TIMEOUT_SECS: u64 = 300;
 
-/// Sau một lần đăng nhập thành công, tin phiên cục bộ trong ngần này mà KHÔNG gọi
-/// AMS mỗi lần mở app — chỉ kiểm tra lại (UserInfo/refresh) sau khi hết hạn mức này.
-/// Lý do: gọi AMS ở mỗi lần khởi động vừa chậm vừa lôi theo mọi lỗi tạm thời của AMS
-/// (đã thấy AMS tự trả token cũ hết hạn — xem `ams_stale_token`) vào trải nghiệm mở app.
-const SESSION_TRUST_DAYS: i64 = 30;
-
 #[derive(Debug, Clone)]
 struct SsoConfig {
     client_id: String,
@@ -73,22 +67,9 @@ struct StoredSsoSession {
     full_name: String,
     sso_access_token: String,
     sso_refresh_token: String,
-    /// Mốc lần cuối phiên được XÁC THỰC với AMS thành công (đăng nhập mới, hoặc lần
-    /// kiểm tra định kỳ gần nhất) — không phải mốc token được cấp. `session_needs_check`
-    /// tính hạn 30 ngày từ đây.
+    /// Mốc lần đăng nhập SSO thành công gần nhất — chỉ để debug/hiển thị, không dùng
+    /// để tính hạn phiên: phiên được tin cho tới khi người dùng chủ động đăng xuất.
     logged_in_at: String,
-}
-
-/// true nếu đã quá `SESSION_TRUST_DAYS` kể từ lần xác thực gần nhất — chỉ khi đó mới
-/// cần gọi AMS lại. Mốc thời gian hỏng/thiếu được coi là đã quá hạn (an toàn hơn).
-fn session_needs_check(session: &StoredSsoSession) -> bool {
-    match chrono::DateTime::parse_from_rfc3339(&session.logged_in_at) {
-        Ok(logged_in_at) => {
-            let elapsed = chrono::Utc::now().signed_duration_since(logged_in_at.with_timezone(&chrono::Utc));
-            elapsed >= chrono::Duration::days(SESSION_TRUST_DAYS)
-        }
-        Err(_) => true,
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,14 +77,6 @@ fn session_needs_check(session: &StoredSsoSession) -> bool {
 pub struct SsoUser {
     pub email: String,
     pub full_name: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SsoSessionCheck {
-    pub user: Option<SsoUser>,
-    /// true khi AMS từ chối token (tài khoản thu hồi / refresh hết hạn)
-    pub session_revoked: bool,
 }
 
 #[derive(Debug)]
@@ -442,87 +415,6 @@ async fn refresh_access_token(config: &SsoConfig, refresh_token: &str) -> Result
     Ok((access, refresh))
 }
 
-async fn validate_stored_session<R: Runtime>(
-    app: &AppHandle<R>,
-    config: &SsoConfig,
-    mut session: StoredSsoSession,
-) -> Result<SsoSessionCheck, String> {
-    match fetch_user_info(config, &session.sso_access_token).await {
-        Ok(user) => {
-            // Xác thực thành công: cập nhật thông tin (nếu đổi) và luôn đặt lại mốc
-            // logged_in_at để khởi động lại đồng hồ tin cậy 30 ngày từ đây.
-            session.email = user.email.clone();
-            session.full_name = user.full_name.clone();
-            session.logged_in_at = chrono::Utc::now().to_rfc3339();
-            save_session(app, &session).await?;
-            return Ok(SsoSessionCheck {
-                user: Some(user),
-                session_revoked: false,
-            });
-        }
-        Err(UserInfoError::Unauthorized) => {}
-        Err(UserInfoError::NoEmail) => {
-            clear_session(app).await?;
-            info!("SSO session cleared: AMS account has no email");
-            return Ok(SsoSessionCheck {
-                user: None,
-                session_revoked: true,
-            });
-        }
-        Err(UserInfoError::Transient(e)) => {
-            warn!("AMS UserInfo không khả dụng, dùng phiên cục bộ: {}", e);
-            return Ok(SsoSessionCheck {
-                user: Some(SsoUser::from(&session)),
-                session_revoked: false,
-            });
-        }
-    }
-
-    if session.sso_refresh_token.is_empty() {
-        clear_session(app).await?;
-        info!("SSO session cleared: access token expired, no refresh token");
-        return Ok(SsoSessionCheck {
-            user: None,
-            session_revoked: true,
-        });
-    }
-
-    match refresh_access_token(config, &session.sso_refresh_token).await {
-        Ok((access, refresh)) => {
-            session.sso_access_token = access;
-            session.sso_refresh_token = refresh;
-            match fetch_user_info(config, &session.sso_access_token).await {
-                Ok(user) => {
-                    session.email = user.email.clone();
-                    session.full_name = user.full_name.clone();
-                    session.logged_in_at = chrono::Utc::now().to_rfc3339();
-                    save_session(app, &session).await?;
-                    Ok(SsoSessionCheck {
-                        user: Some(user),
-                        session_revoked: false,
-                    })
-                }
-                Err(_) => {
-                    clear_session(app).await?;
-                    info!("SSO session cleared: AMS rejected refreshed token");
-                    Ok(SsoSessionCheck {
-                        user: None,
-                        session_revoked: true,
-                    })
-                }
-            }
-        }
-        Err(_) => {
-            clear_session(app).await?;
-            info!("SSO session cleared: refresh token invalid or revoked");
-            Ok(SsoSessionCheck {
-                user: None,
-                session_revoked: true,
-            })
-        }
-    }
-}
-
 fn open_browser(url: &str) -> Result<(), String> {
     use std::process::Command;
 
@@ -600,7 +492,6 @@ fn map_login_error(err: anyhow::Error) -> String {
         "sso_timeout",
         "callback_port_busy",
         "browser_open_failed",
-        "ams_stale_token",
     ] {
         if msg.contains(code) {
             return msg;
@@ -634,26 +525,12 @@ fn map_login_error(err: anyhow::Error) -> String {
     format!("sso_error: {msg}")
 }
 
+/// Phiên local được tin tuyệt đối cho tới khi người dùng chủ động đăng xuất — không
+/// gọi lại AMS ở đây để kiểm tra hiệu lực token (xem thảo luận trong lịch sử sửa đổi).
 #[tauri::command]
-pub async fn get_sso_session<R: Runtime>(app: AppHandle<R>) -> Result<SsoSessionCheck, String> {
-    let config = SsoConfig::from_env();
-    let Some(session) = load_session(&app).await? else {
-        return Ok(SsoSessionCheck {
-            user: None,
-            session_revoked: false,
-        });
-    };
-
-    if !session_needs_check(&session) {
-        // Trong hạn tin cậy 30 ngày kể từ lần xác thực gần nhất: không gọi AMS,
-        // dùng thẳng phiên cục bộ để app mở nhanh và không phụ thuộc AMS mỗi lần mở.
-        return Ok(SsoSessionCheck {
-            user: Some(SsoUser::from(&session)),
-            session_revoked: false,
-        });
-    }
-
-    validate_stored_session(&app, &config, session).await
+pub async fn get_sso_session<R: Runtime>(app: AppHandle<R>) -> Result<Option<SsoUser>, String> {
+    let session = load_session(&app).await?;
+    Ok(session.as_ref().map(SsoUser::from))
 }
 
 #[tauri::command]
@@ -676,17 +553,9 @@ pub async fn sso_login<R: Runtime>(app: AppHandle<R>) -> Result<SsoUser, String>
     let (mut access_token, mut refresh_token) = exchange_code(&config, &code)
         .await
         .map_err(map_login_error)?;
-    if let Some(exp) = log_jwt_time_claims(&access_token) {
-        let now = chrono::Utc::now().timestamp();
-        if exp <= now {
-            // AMS đã xảy ra tình trạng tái sử dụng session cũ trên trình duyệt và trả
-            // lại token đã hết hạn (exp nằm trong quá khứ ngay khi vừa "cấp").
-            return Err(format!(
-                "ams_stale_token: AMS trả token có exp trong quá khứ (exp={exp}, now={now}) \
-                 — token tái sử dụng từ phiên cũ. Hãy đăng xuất AMS trên trình duyệt rồi thử lại."
-            ));
-        }
-    }
+    // Không chặn vì exp "có vẻ" đã qua — nếu token thực sự chết, UserInfo bên dưới sẽ
+    // trả 401 và được xử lý qua đường refresh ngay sau đây. Chỉ log để debug.
+    log_jwt_time_claims(&access_token);
 
     // AMS đã từng cấp token mà chính UserInfo của nó tuyên bố "Token has expired"
     // ngay lập tức (O_RESULT:-3). Endpoint Refresh là code path khác — thử đúng một
@@ -787,43 +656,6 @@ mod tests {
         let json = r#"{"access_token":"abc","refresh_token":"opaque"}"#;
         let tokens: TokenResponse = serde_json::from_str(json).unwrap();
         assert_eq!(tokens.refresh_token.as_deref(), Some("opaque"));
-    }
-
-    fn session_with_logged_in_at(logged_in_at: String) -> StoredSsoSession {
-        StoredSsoSession {
-            email: "user@vienthongact.vn".into(),
-            full_name: "User".into(),
-            sso_access_token: "access".into(),
-            sso_refresh_token: "refresh".into(),
-            logged_in_at,
-        }
-    }
-
-    #[test]
-    fn session_needs_check_false_within_trust_window() {
-        let recent = chrono::Utc::now() - chrono::Duration::days(1);
-        let session = session_with_logged_in_at(recent.to_rfc3339());
-        assert!(!session_needs_check(&session));
-    }
-
-    #[test]
-    fn session_needs_check_false_just_under_30_days() {
-        let almost = chrono::Utc::now() - chrono::Duration::days(29);
-        let session = session_with_logged_in_at(almost.to_rfc3339());
-        assert!(!session_needs_check(&session));
-    }
-
-    #[test]
-    fn session_needs_check_true_after_30_days() {
-        let stale = chrono::Utc::now() - chrono::Duration::days(31);
-        let session = session_with_logged_in_at(stale.to_rfc3339());
-        assert!(session_needs_check(&session));
-    }
-
-    #[test]
-    fn session_needs_check_true_for_malformed_timestamp() {
-        let session = session_with_logged_in_at("not-a-timestamp".into());
-        assert!(session_needs_check(&session));
     }
 
     #[test]
