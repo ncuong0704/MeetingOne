@@ -28,7 +28,7 @@ import { Button } from '../ui/button';
 import { MessageToast } from '../MessageToast';
 import Logo from '../Logo';
 import Info from '../Info';
-import { UserGuideButton } from '../UserGuide';
+import ContactButton from '../ContactButton';
 import { ComplianceNotification } from '../ComplianceNotification';
 import { Input } from '../ui/input';
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '../ui/input-group';
@@ -539,7 +539,7 @@ const Sidebar: React.FC = () => {
           </Tooltip>
 
           <Info isCollapsed={isCollapsed} />
-          <UserGuideButton isCollapsed={isCollapsed} />
+          <ContactButton isCollapsed={isCollapsed} />
         </div>
       </TooltipProvider>
     );
@@ -839,7 +839,7 @@ const Sidebar: React.FC = () => {
             </button>
 
             <Info isCollapsed={isCollapsed} />
-            <UserGuideButton isCollapsed={isCollapsed} />
+            <ContactButton isCollapsed={isCollapsed} />
           </div>
         )}
       </div>

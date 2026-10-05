@@ -56,7 +56,7 @@ test('tour leftovers are gone from frontend src, other sidebar and settings feat
   }
 
   const sidebar = readSrc('components/Sidebar/index.tsx');
-  assert.match(sidebar, /UserGuideButton/);
+  assert.match(sidebar, /ContactButton/);
   assert.match(sidebar, /Bắt đầu ghi âm/);
   assert.match(sidebar, /Nhập file âm thanh/);
   assert.match(sidebar, /Cài đặt/);
@@ -84,7 +84,6 @@ test('tour leftovers are gone from frontend src, other sidebar and settings feat
   const page = readSrc('app/page.tsx');
   assert.match(page, /<RecordingControls/);
 
-  const guide = readSrc('components/UserGuide/UserGuideButton.tsx');
-  assert.match(guide, /GUIDE_VIDEOS/);
-  assert.match(guide, /Hướng dẫn/);
+  const contact = readSrc('components/ContactButton.tsx');
+  assert.match(contact, /Liên hệ/);
 });
