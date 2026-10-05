@@ -1,5 +1,6 @@
 use super::ffmpeg::find_ffmpeg_path; // Correct path to encode module
 use super::AudioDevice;
+use anyhow::Context;
 use std::io::Write;
 use std::sync::Arc;
 use std::{
@@ -21,7 +22,10 @@ pub fn encode_single_audio(
     channels: u16,
     output_path: &PathBuf,
 ) -> anyhow::Result<()> {
-    debug!("Starting FFmpeg process for {} bytes of audio data", data.len());
+    debug!(
+        "Starting FFmpeg process for {} bytes of audio data",
+        data.len()
+    );
 
     if data.is_empty() {
         return Err(anyhow::anyhow!("No audio data provided for encoding"));
@@ -54,8 +58,11 @@ pub fn encode_single_audio(
             "+faststart", // Optimize for web streaming
             "-f",
             "mp4",
-            output_path.to_str().unwrap(),
+            "-y",
+            "-loglevel",
+            "error",
         ])
+        .arg(output_path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -71,16 +78,18 @@ pub fn encode_single_audio(
     debug!("FFmpeg command: {:?}", command);
 
     #[allow(clippy::zombie_processes)]
-    let mut ffmpeg = command.spawn().expect("Failed to spawn FFmpeg process");
+    let mut ffmpeg = command.spawn().context("Failed to spawn FFmpeg process")?;
     debug!("FFmpeg process spawned");
-    let mut stdin = ffmpeg.stdin.take().expect("Failed to open stdin");
+    let mut stdin = ffmpeg.stdin.take().context("Failed to open FFmpeg stdin")?;
 
-    stdin.write_all(data)?;
+    let write_result = stdin.write_all(data);
 
     debug!("Dropping stdin");
     drop(stdin);
     debug!("Waiting for FFmpeg process to exit");
-    let output = ffmpeg.wait_with_output().unwrap();
+    let output = ffmpeg
+        .wait_with_output()
+        .context("Failed to wait for FFmpeg")?;
     let status = output.status;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -98,5 +107,6 @@ pub fn encode_single_audio(
         ));
     }
 
+    write_result.context("Failed to write audio to FFmpeg")?;
     Ok(())
 }

@@ -48,9 +48,7 @@ impl SpeakersRepository {
             ));
         }
         if source == target {
-            return Err(SqlxError::Protocol(
-                "source and target must differ".into(),
-            ));
+            return Err(SqlxError::Protocol("source and target must differ".into()));
         }
 
         let mut tx = pool.begin().await?;

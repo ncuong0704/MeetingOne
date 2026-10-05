@@ -12,7 +12,7 @@ const MainContent: React.FC<MainContentProps> = ({ children }) => {
 
   return (
     <main
-      className={`flex-1 min-h-0 bg-paper transition-all duration-[var(--dur-short)] ease-[var(--ease-out)] ${
+      className={`flex-1 min-h-0 bg-paper transition-all duration-short ease-out-token ${
         isCollapsed ? 'ml-16' : 'ml-64'
       }`}
     >

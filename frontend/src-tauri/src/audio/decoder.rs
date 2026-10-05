@@ -51,7 +51,10 @@ impl DecodedAudio {
     }
 
     /// Convert decoded audio to Whisper format with optional progress callback
-    pub fn to_whisper_format_with_progress(&self, progress_callback: Option<ProgressCallback>) -> Vec<f32> {
+    pub fn to_whisper_format_with_progress(
+        &self,
+        progress_callback: Option<ProgressCallback>,
+    ) -> Vec<f32> {
         // Step 1: Convert to mono if needed
         let mono_samples = if self.channels > 1 {
             info!(
@@ -107,7 +110,8 @@ pub(crate) fn resample_mono_with_progress(
         from_rate,
         to_rate
     );
-    let mut resampled = chunked_resample_with_progress(samples, from_rate, to_rate, progress_callback);
+    let mut resampled =
+        chunked_resample_with_progress(samples, from_rate, to_rate, progress_callback);
 
     // Clamp after resampling: the sinc resampler can overshoot slightly beyond
     // [-1.0, 1.0] (Gibbs phenomenon), which causes VAD to reject samples with
@@ -332,10 +336,12 @@ fn convert_to_wav_with_ffmpeg(
     let mut command = Command::new(&ffmpeg_path);
     command
         .args([
-            "-i", input_str,
-            "-vn",                  // Strip video tracks
-            "-acodec", "pcm_s16le", // Output PCM WAV (Symphonia handles natively)
-            "-y",                   // Overwrite without prompt
+            "-i",
+            input_str,
+            "-vn", // Strip video tracks
+            "-acodec",
+            "pcm_s16le", // Output PCM WAV (Symphonia handles natively)
+            "-y",        // Overwrite without prompt
             output_str,
         ])
         .stdin(Stdio::null())
@@ -431,8 +437,13 @@ pub fn decode_audio_file_with_progress(
         };
 
     // Open the file (use decode_path which may be the temp WAV)
-    let file = std::fs::File::open(decode_path.as_ref())
-        .map_err(|e| anyhow!("Failed to open audio file '{}': {}", decode_path.display(), e))?;
+    let file = std::fs::File::open(decode_path.as_ref()).map_err(|e| {
+        anyhow!(
+            "Failed to open audio file '{}': {}",
+            decode_path.display(),
+            e
+        )
+    })?;
 
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
@@ -490,10 +501,12 @@ pub fn decode_audio_file_with_progress(
     let mut sample_buf: Option<SampleBuffer<f32>> = None;
 
     // Calculate expected samples for progress tracking
-    let expected_duration = track.codec_params.n_frames
+    let expected_duration = track
+        .codec_params
+        .n_frames
         .map(|frames| frames as f64 / sample_rate as f64);
-    let expected_samples = expected_duration
-        .map(|dur| (dur * sample_rate as f64 * channels as f64) as usize);
+    let expected_samples =
+        expected_duration.map(|dur| (dur * sample_rate as f64 * channels as f64) as usize);
 
     let mut last_progress = 0u32;
 
@@ -545,10 +558,14 @@ pub fn decode_audio_file_with_progress(
 
                 // Emit progress updates (every 10%)
                 if let (Some(callback), Some(expected)) = (&progress_callback, expected_samples) {
-                    let current_progress = ((all_samples.len() as f64 / expected as f64) * 100.0) as u32;
+                    let current_progress =
+                        ((all_samples.len() as f64 / expected as f64) * 100.0) as u32;
                     if current_progress >= last_progress + 10 && current_progress <= 100 {
                         last_progress = current_progress;
-                        callback(current_progress, &format!("Decoding audio: {}%", current_progress));
+                        callback(
+                            current_progress,
+                            &format!("Decoding audio: {}%", current_progress),
+                        );
                     }
                 }
             }
@@ -596,16 +613,20 @@ fn load_audio_ffmpeg_f32(path: &Path) -> Result<Vec<f32>> {
         .to_str()
         .ok_or_else(|| anyhow!("Invalid input path (non-UTF8)"))?;
 
-    let filter_candidates = [
-        Some("aresample=resampler=soxr:precision=20"),
-        None,
-    ];
+    let filter_candidates = [Some("aresample=resampler=soxr:precision=20"), None];
 
     let mut last_error = String::new();
     for filter in filter_candidates {
         let mut command = Command::new(&ffmpeg_path);
-        command
-            .args(["-hide_banner", "-nostdin", "-loglevel", "error", "-i", input_str, "-vn"]);
+        command.args([
+            "-hide_banner",
+            "-nostdin",
+            "-loglevel",
+            "error",
+            "-i",
+            input_str,
+            "-vn",
+        ]);
         if let Some(af) = filter {
             command.args(["-af", af]);
         }
@@ -620,7 +641,10 @@ fn load_audio_ffmpeg_f32(path: &Path) -> Result<Vec<f32>> {
             "pcm_f32le",
             "pipe:1",
         ]);
-        command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
 
         #[cfg(target_os = "windows")]
         {
@@ -650,10 +674,7 @@ fn load_audio_ffmpeg_f32(path: &Path) -> Result<Vec<f32>> {
                 samples.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
             }
             // Peak normalize quiet inputs (matches test ASR load_audio)
-            let peak = samples
-                .iter()
-                .map(|s| s.abs())
-                .fold(0.0f32, f32::max);
+            let peak = samples.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
             if peak > 0.0 && peak < 0.5 {
                 let scale = 0.95 / peak;
                 for s in &mut samples {
@@ -749,7 +770,7 @@ mod tests {
 
         let result = audio.to_whisper_format();
         assert_eq!(result.len(), 2); // Should be mono now
-        // Average of (0.2, 0.4) = 0.3 and (0.6, 0.8) = 0.7
+                                     // Average of (0.2, 0.4) = 0.3 and (0.6, 0.8) = 0.7
         assert!((result[0] - 0.3).abs() < 0.001);
         assert!((result[1] - 0.7).abs() < 0.001);
     }
@@ -770,8 +791,11 @@ mod tests {
         // Output length should be approximately input_len / 3 (16000/48000 ratio)
         // 4800 / 3 = 1600
         assert!(!result.is_empty(), "Result should not be empty");
-        assert!(result.len() > 1000 && result.len() < 2000,
-            "Expected ~1600 samples, got {}", result.len());
+        assert!(
+            result.len() > 1000 && result.len() < 2000,
+            "Expected ~1600 samples, got {}",
+            result.len()
+        );
     }
 
     #[test]

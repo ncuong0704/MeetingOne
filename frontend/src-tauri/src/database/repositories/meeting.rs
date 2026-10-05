@@ -96,11 +96,12 @@ impl MeetingsRepository {
         let mut transaction = conn.begin().await?;
 
         // Get meeting details
-        let meeting: Option<MeetingModel> =
-            sqlx::query_as("SELECT id, title, created_at, updated_at, folder_path FROM meetings WHERE id = ?")
-                .bind(meeting_id)
-                .fetch_optional(&mut *transaction)
-                .await?;
+        let meeting: Option<MeetingModel> = sqlx::query_as(
+            "SELECT id, title, created_at, updated_at, folder_path FROM meetings WHERE id = ?",
+        )
+        .bind(meeting_id)
+        .fetch_optional(&mut *transaction)
+        .await?;
 
         if meeting.is_none() {
             transaction.rollback().await?;
@@ -147,11 +148,12 @@ impl MeetingsRepository {
             ));
         }
 
-        let meeting: Option<MeetingModel> =
-            sqlx::query_as("SELECT id, title, created_at, updated_at, folder_path FROM meetings WHERE id = ?")
-                .bind(meeting_id)
-                .fetch_optional(pool)
-                .await?;
+        let meeting: Option<MeetingModel> = sqlx::query_as(
+            "SELECT id, title, created_at, updated_at, folder_path FROM meetings WHERE id = ?",
+        )
+        .bind(meeting_id)
+        .fetch_optional(pool)
+        .await?;
 
         Ok(meeting)
     }
@@ -170,12 +172,10 @@ impl MeetingsRepository {
         }
 
         // Get total count of transcripts for this meeting
-        let total: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM transcripts WHERE meeting_id = ?"
-        )
-        .bind(meeting_id)
-        .fetch_one(pool)
-        .await?;
+        let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM transcripts WHERE meeting_id = ?")
+            .bind(meeting_id)
+            .fetch_one(pool)
+            .await?;
 
         let transcripts = sqlx::query_as::<_, TranscriptWithSpeaker>(&format!(
             "{TRANSCRIPT_WITH_SPEAKER_SQL}
@@ -317,12 +317,15 @@ async fn remove_meeting_folder_best_effort(folder_path: &str) {
     if !path.is_dir() {
         return;
     }
-    if let Err(e) = tokio::fs::remove_dir_all(path).await {
-        warn!(
-            "Failed to delete meeting folder {}: {}",
-            path.display(),
-            e
-        );
+    let path = match crate::audio::meeting_folder::validate_meeting_folder(path) {
+        Ok(path) => path,
+        Err(error) => {
+            warn!("Refusing to remove unrecognized meeting folder: {}", error);
+            return;
+        }
+    };
+    if let Err(e) = tokio::fs::remove_dir_all(&path).await {
+        warn!("Failed to delete meeting folder {}: {}", path.display(), e);
     } else {
         info!("Deleted meeting folder {}", path.display());
     }
@@ -503,14 +506,16 @@ mod tests {
     }
 
     fn write_meeting_folder() -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "act-delete-meeting-test-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("act-delete-meeting-test-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("audio.mp4"), b"fake-audio").unwrap();
         fs::write(dir.join("transcripts.json"), b"[]").unwrap();
-        fs::write(dir.join("metadata.json"), b"{}").unwrap();
+        fs::write(
+            dir.join("metadata.json"),
+            br#"{"version":"1.0","meeting_name":"Test","transcript_file":"transcripts.json"}"#,
+        )
+        .unwrap();
         dir
     }
 
@@ -524,9 +529,16 @@ mod tests {
             .expect("delete");
         assert!(deleted);
 
-        assert_eq!(count(&pool, "SELECT COUNT(*) FROM meetings WHERE id = 'm1'").await, 0);
         assert_eq!(
-            count(&pool, "SELECT COUNT(*) FROM transcripts WHERE meeting_id = 'm1'").await,
+            count(&pool, "SELECT COUNT(*) FROM meetings WHERE id = 'm1'").await,
+            0
+        );
+        assert_eq!(
+            count(
+                &pool,
+                "SELECT COUNT(*) FROM transcripts WHERE meeting_id = 'm1'"
+            )
+            .await,
             0
         );
         assert_eq!(
@@ -565,9 +577,16 @@ mod tests {
             .await
             .expect("delete");
 
-        assert_eq!(count(&pool, "SELECT COUNT(*) FROM meetings WHERE id = 'm2'").await, 1);
         assert_eq!(
-            count(&pool, "SELECT COUNT(*) FROM transcripts WHERE meeting_id = 'm2'").await,
+            count(&pool, "SELECT COUNT(*) FROM meetings WHERE id = 'm2'").await,
+            1
+        );
+        assert_eq!(
+            count(
+                &pool,
+                "SELECT COUNT(*) FROM transcripts WHERE meeting_id = 'm2'"
+            )
+            .await,
             1
         );
         assert_eq!(
@@ -648,13 +667,7 @@ mod tests {
         let metadata = dir.join("metadata.json");
 
         let pool = test_pool().await;
-        seed_meeting(
-            &pool,
-            "m1",
-            "Hop 1",
-            Some(dir.to_string_lossy().as_ref()),
-        )
-        .await;
+        seed_meeting(&pool, "m1", "Hop 1", Some(dir.to_string_lossy().as_ref())).await;
 
         MeetingsRepository::delete_meeting(&pool, "m1")
             .await
@@ -708,6 +721,9 @@ mod tests {
             .await
             .expect("delete");
         assert!(deleted);
-        assert_eq!(count(&pool, "SELECT COUNT(*) FROM meetings WHERE id = 'm1'").await, 0);
+        assert_eq!(
+            count(&pool, "SELECT COUNT(*) FROM meetings WHERE id = 'm1'").await,
+            0
+        );
     }
 }

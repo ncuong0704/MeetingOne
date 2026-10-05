@@ -105,10 +105,18 @@ impl ModelFamily {
     pub fn encoder_file(self, variant: ModelVariant) -> &'static str {
         self.reject_missing_int8(variant);
         match (self, variant) {
-            (ModelFamily::ZipFormer30M, ModelVariant::Int8) => crate::config::ZIPFORMER_INT8_ENCODER,
-            (ModelFamily::ZipFormer30M, ModelVariant::Full) => crate::config::ZIPFORMER_FULL_ENCODER,
-            (ModelFamily::Gipformer65M, ModelVariant::Int8) => crate::config::GIPFORMER_INT8_ENCODER,
-            (ModelFamily::Gipformer65M, ModelVariant::Full) => crate::config::GIPFORMER_FULL_ENCODER,
+            (ModelFamily::ZipFormer30M, ModelVariant::Int8) => {
+                crate::config::ZIPFORMER_INT8_ENCODER
+            }
+            (ModelFamily::ZipFormer30M, ModelVariant::Full) => {
+                crate::config::ZIPFORMER_FULL_ENCODER
+            }
+            (ModelFamily::Gipformer65M, ModelVariant::Int8) => {
+                crate::config::GIPFORMER_INT8_ENCODER
+            }
+            (ModelFamily::Gipformer65M, ModelVariant::Full) => {
+                crate::config::GIPFORMER_FULL_ENCODER
+            }
             (ModelFamily::SherpaZipformerVi2025, _) => crate::config::SHERPA_VI_2025_ENCODER,
             (ModelFamily::ZipFormer30MStreaming, _) => crate::config::ZIPFORMER_STREAMING_ENCODER,
             (ModelFamily::NghiAsr, ModelVariant::Int8) => crate::config::NGHI_ASR_INT8_ENCODER,
@@ -119,10 +127,18 @@ impl ModelFamily {
     pub fn decoder_file(self, variant: ModelVariant) -> &'static str {
         self.reject_missing_int8(variant);
         match (self, variant) {
-            (ModelFamily::ZipFormer30M, ModelVariant::Int8) => crate::config::ZIPFORMER_INT8_DECODER,
-            (ModelFamily::ZipFormer30M, ModelVariant::Full) => crate::config::ZIPFORMER_FULL_DECODER,
-            (ModelFamily::Gipformer65M, ModelVariant::Int8) => crate::config::GIPFORMER_INT8_DECODER,
-            (ModelFamily::Gipformer65M, ModelVariant::Full) => crate::config::GIPFORMER_FULL_DECODER,
+            (ModelFamily::ZipFormer30M, ModelVariant::Int8) => {
+                crate::config::ZIPFORMER_INT8_DECODER
+            }
+            (ModelFamily::ZipFormer30M, ModelVariant::Full) => {
+                crate::config::ZIPFORMER_FULL_DECODER
+            }
+            (ModelFamily::Gipformer65M, ModelVariant::Int8) => {
+                crate::config::GIPFORMER_INT8_DECODER
+            }
+            (ModelFamily::Gipformer65M, ModelVariant::Full) => {
+                crate::config::GIPFORMER_FULL_DECODER
+            }
             (ModelFamily::SherpaZipformerVi2025, _) => crate::config::SHERPA_VI_2025_DECODER,
             (ModelFamily::ZipFormer30MStreaming, _) => crate::config::ZIPFORMER_STREAMING_DECODER,
             (ModelFamily::NghiAsr, ModelVariant::Int8) => crate::config::NGHI_ASR_INT8_DECODER,
@@ -167,12 +183,22 @@ impl ModelFamily {
     pub fn encoder_size_bytes(self, variant: ModelVariant) -> u64 {
         self.reject_missing_int8(variant);
         match (self, variant) {
-            (ModelFamily::ZipFormer30M, ModelVariant::Int8) => crate::config::ZIPFORMER_INT8_SIZE_BYTES,
-            (ModelFamily::ZipFormer30M, ModelVariant::Full) => crate::config::ZIPFORMER_FULL_SIZE_BYTES,
-            (ModelFamily::Gipformer65M, ModelVariant::Int8) => crate::config::GIPFORMER_INT8_SIZE_BYTES,
-            (ModelFamily::Gipformer65M, ModelVariant::Full) => crate::config::GIPFORMER_FULL_SIZE_BYTES,
+            (ModelFamily::ZipFormer30M, ModelVariant::Int8) => {
+                crate::config::ZIPFORMER_INT8_SIZE_BYTES
+            }
+            (ModelFamily::ZipFormer30M, ModelVariant::Full) => {
+                crate::config::ZIPFORMER_FULL_SIZE_BYTES
+            }
+            (ModelFamily::Gipformer65M, ModelVariant::Int8) => {
+                crate::config::GIPFORMER_INT8_SIZE_BYTES
+            }
+            (ModelFamily::Gipformer65M, ModelVariant::Full) => {
+                crate::config::GIPFORMER_FULL_SIZE_BYTES
+            }
             (ModelFamily::SherpaZipformerVi2025, _) => crate::config::SHERPA_VI_2025_SIZE_BYTES,
-            (ModelFamily::ZipFormer30MStreaming, _) => crate::config::ZIPFORMER_STREAMING_SIZE_BYTES,
+            (ModelFamily::ZipFormer30MStreaming, _) => {
+                crate::config::ZIPFORMER_STREAMING_SIZE_BYTES
+            }
             (ModelFamily::NghiAsr, ModelVariant::Int8) => crate::config::NGHI_ASR_INT8_SIZE_BYTES,
             (ModelFamily::NghiAsr, ModelVariant::Full) => crate::config::NGHI_ASR_FULL_SIZE_BYTES,
         }
@@ -288,7 +314,10 @@ mod tests {
             ModelFamily::from_id("sherpa-onnx-zipformer-vi-2025-04-20"),
             ModelFamily::SherpaZipformerVi2025
         );
-        assert_eq!(ModelFamily::SherpaZipformerVi2025.id(), "sherpa-onnx-zipformer-vi-2025-04-20");
+        assert_eq!(
+            ModelFamily::SherpaZipformerVi2025.id(),
+            "sherpa-onnx-zipformer-vi-2025-04-20"
+        );
     }
 
     #[test]
@@ -296,10 +325,7 @@ mod tests {
         let family = ModelFamily::ZipFormer30MStreaming;
         assert!(family.is_online_streaming());
         assert!(!ModelFamily::ZipFormer30M.is_online_streaming());
-        assert_eq!(
-            ModelFamily::from_id("zipformer-vi-30m-streaming"),
-            family
-        );
+        assert_eq!(ModelFamily::from_id("zipformer-vi-30m-streaming"), family);
         assert_eq!(family.id(), "zipformer-vi-30m-streaming");
         assert_eq!(family.available_variants(), &[ModelVariant::Full]);
         assert_eq!(
@@ -341,14 +367,8 @@ mod tests {
             family.available_variants(),
             &[ModelVariant::Int8, ModelVariant::Full]
         );
-        assert_eq!(
-            family.variant_subdir(ModelVariant::Int8),
-            "nghi-asr-int8"
-        );
-        assert_eq!(
-            family.variant_subdir(ModelVariant::Full),
-            "nghi-asr-full"
-        );
+        assert_eq!(family.variant_subdir(ModelVariant::Int8), "nghi-asr-int8");
+        assert_eq!(family.variant_subdir(ModelVariant::Full), "nghi-asr-full");
         let int8 = family.model_files(ModelVariant::Int8);
         assert_eq!(int8[0], "encoder-epoch-4-avg-4.int8.onnx");
         assert_eq!(int8[1], "decoder-epoch-4-avg-4.int8.onnx");

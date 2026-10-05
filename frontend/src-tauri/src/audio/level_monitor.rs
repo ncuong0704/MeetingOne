@@ -1,13 +1,13 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use tokio::sync::Mutex;
-use tokio::time::{interval, Duration};
-use tauri::{AppHandle, Emitter, Runtime};
 use anyhow::Result;
-use log::{debug, error, info, warn};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Sample, SampleFormat, SampleRate, StreamConfig};
+use log::{debug, error, info, warn};
 use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use tauri::{AppHandle, Emitter, Runtime};
+use tokio::sync::Mutex;
+use tokio::time::{interval, Duration};
 
 use super::audio_processing::audio_to_mono;
 
@@ -15,9 +15,9 @@ use super::audio_processing::audio_to_mono;
 pub struct AudioLevelData {
     pub device_name: String,
     pub device_type: String, // "input" or "output"
-    pub rms_level: f32,     // RMS level (0.0 to 1.0)
-    pub peak_level: f32,    // Peak level (0.0 to 1.0)
-    pub is_active: bool,    // Whether audio is being detected
+    pub rms_level: f32,      // RMS level (0.0 to 1.0)
+    pub peak_level: f32,     // Peak level (0.0 to 1.0)
+    pub is_active: bool,     // Whether audio is being detected
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -45,14 +45,17 @@ impl AudioLevelMonitor {
         app_handle: AppHandle<R>,
         device_names: Vec<String>,
     ) -> Result<()> {
-        if AUDIO_LEVEL_STATE.is_monitoring.load(Ordering::SeqCst) {
+        if AUDIO_LEVEL_STATE.load(Ordering::SeqCst) {
             // Stop any existing monitoring
-            AUDIO_LEVEL_STATE.is_monitoring.store(false, Ordering::SeqCst);
+            AUDIO_LEVEL_STATE.store(false, Ordering::SeqCst);
         }
 
-        info!("Starting audio level monitoring for devices: {:?}", device_names);
+        info!(
+            "Starting audio level monitoring for devices: {:?}",
+            device_names
+        );
 
-        AUDIO_LEVEL_STATE.is_monitoring.store(true, Ordering::SeqCst);
+        AUDIO_LEVEL_STATE.store(true, Ordering::SeqCst);
         *self.monitored_devices.lock().await = device_names.clone();
 
         // Clear existing streams
@@ -67,7 +70,10 @@ impl AudioLevelMonitor {
         // Create audio streams for each device
         for device_name in &device_names {
             if let Ok(device) = self.find_device_by_name(&host, device_name) {
-                if let Ok(stream) = self.create_level_stream(&device, device_name, level_data.clone()).await {
+                if let Ok(stream) = self
+                    .create_level_stream(&device, device_name, level_data.clone())
+                    .await
+                {
                     let mut streams = self.streams.lock().await;
                     streams.push(stream);
                 } else {
@@ -85,7 +91,7 @@ impl AudioLevelMonitor {
         tokio::spawn(async move {
             let mut interval = interval(Duration::from_millis(100)); // Update every 100ms
 
-            while AUDIO_LEVEL_STATE.is_monitoring.load(Ordering::SeqCst) {
+            while AUDIO_LEVEL_STATE.load(Ordering::SeqCst) {
                 interval.tick().await;
 
                 let levels = {
@@ -118,7 +124,7 @@ impl AudioLevelMonitor {
     pub async fn stop_monitoring(&self) -> Result<()> {
         info!("Stopping audio level monitoring");
 
-        AUDIO_LEVEL_STATE.is_monitoring.store(false, Ordering::SeqCst);
+        AUDIO_LEVEL_STATE.store(false, Ordering::SeqCst);
 
         // Stop all streams
         {
@@ -133,7 +139,7 @@ impl AudioLevelMonitor {
 
     /// Check if currently monitoring
     pub fn is_monitoring(&self) -> bool {
-        AUDIO_LEVEL_STATE.is_monitoring.load(Ordering::SeqCst)
+        AUDIO_LEVEL_STATE.load(Ordering::SeqCst)
     }
 
     /// Find a CPAL device by name
@@ -178,15 +184,20 @@ impl AudioLevelMonitor {
         } else if let Ok(output_config) = device.default_output_config() {
             (output_config, false)
         } else {
-            return Err(anyhow::anyhow!("Failed to get any config for device: {}", device_name));
+            return Err(anyhow::anyhow!(
+                "Failed to get any config for device: {}",
+                device_name
+            ));
         };
 
         let sample_rate = config.sample_rate().0;
         let channels = config.channels();
         let sample_format = config.sample_format();
 
-        debug!("Creating audio level stream for {}: {}Hz, {} channels, {:?}, is_input: {}",
-               device_name, sample_rate, channels, sample_format, is_input);
+        debug!(
+            "Creating audio level stream for {}: {}Hz, {} channels, {:?}, is_input: {}",
+            device_name, sample_rate, channels, sample_format, is_input
+        );
 
         // Determine device type
         let device_type = if is_input { "input" } else { "output" };
@@ -222,7 +233,10 @@ impl AudioLevelMonitor {
                 } else {
                     // For output devices, we can't easily monitor levels in real-time
                     // This is a limitation of most audio systems - output monitoring requires loopback
-                    return Err(anyhow::anyhow!("Output device monitoring not supported yet: {}", device_name));
+                    return Err(anyhow::anyhow!(
+                        "Output device monitoring not supported yet: {}",
+                        device_name
+                    ));
                 };
 
                 stream.play()?;
@@ -230,7 +244,10 @@ impl AudioLevelMonitor {
             }
             SampleFormat::I16 => {
                 if !is_input {
-                    return Err(anyhow::anyhow!("Output device monitoring not supported yet: {}", device_name));
+                    return Err(anyhow::anyhow!(
+                        "Output device monitoring not supported yet: {}",
+                        device_name
+                    ));
                 }
 
                 let stream = device.build_input_stream(
@@ -254,7 +271,10 @@ impl AudioLevelMonitor {
             }
             SampleFormat::U16 => {
                 if !is_input {
-                    return Err(anyhow::anyhow!("Output device monitoring not supported yet: {}", device_name));
+                    return Err(anyhow::anyhow!(
+                        "Output device monitoring not supported yet: {}",
+                        device_name
+                    ));
                 }
 
                 let stream = device.build_input_stream(
@@ -276,7 +296,10 @@ impl AudioLevelMonitor {
                 stream.play()?;
                 Ok(stream)
             }
-            _ => Err(anyhow::anyhow!("Unsupported sample format: {:?}", sample_format)),
+            _ => Err(anyhow::anyhow!(
+                "Unsupported sample format: {:?}",
+                sample_format
+            )),
         }
     }
 }
@@ -330,26 +353,16 @@ fn process_audio_levels(
 }
 
 // Global state for audio level monitoring
-
-struct AudioLevelState {
-    is_monitoring: AtomicBool,
-    // We'll manage streams differently to avoid Send issues
-}
-
-lazy_static::lazy_static! {
-    static ref AUDIO_LEVEL_STATE: AudioLevelState = AudioLevelState {
-        is_monitoring: AtomicBool::new(false),
-    };
-}
+static AUDIO_LEVEL_STATE: AtomicBool = AtomicBool::new(false);
 
 /// Global function to check if monitoring is active
 pub fn is_monitoring() -> bool {
-    AUDIO_LEVEL_STATE.is_monitoring.load(Ordering::SeqCst)
+    AUDIO_LEVEL_STATE.load(Ordering::SeqCst)
 }
 
 /// Global function to stop monitoring
 pub async fn stop_monitoring() -> Result<()> {
-    AUDIO_LEVEL_STATE.is_monitoring.store(false, Ordering::SeqCst);
+    AUDIO_LEVEL_STATE.store(false, Ordering::SeqCst);
     info!("Audio level monitoring stopped globally");
     Ok(())
 }

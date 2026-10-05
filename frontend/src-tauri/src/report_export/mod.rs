@@ -1,6 +1,4 @@
-use docx_rs::{
-    Paragraph, Run, Table, TableCell, TableRow, WidthType, Docx, AlignmentType,
-};
+use docx_rs::{AlignmentType, Docx, Paragraph, Run, Table, TableCell, TableRow, WidthType};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -96,7 +94,9 @@ fn parse_markdown_blocks(markdown: &str) -> Vec<MarkdownBlock> {
             .find(". ")
             .and_then(|dot_idx| line[..dot_idx].parse::<u32>().ok().map(|_| dot_idx));
         if let Some(dot_idx) = numbered {
-            blocks.push(MarkdownBlock::Numbered(line[dot_idx + 2..].trim().to_string()));
+            blocks.push(MarkdownBlock::Numbered(
+                line[dot_idx + 2..].trim().to_string(),
+            ));
             i += 1;
             continue;
         }
@@ -199,8 +199,8 @@ pub fn export_markdown_to_docx(markdown: &str, destination: &Path) -> Result<(),
         }
     }
 
-    let file = fs::File::create(destination)
-        .map_err(|e| format!("Không thể tạo file DOCX: {}", e))?;
+    let file =
+        fs::File::create(destination).map_err(|e| format!("Không thể tạo file DOCX: {}", e))?;
     doc.build()
         .pack(file)
         .map_err(|e| format!("Không thể ghi nội dung DOCX: {}", e))

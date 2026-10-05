@@ -51,8 +51,7 @@ impl EmbeddingModel {
             energy_floor: 1.0,
             ..Default::default()
         };
-        let computer =
-            FbankComputer::new(opts).map_err(|e| anyhow!("fbank computer: {e}"))?;
+        let computer = FbankComputer::new(opts).map_err(|e| anyhow!("fbank computer: {e}"))?;
         let mut online = OnlineFeature::new(FeatureComputer::Fbank(computer));
         let scaled: Vec<f32> = audio.iter().map(|s| s * 32768.0).collect();
         online.accept_waveform(sample_rate, &scaled);
@@ -101,9 +100,8 @@ impl EmbeddingModel {
                 flat[off..off + dim].copy_from_slice(&row[..dim]);
             }
         }
-        let tensor =
-            TensorRef::from_array_view(([n, max_t, FBANK_DIM], flat.as_slice()))
-                .map_err(|e| anyhow!("cam++ tensor: {e}"))?;
+        let tensor = TensorRef::from_array_view(([n, max_t, FBANK_DIM], flat.as_slice()))
+            .map_err(|e| anyhow!("cam++ tensor: {e}"))?;
         let outputs = self
             .session
             .run(ort::inputs!["feats" => tensor])
@@ -112,7 +110,11 @@ impl EmbeddingModel {
             .try_extract_tensor::<f32>()
             .map_err(|e| anyhow!("cam++ extract embs: {e}"))?;
         let rows = shape[0] as usize;
-        let cols = if shape.len() >= 2 { shape[1] as usize } else { EMB_DIM };
+        let cols = if shape.len() >= 2 {
+            shape[1] as usize
+        } else {
+            EMB_DIM
+        };
         let mut out = Vec::with_capacity(rows);
         for i in 0..rows {
             let mut emb = [0.0f32; EMB_DIM];

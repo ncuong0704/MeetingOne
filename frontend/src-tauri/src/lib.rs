@@ -15,49 +15,37 @@ macro_rules! perf_debug {
     ($($arg:tt)*) => {};
 }
 
-#[cfg(debug_assertions)]
-macro_rules! perf_trace {
-    ($($arg:tt)*) => {
-        log::trace!($($arg)*)
-    };
-}
-
-#[cfg(not(debug_assertions))]
-macro_rules! perf_trace {
-    ($($arg:tt)*) => {};
-}
-
 // Make these macros available to other modules
 
 // Re-export async logging macros for external use (removed due to macro conflicts)
 
 // Declare audio module
 pub mod analytics;
+pub mod anthropic;
 pub mod api;
+pub mod asr_engine;
 pub mod audio;
+pub mod capu_engine;
 pub mod config;
 pub mod console_utils;
 pub mod database;
+pub mod diarization_engine;
 pub mod document_import;
 pub mod meeting_documents;
 pub mod notifications;
 pub mod onboarding;
 pub mod openai;
-pub mod anthropic;
 pub mod openrouter;
 pub mod report_export;
-pub mod state;
-pub mod summary;
-pub mod sso;
-pub mod tray;
-pub mod utils;
-pub mod asr_engine;
 pub mod rnnt_decoder;
 pub mod rover_engine;
-pub mod capu_engine;
-pub mod diarization_engine;
+pub mod sso;
+pub mod state;
+pub mod summary;
+pub mod tray;
+pub mod utils;
 
-use audio::{list_audio_devices, AudioDevice, trigger_audio_permission};
+use audio::{list_audio_devices, trigger_audio_permission, AudioDevice};
 use log::{error as log_error, info as log_info};
 use notifications::commands::NotificationManagerState;
 use std::sync::Arc;
@@ -170,10 +158,7 @@ async fn stop_recording<R: Runtime>(app: AppHandle<R>, args: RecordingArgs) -> R
             )
             .await
             {
-                log_error!(
-                    "Failed to show recording stopped notification: {}",
-                    e
-                );
+                log_error!("Failed to show recording stopped notification: {}", e);
             } else {
                 log_info!("Successfully showed recording stopped notification");
             }
@@ -235,7 +220,6 @@ async fn is_audio_level_monitoring() -> bool {
 }
 
 // Analytics commands are now handled by analytics::commands module
-
 
 #[tauri::command]
 async fn get_audio_devices() -> Result<Vec<AudioDevice>, String> {
@@ -310,7 +294,6 @@ async fn start_recording_with_devices_and_meeting<R: Runtime>(
     }
 }
 
-
 pub fn run() {
     log::set_max_level(log::LevelFilter::Info);
 
@@ -337,7 +320,11 @@ pub fn run() {
             let app_for_notif = _app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let notif_state = app_for_notif.state::<NotificationManagerState<tauri::Wry>>();
-                match notifications::commands::initialize_notification_manager(app_for_notif.clone()).await {
+                match notifications::commands::initialize_notification_manager(
+                    app_for_notif.clone(),
+                )
+                .await
+                {
                     Ok(manager) => {
                         // Set default consent and permissions on first launch
                         if let Err(e) = manager.set_consent(true).await {
@@ -392,7 +379,8 @@ pub fn run() {
             // delayed event emission and returns immediately, so this adds no wait for
             // brand-new installs.
             tauri::async_runtime::block_on(async {
-                if let Err(e) = database::setup::initialize_database_on_startup(&_app.handle().clone()).await
+                if let Err(e) =
+                    database::setup::initialize_database_on_startup(&_app.handle().clone()).await
                 {
                     log::error!("Failed to initialize database: {}", e);
                 }
@@ -402,7 +390,10 @@ pub fn run() {
             log::info!("Initializing bundled templates directory...");
             if let Ok(resource_path) = _app.handle().path().resource_dir() {
                 let templates_dir = resource_path.join("templates");
-                log::info!("Setting bundled templates directory to: {:?}", templates_dir);
+                log::info!(
+                    "Setting bundled templates directory to: {:?}",
+                    templates_dir
+                );
                 summary::templates::set_bundled_templates_dir(templates_dir);
             } else {
                 log::warn!("Failed to resolve resource directory for templates");
@@ -483,6 +474,8 @@ pub fn run() {
             audio::recording_commands::get_meeting_folder_path,
             // Reload sync commands (retrieve transcript history and meeting name)
             audio::recording_commands::get_transcript_history,
+            audio::recording_commands::get_last_recording_result,
+            audio::recording_commands::get_recording_session,
             audio::recording_commands::load_transcripts_from_folder,
             audio::recording_commands::update_live_transcript_segment,
             audio::recording_commands::get_recording_meeting_name,
@@ -520,9 +513,6 @@ pub fn run() {
             api::api_save_live_asr_config,
             api::api_save_file_asr_config,
             api::api_save_shared_transcript_config,
-            api::api_get_transcript_api_key,
-            api::api_save_transcript_api_key,
-            api::api_delete_transcript_api_key,
             api::api_delete_meeting,
             api::api_get_meeting,
             api::api_get_meeting_metadata,
@@ -651,12 +641,12 @@ pub fn run() {
                             log::info!("Database cleanup completed successfully");
                         }
                     } else {
-                        log::warn!("AppState not available for database cleanup (likely first launch)");
+                        log::warn!(
+                            "AppState not available for database cleanup (likely first launch)"
+                        );
                     }
-
                 });
                 log::info!("Application cleanup complete");
             }
         });
 }
-

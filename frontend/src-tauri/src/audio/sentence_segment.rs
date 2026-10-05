@@ -175,18 +175,17 @@ pub fn align_sentences_to_words(
             .filter(|w| !w.is_empty())
             .collect();
 
-        let (start_sec, end_sec, next_idx) =
-            if let Some((match_start, match_end)) =
-                find_word_sequence_match(words, &sent_words_clean, current_word_idx)
-            {
-                (
-                    words[match_start].start_sec,
-                    words[match_end].end_sec,
-                    match_end + 1,
-                )
-            } else {
-                align_sentence_fallback(words, &sent_words_clean, current_word_idx)
-            };
+        let (start_sec, end_sec, next_idx) = if let Some((match_start, match_end)) =
+            find_word_sequence_match(words, &sent_words_clean, current_word_idx)
+        {
+            (
+                words[match_start].start_sec,
+                words[match_end].end_sec,
+                match_end + 1,
+            )
+        } else {
+            align_sentence_fallback(words, &sent_words_clean, current_word_idx)
+        };
 
         current_word_idx = next_idx.min(words.len());
         out.push((sent.clone(), start_sec * 1000.0, end_sec * 1000.0));
@@ -201,7 +200,10 @@ fn align_sentence_fallback(
     sent_words_clean: &[String],
     current_word_idx: usize,
 ) -> (f64, f64, usize) {
-    let first_word = sent_words_clean.first().map(|w| align_normalize(w)).unwrap_or_default();
+    let first_word = sent_words_clean
+        .first()
+        .map(|w| align_normalize(w))
+        .unwrap_or_default();
 
     let mut temp_idx = current_word_idx;
     let mut found_first = false;
@@ -455,10 +457,7 @@ pub fn finalize_rover_word_timeline(
 pub fn utterances_to_timed_words(utterances: &[(&str, f64, f64)]) -> Vec<TimedWord> {
     let mut out = Vec::new();
     for (text, start, end) in utterances {
-        let words: Vec<&str> = text
-            .split_whitespace()
-            .filter(|w| !w.is_empty())
-            .collect();
+        let words: Vec<&str> = text.split_whitespace().filter(|w| !w.is_empty()).collect();
         if words.is_empty() {
             continue;
         }
@@ -476,7 +475,6 @@ pub fn utterances_to_timed_words(utterances: &[(&str, f64, f64)]) -> Vec<TimedWo
                 text: (*w).to_string(),
                 start_sec: s,
                 end_sec: e.max(s),
-                confidence: 0.9,
             });
         }
     }
@@ -534,7 +532,6 @@ mod tests {
             text: text.to_string(),
             start_sec: start,
             end_sec: start + 0.3,
-            confidence: 0.9,
         }
     }
 
@@ -567,10 +564,7 @@ mod tests {
             tw("hôm", 2.0),
             tw("nay", 2.5),
         ];
-        let sentences = vec![
-            "Xin chào các bạn.".to_string(),
-            "Hôm nay.".to_string(),
-        ];
+        let sentences = vec!["Xin chào các bạn.".to_string(), "Hôm nay.".to_string()];
         let aligned = align_sentences_to_words(&sentences, &words);
         assert_eq!(aligned.len(), 2);
         assert!(aligned[0].1 < aligned[1].1);
@@ -621,14 +615,13 @@ mod tests {
 
     #[test]
     fn split_punctuated_onto_utterances_returns_seconds_per_sentence() {
-        let utterances = [
-            ("xin chao cac ban", 0.0, 2.0),
-            ("hom nay", 2.0, 3.0),
-        ];
+        let utterances = [("xin chao cac ban", 0.0, 2.0), ("hom nay", 2.0, 3.0)];
         let split = split_punctuated_onto_utterances("Xin chào các bạn. Hôm nay.", &utterances);
         assert_eq!(split.len(), 2);
         assert!(split[0].0.to_lowercase().contains("xin"));
-        assert!(split[1].0.to_lowercase().contains("hôm") || split[1].0.to_lowercase().contains("hom"));
+        assert!(
+            split[1].0.to_lowercase().contains("hôm") || split[1].0.to_lowercase().contains("hom")
+        );
         assert!(split[0].1 < split[1].1);
         assert!(split[0].2 <= split[1].1 + 1e-6);
         // Times are in seconds, not milliseconds (import align uses ms internally).

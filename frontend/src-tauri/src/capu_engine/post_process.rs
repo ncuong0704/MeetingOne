@@ -36,7 +36,9 @@ pub fn post_process(text: &str) -> String {
     // 4. At most one comma survives in a short (<8-word) sentence.
     text = limit_commas_in_short_sentences(&text);
     // 5. Ensure a space follows every punctuation mark.
-    text = PUNCT_NO_SPACE_AFTER.replace_all(&text, "$1 $2").into_owned();
+    text = PUNCT_NO_SPACE_AFTER
+        .replace_all(&text, "$1 $2")
+        .into_owned();
     // 6. Remove space before punctuation.
     text = SPACE_BEFORE_PUNCT.replace_all(&text, "$1").into_owned();
     // 7. No leading comma; no comma right after a period.

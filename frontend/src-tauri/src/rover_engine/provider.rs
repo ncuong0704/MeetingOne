@@ -1,4 +1,6 @@
-use crate::audio::transcription::provider::{TranscriptionError, TranscriptionProvider, TranscriptResult};
+use crate::audio::transcription::provider::{
+    TranscriptResult, TranscriptionError, TranscriptionProvider,
+};
 use crate::rover_engine::engine::RoverDecoder;
 use async_trait::async_trait;
 use std::sync::Arc;

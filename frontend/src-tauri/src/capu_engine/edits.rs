@@ -126,7 +126,10 @@ mod tests {
 
     #[test]
     fn capital_uppercases_first_lowercases_rest() {
-        assert_eq!(apply_case_transform("VIỆT", Action::TransformCaseCapital), "Việt");
+        assert_eq!(
+            apply_case_transform("VIỆT", Action::TransformCaseCapital),
+            "Việt"
+        );
     }
 
     #[test]

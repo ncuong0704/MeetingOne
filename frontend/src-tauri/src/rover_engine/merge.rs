@@ -125,8 +125,16 @@ mod tests {
 
     #[test]
     fn full_agreement_keeps_a_with_no_disagreement() {
-        let a = vec![word("một", 0.0, 0.9), word("hai", 0.5, 0.9), word("ba", 1.0, 0.9)];
-        let b = vec![word("một", 0.0, 0.9), word("hai", 0.5, 0.9), word("ba", 1.0, 0.9)];
+        let a = vec![
+            word("một", 0.0, 0.9),
+            word("hai", 0.5, 0.9),
+            word("ba", 1.0, 0.9),
+        ];
+        let b = vec![
+            word("một", 0.0, 0.9),
+            word("hai", 0.5, 0.9),
+            word("ba", 1.0, 0.9),
+        ];
 
         let merged = rover_merge_words(&a, &b);
 
@@ -163,19 +171,33 @@ mod tests {
     #[test]
     fn insert_above_threshold_is_included() {
         let a = vec![word("một", 0.0, 0.9), word("ba", 1.0, 0.9)];
-        let b = vec![word("một", 0.0, 0.9), word("hai", 0.5, 0.50), word("ba", 1.0, 0.9)];
+        let b = vec![
+            word("một", 0.0, 0.9),
+            word("hai", 0.5, 0.50),
+            word("ba", 1.0, 0.9),
+        ];
 
         let merged = rover_merge_words(&a, &b);
 
         let texts: Vec<&str> = merged.iter().map(|m| m.word.text.as_str()).collect();
         assert_eq!(texts, vec!["một", "hai", "ba"]);
-        assert!(merged.iter().find(|m| m.word.text == "hai").unwrap().disagree);
+        assert!(
+            merged
+                .iter()
+                .find(|m| m.word.text == "hai")
+                .unwrap()
+                .disagree
+        );
     }
 
     #[test]
     fn insert_below_threshold_is_dropped() {
         let a = vec![word("một", 0.0, 0.9), word("ba", 1.0, 0.9)];
-        let b = vec![word("một", 0.0, 0.9), word("hai", 0.5, 0.05), word("ba", 1.0, 0.9)];
+        let b = vec![
+            word("một", 0.0, 0.9),
+            word("hai", 0.5, 0.05),
+            word("ba", 1.0, 0.9),
+        ];
 
         let merged = rover_merge_words(&a, &b);
 
@@ -187,7 +209,11 @@ mod tests {
     fn near_duplicate_insert_supplement_is_deduped() {
         // "hai" already present via A/Equal at t=0.50; B supplies the same
         // normalized word 0.05s away via a spurious Insert — must not double up.
-        let a = vec![word("một", 0.0, 0.9), word("hai", 0.50, 0.9), word("ba", 1.0, 0.9)];
+        let a = vec![
+            word("một", 0.0, 0.9),
+            word("hai", 0.50, 0.9),
+            word("ba", 1.0, 0.9),
+        ];
         let b = vec![
             word("một", 0.0, 0.9),
             word("hai", 0.50, 0.9),
@@ -198,7 +224,10 @@ mod tests {
         let merged = rover_merge_words(&a, &b);
 
         let hai_count = merged.iter().filter(|m| m.word.text == "hai").count();
-        assert_eq!(hai_count, 1, "duplicate 'hai' supplement should have been deduped");
+        assert_eq!(
+            hai_count, 1,
+            "duplicate 'hai' supplement should have been deduped"
+        );
     }
 
     #[test]

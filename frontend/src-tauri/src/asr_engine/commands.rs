@@ -7,16 +7,16 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 fn live_asr_thread_count() -> usize {
     let (physical_cores, _) = crate::capu_engine::cpu_topology::detect_cpu_topology();
-    super::thread_budget::asr_thread_budget(physical_cores, super::thread_budget::DecodeConcurrency::SingleLive)
+    super::thread_budget::asr_thread_budget(
+        physical_cores,
+        super::thread_budget::DecodeConcurrency::SingleLive,
+    )
 }
 
 pub(crate) static ASR_ENGINE: Mutex<Option<Arc<AsrEngine>>> = Mutex::new(None);
 
 pub(crate) fn resolve_models_base_dir<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
-    app.path()
-        .app_data_dir()
-        .ok()
-        .map(|d| d.join("models"))
+    app.path().app_data_dir().ok().map(|d| d.join("models"))
 }
 
 pub fn resolve_bundled_hotwords_path<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
@@ -307,7 +307,10 @@ pub async fn asr_validate_model_ready<R: Runtime>(
 
     if !engine.are_variant_files_present(&f, &v).await {
         if f.is_online_streaming() {
-            let dir = engine.get_models_directory().await.join(f.variant_subdir(v));
+            let dir = engine
+                .get_models_directory()
+                .await
+                .join(f.variant_subdir(v));
             let resource = app.path().resource_dir().ok();
             let _ = crate::asr_engine::streaming::ensure_bundled_tokens(&dir, resource.as_deref());
         }
@@ -336,10 +339,11 @@ pub async fn asr_validate_model_ready<R: Runtime>(
     }
 
     if let Some(state) = app.try_state::<crate::state::AppState>() {
-        if let Ok(Some(config)) = crate::database::repositories::setting::SettingsRepository::get_transcript_config(
-            state.db_manager.pool(),
-        )
-        .await
+        if let Ok(Some(config)) =
+            crate::database::repositories::setting::SettingsRepository::get_transcript_config(
+                state.db_manager.pool(),
+            )
+            .await
         {
             let bundled = load_bundled_hotwords_raw(&app);
             let text = crate::asr_engine::hotwords::effective_hotwords_text(

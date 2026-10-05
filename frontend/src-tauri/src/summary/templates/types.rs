@@ -77,7 +77,9 @@ impl Template {
         for section in &self.sections {
             markdown.push_str(&format!("## {}\n\n", section.title));
 
-            let item_format = section.item_format.as_ref()
+            let item_format = section
+                .item_format
+                .as_ref()
                 .or(section.example_item_format.as_ref());
 
             match section.format.as_str() {
@@ -109,7 +111,9 @@ impl Template {
                 section.title, section.instruction
             ));
 
-            let item_format = section.item_format.as_ref()
+            let item_format = section
+                .item_format
+                .as_ref()
                 .or(section.example_item_format.as_ref());
 
             if let Some(format) = item_format {
@@ -133,15 +137,13 @@ mod tests {
         let template = Template {
             name: "Test Template".to_string(),
             description: "A test template".to_string(),
-            sections: vec![
-                TemplateSection {
-                    title: "Summary".to_string(),
-                    instruction: "Provide a summary".to_string(),
-                    format: "paragraph".to_string(),
-                    item_format: None,
-                    example_item_format: None,
-                },
-            ],
+            sections: vec![TemplateSection {
+                title: "Summary".to_string(),
+                instruction: "Provide a summary".to_string(),
+                format: "paragraph".to_string(),
+                item_format: None,
+                example_item_format: None,
+            }],
         };
 
         assert!(template.validate().is_ok());
@@ -163,15 +165,13 @@ mod tests {
         let template = Template {
             name: "Test".to_string(),
             description: "Test".to_string(),
-            sections: vec![
-                TemplateSection {
-                    title: "Test".to_string(),
-                    instruction: "Test".to_string(),
-                    format: "invalid".to_string(),
-                    item_format: None,
-                    example_item_format: None,
-                },
-            ],
+            sections: vec![TemplateSection {
+                title: "Test".to_string(),
+                instruction: "Test".to_string(),
+                format: "invalid".to_string(),
+                item_format: None,
+                example_item_format: None,
+            }],
         };
 
         assert!(template.validate().is_err());

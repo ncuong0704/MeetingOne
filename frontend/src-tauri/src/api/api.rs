@@ -1,4 +1,4 @@
-use log::{debug as log_debug, error as log_error, info as log_info, warn as log_warn};
+use log::{error as log_error, info as log_info, warn as log_warn};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use tauri::{AppHandle, Runtime};
@@ -7,8 +7,8 @@ use crate::{
     database::{
         models::{MeetingModel, MeetingSpeakerWithPreview},
         repositories::{
-            meeting::MeetingsRepository, setting::SettingsRepository,
-            speaker::SpeakersRepository, transcript::TranscriptsRepository,
+            meeting::MeetingsRepository, setting::SettingsRepository, speaker::SpeakersRepository,
+            transcript::TranscriptsRepository,
         },
     },
     report_export,
@@ -70,10 +70,6 @@ pub struct GetApiKeyRequest {
     pub provider: String,
 }
 
-fn default_stt_provider() -> String {
-    "asr".to_string()
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LiveAsrConfigDto {
     pub model: String,
@@ -85,8 +81,6 @@ pub struct LiveAsrConfigDto {
     pub num_active_paths: i32,
     #[serde(rename = "maxSegmentSeconds")]
     pub max_segment_seconds: i32,
-    #[serde(default = "default_stt_provider")]
-    pub provider: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -106,8 +100,6 @@ pub struct FileAsrConfigDto {
     pub rover_family_b: Option<String>,
     #[serde(rename = "roverVariantB")]
     pub rover_variant_b: Option<String>,
-    #[serde(default = "default_stt_provider")]
-    pub provider: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -339,10 +331,7 @@ pub async fn api_get_model_config<R: Runtime>(
     match SettingsRepository::get_model_config(pool).await {
         Ok(Some(config)) => {
             let (provider, model) = match config.provider.as_str() {
-                "ollama" | "groq" => (
-                    "custom-openai".to_string(),
-                    "gemini-3.6-flash".to_string(),
-                ),
+                "ollama" | "groq" => ("custom-openai".to_string(), "gemini-3.6-flash".to_string()),
                 _ => (config.provider.clone(), config.model.clone()),
             };
             log_info!(
@@ -399,7 +388,10 @@ pub async fn api_save_model_config<R: Runtime>(
     let pool = state.db_manager.pool();
 
     if provider == "ollama" || provider == "groq" {
-        return Err("Nhà cung cấp này không còn được hỗ trợ. Vui lòng chọn nhà cung cấp đám mây khác.".to_string());
+        return Err(
+            "Nhà cung cấp này không còn được hỗ trợ. Vui lòng chọn nhà cung cấp đám mây khác."
+                .to_string(),
+        );
     }
 
     if let Err(e) = SettingsRepository::save_model_config(
@@ -469,24 +461,16 @@ pub async fn api_get_transcript_config<R: Runtime>(
 
     match SettingsRepository::get_transcript_config(pool).await {
         Ok(Some(config)) => {
-            let live_cfg =
-                SettingsRepository::get_path_asr_config(pool, crate::asr_engine::config::AsrPath::Live).await;
-            let file_cfg =
-                SettingsRepository::get_path_asr_config(pool, crate::asr_engine::config::AsrPath::File).await;
-            let live_provider = SettingsRepository::get_stt_provider(
+            let live_cfg = SettingsRepository::get_path_asr_config(
                 pool,
                 crate::asr_engine::config::AsrPath::Live,
             )
-            .await
-            .as_str()
-            .to_string();
-            let file_provider = SettingsRepository::get_stt_provider(
+            .await;
+            let file_cfg = SettingsRepository::get_path_asr_config(
                 pool,
                 crate::asr_engine::config::AsrPath::File,
             )
-            .await
-            .as_str()
-            .to_string();
+            .await;
 
             Ok(TranscriptConfigBundle {
                 live: LiveAsrConfigDto {
@@ -495,7 +479,6 @@ pub async fn api_get_transcript_config<R: Runtime>(
                     decoding_method: live_cfg.decoding_method,
                     num_active_paths: live_cfg.num_active_paths,
                     max_segment_seconds: live_cfg.max_segment_seconds as i32,
-                    provider: live_provider,
                 },
                 file: FileAsrConfigDto {
                     model: file_cfg.family_id,
@@ -506,7 +489,6 @@ pub async fn api_get_transcript_config<R: Runtime>(
                     rover_enabled: file_cfg.rover_enabled,
                     rover_family_b: file_cfg.rover_family_b,
                     rover_variant_b: file_cfg.rover_variant_b,
-                    provider: file_provider,
                 },
                 shared: SharedTranscriptConfigDto {
                     hotwords: crate::asr_engine::hotwords::display_hotwords_text(
@@ -533,7 +515,6 @@ pub async fn api_get_transcript_config<R: Runtime>(
                     decoding_method: "modified_beam_search".to_string(),
                     num_active_paths: 15,
                     max_segment_seconds: crate::audio::common::DEFAULT_MAX_SEGMENT_SECONDS as i32,
-                    provider: "asr".to_string(),
                 },
                 file: FileAsrConfigDto {
                     model: crate::config::ZIPFORMER_MODEL_NAME.to_string(),
@@ -544,7 +525,6 @@ pub async fn api_get_transcript_config<R: Runtime>(
                     rover_enabled: false,
                     rover_family_b: None,
                     rover_variant_b: None,
-                    provider: "asr".to_string(),
                 },
                 shared: SharedTranscriptConfigDto {
                     hotwords: bundled_hotwords.clone(),
@@ -586,6 +566,7 @@ pub async fn api_save_transcript_config<R: Runtime>(
     capu_case_level: Option<i32>,
     _auth_token: Option<String>,
 ) -> Result<serde_json::Value, String> {
+    let _ = api_key; // Legacy command argument retained for IPC compatibility.
     log_warn!(
         "api_save_transcript_config is deprecated; use api_save_live_asr_config / api_save_file_asr_config / api_save_shared_transcript_config"
     );
@@ -606,8 +587,9 @@ pub async fn api_save_transcript_config<R: Runtime>(
         model
     };
     let family = crate::asr_engine::model_family::ModelFamily::from_id(&model);
-    let requested_variant =
-        crate::asr_engine::model_family::ModelVariant::from_str(asr_variant.as_deref().unwrap_or("int8"));
+    let requested_variant = crate::asr_engine::model_family::ModelVariant::from_str(
+        asr_variant.as_deref().unwrap_or("int8"),
+    );
     let resolved_variant = if family.available_variants().contains(&requested_variant) {
         requested_variant
     } else {
@@ -626,8 +608,7 @@ pub async fn api_save_transcript_config<R: Runtime>(
     let _ = (capu_cpu_threads, capu_punctuation_level, capu_case_level);
     let capu_threads_resolved =
         Some(crate::capu_engine::cpu_topology::FIXED_CAPU_CPU_THREADS as i32);
-    let capu_punct_resolved =
-        crate::capu_engine::cpu_topology::FIXED_CAPU_PUNCTUATION_LEVEL as i32;
+    let capu_punct_resolved = crate::capu_engine::cpu_topology::FIXED_CAPU_PUNCTUATION_LEVEL as i32;
     let capu_case_resolved = crate::capu_engine::cpu_topology::FIXED_CAPU_CASE_LEVEL as i32;
 
     if let Err(e) = SettingsRepository::save_transcript_config(
@@ -657,15 +638,9 @@ pub async fn api_save_transcript_config<R: Runtime>(
     }
 
     // Backward compat: mirror legacy save into live/file path columns
-    if let Err(e) = SettingsRepository::save_live_asr_config(
-        pool,
-        &model,
-        variant,
-        dm,
-        paths,
-        max_seg as i32,
-    )
-    .await
+    if let Err(e) =
+        SettingsRepository::save_live_asr_config(pool, &model, variant, dm, paths, max_seg as i32)
+            .await
     {
         log_error!("Failed to mirror live ASR config: {}", e);
         return Err(e.to_string());
@@ -689,17 +664,6 @@ pub async fn api_save_transcript_config<R: Runtime>(
     {
         log_error!("Failed to mirror file ASR config: {}", e);
         return Err(e.to_string());
-    }
-
-    if let Some(key) = api_key {
-        if !key.is_empty() && provider == "gemini" {
-            log_info!("API key provided, saving for transcript provider...");
-            if let Err(e) = SettingsRepository::save_transcript_api_key(pool, &provider, &key).await
-            {
-                log_error!("Failed to save transcript API key: {}", e);
-                return Err(e.to_string());
-            }
-        }
     }
 
     // Best-effort: if the ASR engine is already loaded this session, push the new
@@ -739,7 +703,6 @@ pub async fn api_save_live_asr_config<R: Runtime>(
     decoding_method: Option<String>,
     num_active_paths: Option<i32>,
     max_segment_seconds: Option<i32>,
-    provider: Option<String>,
     _auth_token: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let pool = state.db_manager.pool();
@@ -749,8 +712,9 @@ pub async fn api_save_live_asr_config<R: Runtime>(
         model
     };
     let family = crate::asr_engine::model_family::ModelFamily::from_id(&model);
-    let requested_variant =
-        crate::asr_engine::model_family::ModelVariant::from_str(asr_variant.as_deref().unwrap_or("int8"));
+    let requested_variant = crate::asr_engine::model_family::ModelVariant::from_str(
+        asr_variant.as_deref().unwrap_or("int8"),
+    );
     let resolved_variant = if family.available_variants().contains(&requested_variant) {
         requested_variant
     } else {
@@ -763,28 +727,11 @@ pub async fn api_save_live_asr_config<R: Runtime>(
         max_segment_seconds.unwrap_or(crate::audio::common::DEFAULT_MAX_SEGMENT_SECONDS as i32),
     );
 
-    if let Err(e) = SettingsRepository::save_live_asr_config(
-        pool,
-        &model,
-        variant,
-        dm,
-        paths,
-        max_seg as i32,
-    )
-    .await
+    if let Err(e) =
+        SettingsRepository::save_live_asr_config(pool, &model, variant, dm, paths, max_seg as i32)
+            .await
     {
         return Err(e.to_string());
-    }
-
-    let stt = crate::audio::transcription::gemini_key::SttProvider::from_db(provider.as_deref());
-    if stt == crate::audio::transcription::gemini_key::SttProvider::Gemini {
-        crate::audio::transcription::gemini_key::resolve_stt_api_key(pool).await?;
-    }
-    if let Err(e) = SettingsRepository::save_live_provider(pool, stt.as_str()).await {
-        return Err(e.to_string());
-    }
-    if stt == crate::audio::transcription::gemini_key::SttProvider::Gemini {
-        return Ok(serde_json::json!({ "status": "success", "message": "Live ASR configuration saved" }));
     }
 
     crate::asr_engine::commands::asr_validate_model_ready(
@@ -811,7 +758,6 @@ pub async fn api_save_file_asr_config<R: Runtime>(
     rover_enabled: Option<bool>,
     rover_family_b: Option<String>,
     rover_variant_b: Option<String>,
-    provider: Option<String>,
     _auth_token: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let pool = state.db_manager.pool();
@@ -821,8 +767,9 @@ pub async fn api_save_file_asr_config<R: Runtime>(
         model
     };
     let family = crate::asr_engine::model_family::ModelFamily::from_id(&model);
-    let requested_variant =
-        crate::asr_engine::model_family::ModelVariant::from_str(asr_variant.as_deref().unwrap_or("int8"));
+    let requested_variant = crate::asr_engine::model_family::ModelVariant::from_str(
+        asr_variant.as_deref().unwrap_or("int8"),
+    );
     let resolved_variant = if family.available_variants().contains(&requested_variant) {
         requested_variant
     } else {
@@ -857,17 +804,6 @@ pub async fn api_save_file_asr_config<R: Runtime>(
         return Err(e.to_string());
     }
 
-    let stt = crate::audio::transcription::gemini_key::SttProvider::from_db(provider.as_deref());
-    if stt == crate::audio::transcription::gemini_key::SttProvider::Gemini {
-        crate::audio::transcription::gemini_key::resolve_stt_api_key(pool).await?;
-    }
-    if let Err(e) = SettingsRepository::save_file_provider(pool, stt.as_str()).await {
-        return Err(e.to_string());
-    }
-    if stt == crate::audio::transcription::gemini_key::SttProvider::Gemini {
-        return Ok(serde_json::json!({ "status": "success", "message": "File ASR configuration saved" }));
-    }
-
     if rover_on {
         crate::rover_engine::commands::rover_validate_model_ready(app.clone()).await?;
     } else {
@@ -900,12 +836,10 @@ pub async fn api_save_shared_transcript_config<R: Runtime>(
     let _ = (capu_cpu_threads, capu_punctuation_level, capu_case_level);
     let capu_threads_resolved =
         Some(crate::capu_engine::cpu_topology::FIXED_CAPU_CPU_THREADS as i32);
-    let capu_punct_resolved =
-        crate::capu_engine::cpu_topology::FIXED_CAPU_PUNCTUATION_LEVEL as i32;
+    let capu_punct_resolved = crate::capu_engine::cpu_topology::FIXED_CAPU_PUNCTUATION_LEVEL as i32;
     let capu_case_resolved = crate::capu_engine::cpu_topology::FIXED_CAPU_CASE_LEVEL as i32;
     let diarization_enabled_resolved = diarization_enabled.unwrap_or(false);
-    let diarization_num_resolved = diarization_num_speakers
-        .filter(|&n| (1..=20).contains(&n));
+    let diarization_num_resolved = diarization_num_speakers.filter(|&n| (1..=20).contains(&n));
 
     let bundled_hotwords = crate::asr_engine::commands::load_bundled_hotwords_raw(&app);
     let persist_hotwords = crate::asr_engine::hotwords::persist_hotwords_value(
@@ -943,71 +877,9 @@ pub async fn api_save_shared_transcript_config<R: Runtime>(
     )
     .await;
 
-    Ok(serde_json::json!({ "status": "success", "message": "Shared transcript configuration saved" }))
-}
-
-#[tauri::command]
-pub async fn api_get_transcript_api_key<R: Runtime>(
-    _app: AppHandle<R>,
-    state: tauri::State<'_, AppState>,
-    provider: String,
-    _auth_token: Option<String>,
-) -> Result<String, String> {
-    log_info!(
-        "api_get_transcript_api_key called (native) for provider '{}'",
-        &provider
-    );
-    match SettingsRepository::get_transcript_api_key(&state.db_manager.pool(), &provider).await {
-        Ok(key) => {
-            log_info!(
-                "Successfully retrieved transcript API key for provider '{}'.",
-                &provider
-            );
-            Ok(key.unwrap_or_default())
-        }
-        Err(e) => {
-            log_error!(
-                "Failed to get transcript API key for provider '{}': {}",
-                &provider,
-                e
-            );
-            Err(e.to_string())
-        }
-    }
-}
-
-#[tauri::command]
-pub async fn api_save_transcript_api_key<R: Runtime>(
-    _app: AppHandle<R>,
-    state: tauri::State<'_, AppState>,
-    provider: String,
-    api_key: String,
-    _auth_token: Option<String>,
-) -> Result<serde_json::Value, String> {
-    if api_key.trim().is_empty() {
-        return Err("API key trống. Dùng xóa key thay vì lưu chuỗi rỗng.".to_string());
-    }
-    SettingsRepository::save_transcript_api_key(
-        &state.db_manager.pool(),
-        &provider,
-        api_key.trim(),
+    Ok(
+        serde_json::json!({ "status": "success", "message": "Shared transcript configuration saved" }),
     )
-    .await
-    .map_err(|e| e.to_string())?;
-    Ok(serde_json::json!({ "status": "success", "message": "Transcript API key saved" }))
-}
-
-#[tauri::command]
-pub async fn api_delete_transcript_api_key<R: Runtime>(
-    _app: AppHandle<R>,
-    state: tauri::State<'_, AppState>,
-    provider: String,
-    _auth_token: Option<String>,
-) -> Result<serde_json::Value, String> {
-    SettingsRepository::delete_transcript_api_key(&state.db_manager.pool(), &provider)
-        .await
-        .map_err(|e| e.to_string())?;
-    Ok(serde_json::json!({ "status": "success", "message": "Transcript API key deleted" }))
 }
 
 #[tauri::command]
@@ -1100,7 +972,10 @@ pub async fn api_get_meeting_metadata<R: Runtime>(
     meeting_id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<MeetingMetadata, String> {
-    log_info!("api_get_meeting_metadata called for meeting_id: {}", meeting_id);
+    log_info!(
+        "api_get_meeting_metadata called for meeting_id: {}",
+        meeting_id
+    );
 
     let pool = state.db_manager.pool();
 
@@ -1144,7 +1019,9 @@ pub async fn api_get_meeting_transcripts<R: Runtime>(
 
     let pool = state.db_manager.pool();
 
-    match MeetingsRepository::get_meeting_transcripts_paginated(pool, &meeting_id, limit, offset).await {
+    match MeetingsRepository::get_meeting_transcripts_paginated(pool, &meeting_id, limit, offset)
+        .await
+    {
         Ok((transcripts, total_count)) => {
             log_info!(
                 "Successfully retrieved {} transcripts for meeting {} (total: {})",
@@ -1178,7 +1055,11 @@ pub async fn api_get_meeting_transcripts<R: Runtime>(
             })
         }
         Err(e) => {
-            log_error!("Error retrieving transcripts for meeting {}: {}", meeting_id, e);
+            log_error!(
+                "Error retrieving transcripts for meeting {}: {}",
+                meeting_id,
+                e
+            );
             Err(format!("Failed to retrieve transcripts: {}", e))
         }
     }
@@ -1206,9 +1087,9 @@ pub async fn merge_speaker_segment(
 ) -> Result<(), String> {
     match SpeakersRepository::merge_with_previous(state.db_manager.pool(), &transcript_id).await {
         Ok(true) => Ok(()),
-        Ok(false) => Err(
-            "Không thể gộp: không có đoạn trước hoặc đoạn trước chưa có người nói".to_string(),
-        ),
+        Ok(false) => {
+            Err("Không thể gộp: không có đoạn trước hoặc đoạn trước chưa có người nói".to_string())
+        }
         Err(e) => Err(e.to_string()),
     }
 }
@@ -1279,6 +1160,7 @@ pub async fn api_save_transcript<R: Runtime>(
     meeting_title: String,
     transcripts: Vec<serde_json::Value>,
     folder_path: Option<String>,
+    session_id: Option<String>,
     auth_token: Option<String>,
 ) -> Result<serde_json::Value, String> {
     log_info!(
@@ -1289,14 +1171,6 @@ pub async fn api_save_transcript<R: Runtime>(
         auth_token.is_some()
     );
 
-    // Log first transcript for debugging
-    if let Some(first) = transcripts.first() {
-        log_debug!(
-            "First transcript data: {}",
-            serde_json::to_string_pretty(first).unwrap_or_default()
-        );
-    }
-
     // Convert serde_json::Value to TranscriptSegment
     let transcripts_to_save: Vec<TranscriptSegment> = transcripts
         .into_iter()
@@ -1304,26 +1178,21 @@ pub async fn api_save_transcript<R: Runtime>(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| {
             log_error!("Failed to parse transcript segments: {}", e);
-            format!("Invalid transcript data format: {}. Please check the data structure.", e)
+            format!(
+                "Invalid transcript data format: {}. Please check the data structure.",
+                e
+            )
         })?;
-
-    // Log parsed segments count and first segment details
-    if let Some(first_seg) = transcripts_to_save.first() {
-        log_debug!("First parsed segment: text='{}', audio_start_time={:?}, audio_end_time={:?}, duration={:?}",
-                   first_seg.text.chars().take(50).collect::<String>(),
-                   first_seg.audio_start_time,
-                   first_seg.audio_end_time,
-                   first_seg.duration);
-    }
 
     let pool = state.db_manager.pool();
 
     // Now, call the repository with the correctly typed data.
-    match TranscriptsRepository::save_transcript(
+    match TranscriptsRepository::save_transcript_for_session(
         pool,
         &meeting_title,
         &transcripts_to_save,
         folder_path,
+        session_id.as_deref(),
     )
     .await
     {
@@ -1503,7 +1372,10 @@ pub async fn api_save_custom_openai_config<R: Runtime>(
 
     match SettingsRepository::save_custom_openai_config(pool, &config).await {
         Ok(()) => {
-            log_info!("✅ Successfully saved custom OpenAI config for endpoint: {}", config.endpoint);
+            log_info!(
+                "✅ Successfully saved custom OpenAI config for endpoint: {}",
+                config.endpoint
+            );
             Ok(serde_json::json!({
                 "status": "success",
                 "message": "Custom OpenAI configuration saved successfully"
@@ -1529,8 +1401,11 @@ pub async fn api_get_custom_openai_config<R: Runtime>(
     match SettingsRepository::get_custom_openai_config(pool).await {
         Ok(config) => {
             if let Some(ref c) = config {
-                log_info!("✅ Found custom OpenAI config: endpoint='{}', model='{}'",
-                    c.endpoint, c.model);
+                log_info!(
+                    "✅ Found custom OpenAI config: endpoint='{}', model='{}'",
+                    c.endpoint,
+                    c.model
+                );
             } else {
                 log_info!("No custom OpenAI config found");
             }
@@ -1603,9 +1478,12 @@ pub async fn api_test_custom_openai_connection<R: Runtime>(
                 // Parse response as JSON to verify it's a valid OpenAI-compatible response
                 match serde_json::from_str::<serde_json::Value>(&response_text) {
                     Ok(json) => {
-                        if looks_openai_compatible(&json) || extract_completion_text(&json).is_some()
+                        if looks_openai_compatible(&json)
+                            || extract_completion_text(&json).is_some()
                         {
-                            log_info!("✅ Custom OpenAI connection test successful - response validated");
+                            log_info!(
+                                "✅ Custom OpenAI connection test successful - response validated"
+                            );
                             return Ok(serde_json::json!({
                                 "status": "success",
                                 "message": "Connection successful and response validated",
@@ -1614,17 +1492,33 @@ pub async fn api_test_custom_openai_connection<R: Runtime>(
                         }
 
                         // Response was 200 but doesn't match OpenAI format
-                        log_warn!("⚠️ Endpoint returned 200 but response doesn't match OpenAI format: {}", response_text);
+                        log_warn!(
+                            "⚠️ Endpoint returned 200 but response doesn't match OpenAI format: {}",
+                            response_text
+                        );
                         Err(openai_compat_error(&json))
                     }
                     Err(e) => {
-                        log_warn!("⚠️ Endpoint returned 200 but response is not valid JSON: {}", e);
-                        Err(format!("Endpoint is reachable but returned invalid JSON: {}. Response: {}", e, response_text))
+                        log_warn!(
+                            "⚠️ Endpoint returned 200 but response is not valid JSON: {}",
+                            e
+                        );
+                        Err(format!(
+                            "Endpoint is reachable but returned invalid JSON: {}. Response: {}",
+                            e, response_text
+                        ))
                     }
                 }
             } else {
-                log_warn!("⚠️ Custom OpenAI connection test failed with status {}: {}", status, response_text);
-                Err(format!("Connection failed with status {}: {}", status, response_text))
+                log_warn!(
+                    "⚠️ Custom OpenAI connection test failed with status {}: {}",
+                    status,
+                    response_text
+                );
+                Err(format!(
+                    "Connection failed with status {}: {}",
+                    status, response_text
+                ))
             }
         }
         Err(e) => {
@@ -1743,8 +1637,7 @@ fn write_bytes_with_fallback(
             let new_name = format!("{}_{}.{}", stem, timestamp, ext);
             let new_path = dir.join(&new_name);
             log_info!("Ghi vào file thay thế: {}", new_path.display());
-            fs::write(&new_path, bytes)
-                .map_err(|e2| format!("Không thể ghi file: {}", e2))?;
+            fs::write(&new_path, bytes).map_err(|e2| format!("Không thể ghi file: {}", e2))?;
             Ok(new_path)
         }
         Err(e) => Err(format!("Không thể ghi file: {}", e)),

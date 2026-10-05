@@ -112,25 +112,28 @@ pub fn asr_confidence_from_log_probs(log_probs: &[f32]) -> Option<f32> {
     Some(mean.exp())
 }
 
-pub fn generate_suggestions(metrics: &QualityMetrics, has_dnsmos: bool, has_asr: bool) -> Vec<String> {
+pub fn generate_suggestions(
+    metrics: &QualityMetrics,
+    has_dnsmos: bool,
+    has_asr: bool,
+) -> Vec<String> {
     let mut suggestions = Vec::new();
     if has_dnsmos {
         if metrics.dnsmos_bak < 2.5 {
-            suggestions.push(
-                "🔴 Nhiễu nền cao: Tắt quạt, điều hòa, hoặc chuyển nơi yên tĩnh hơn".into(),
-            );
+            suggestions
+                .push("🔴 Nhiễu nền cao: Tắt quạt, điều hòa, hoặc chuyển nơi yên tĩnh hơn".into());
         } else if metrics.dnsmos_bak < 3.5 {
             suggestions.push("🟡 Có nhiễu nền: Cố gắng giảm âm thanh xung quanh".into());
         }
         if metrics.dnsmos_sig < 2.5 {
             suggestions.push("🔴 Giọng nói kém: Đưa microphone gần miệng hơn (15-20cm)".into());
         } else if metrics.dnsmos_sig < 3.5 {
-            suggestions.push("🟡 Chất lượng giọng nói trung bình: Điều chỉnh vị trí microphone".into());
+            suggestions
+                .push("🟡 Chất lượng giọng nói trung bình: Điều chỉnh vị trí microphone".into());
         }
         if metrics.dnsmos_ovrl < 2.5 {
-            suggestions.push(
-                "🔴 Chất lượng tổng thể kém: Kiểm tra lại thiết bị và môi trường".into(),
-            );
+            suggestions
+                .push("🔴 Chất lượng tổng thể kém: Kiểm tra lại thiết bị và môi trường".into());
         }
     }
     if has_asr {
@@ -361,14 +364,9 @@ async fn asr_proxy<R: Runtime>(app: &AppHandle<R>, audio: &[f32]) -> (Option<f32
     if audio.is_empty() {
         return (None, String::new());
     }
-    if let Err(e) = crate::asr_engine::commands::asr_validate_model_ready(
-        app.clone(),
-        None,
-        None,
-        None,
-        None,
-    )
-    .await
+    if let Err(e) =
+        crate::asr_engine::commands::asr_validate_model_ready(app.clone(), None, None, None, None)
+            .await
     {
         warn!("Mic quality ASR skipped: {e}");
         return (None, String::new());
@@ -435,12 +433,14 @@ fn finish_metrics(
 
 fn resolve_input_device(device_name: Option<&str>) -> Result<crate::audio::AudioDevice> {
     match device_name {
-        Some(n) if !n.is_empty() && n != "default" => crate::audio::parse_audio_device(n).or_else(|_| {
-            Ok(crate::audio::AudioDevice::new(
-                n.trim().to_string(),
-                crate::audio::DeviceType::Input,
-            ))
-        }),
+        Some(n) if !n.is_empty() && n != "default" => {
+            crate::audio::parse_audio_device(n).or_else(|_| {
+                Ok(crate::audio::AudioDevice::new(
+                    n.trim().to_string(),
+                    crate::audio::DeviceType::Input,
+                ))
+            })
+        }
         _ => crate::audio::default_input_device(),
     }
 }
@@ -608,7 +608,11 @@ async fn download_dnsmos<R: Runtime>(dir: &PathBuf, app: &AppHandle<R>) -> anyho
     }
     file.flush().await?;
     drop(file);
-    let hex: String = hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect();
+    let hex: String = hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect();
     if hex != DNSMOS_SHA256 {
         let _ = tokio::fs::remove_file(&tmp).await;
         anyhow::bail!("SHA-256 mismatch — file bị hỏng hoặc bị thay đổi");
@@ -643,8 +647,7 @@ async fn mic_quality_analyze_inner<R: Runtime>(
         return Err("Cần tải model DNSMOS (~5MB) để phân tích.".into());
     }
 
-    let audio_device =
-        resolve_input_device(device_name.as_deref()).map_err(|e| e.to_string())?;
+    let audio_device = resolve_input_device(device_name.as_deref()).map_err(|e| e.to_string())?;
     let (device, config) = crate::audio::get_device_and_config(&audio_device)
         .await
         .map_err(|e| format!("Không mở được microphone: {e}"))?;
@@ -669,12 +672,11 @@ async fn mic_quality_analyze_inner<R: Runtime>(
 
     let model_path = path.clone();
     let pcm_for_vad = pcm.clone();
-    let (segments, dnsmos, _vad_found) = tokio::task::spawn_blocking(move || {
-        analyze_pcm_dnsmos_vad(&pcm_for_vad, &model_path)
-    })
-    .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e| e.to_string())?;
+    let (segments, dnsmos, _vad_found) =
+        tokio::task::spawn_blocking(move || analyze_pcm_dnsmos_vad(&pcm_for_vad, &model_path))
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?;
 
     if segments.is_empty() {
         return Ok(AnalysisResult {

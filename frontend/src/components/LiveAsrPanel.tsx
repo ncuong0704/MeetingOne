@@ -1,9 +1,8 @@
 'use client';
 
 import { listen } from '@tauri-apps/api/event';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { SpeakerHotkeyDialog } from '@/components/SpeakerHotkeyDialog';
-import GeminiSttFields, { GeminiSttFieldsHandle } from '@/components/GeminiSttFields';
 import {
   ASR_MODELS,
   AsrAPI,
@@ -11,7 +10,6 @@ import {
   DecodingMethod,
   LiveAsrConfig,
   ModelVariant,
-  SttProvider,
   TranscriptConfigAPI,
   VariantStatus,
 } from '@/lib/asr';
@@ -47,7 +45,6 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
   const [decodingMethod, setDecodingMethod] = useState<DecodingMethod>(DEFAULT_DECODING);
   const [numActivePaths, setNumActivePaths] = useState(DEFAULT_PATHS);
   const [maxSegmentSeconds, setMaxSegmentSeconds] = useState(DEFAULT_MAX_SEGMENT_SECONDS);
-  const [provider, setProvider] = useState<SttProvider>('asr');
   const [variantStatuses, setVariantStatuses] = useState<Record<ModelVariant, VariantStatus>>({
     int8: { hasFiles: false, isLoaded: false },
     full: { hasFiles: false, isLoaded: false },
@@ -60,7 +57,6 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [hotkeyOpen, setHotkeyOpen] = useState(false);
-  const geminiFieldsRef = useRef<GeminiSttFieldsHandle>(null);
 
   const selectedModelInfo = ASR_MODELS.find((m) => m.id === selectedFamily);
   const effectiveVariant = resolveVariantForFamily(selectedFamily, selectedVariant);
@@ -102,7 +98,6 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
         )
       );
     }
-    setProvider(config.provider === 'gemini' ? 'gemini' : 'asr');
   }, [config]);
 
   useEffect(() => {
@@ -146,24 +141,16 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
       decodingMethod,
       numActivePaths,
       maxSegmentSeconds,
-      provider,
     };
     try {
-      if (provider === 'gemini') {
-        await geminiFieldsRef.current?.saveKeyIfPresent();
-      }
       await TranscriptConfigAPI.saveLive(payload);
-      if (provider === 'gemini') {
-        setSaveMessage('Đã lưu Gemini cho ghi trực tiếp');
+      const freshStatus = await AsrAPI.getVariantStatus(selectedFamily, effectiveVariant);
+      setVariantStatuses((prev) => ({ ...prev, [effectiveVariant]: freshStatus }));
+      if (freshStatus.hasFiles) {
+        await refreshAllVariantStatuses(selectedFamily);
+        setSaveMessage('Đã lưu cấu hình ghi âm trực tiếp');
       } else {
-        const freshStatus = await AsrAPI.getVariantStatus(selectedFamily, effectiveVariant);
-        setVariantStatuses((prev) => ({ ...prev, [effectiveVariant]: freshStatus }));
-        if (freshStatus.hasFiles) {
-          await refreshAllVariantStatuses(selectedFamily);
-          setSaveMessage('Đã lưu cấu hình ghi âm trực tiếp');
-        } else {
-          setSaveMessage('Đã lưu. Tải model trước khi ghi âm.');
-        }
+        setSaveMessage('Đã lưu. Tải model trước khi ghi âm.');
       }
       onSaved?.();
       setTimeout(() => setSaveMessage(null), 3000);
@@ -202,15 +189,6 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
       </div>
       <SpeakerHotkeyDialog open={hotkeyOpen} onOpenChange={setHotkeyOpen} />
 
-      <GeminiSttFields
-        ref={geminiFieldsRef}
-        provider={provider}
-        onProviderChange={setProvider}
-        disabled={disabled}
-      />
-
-      {provider === 'asr' && (
-      <>
       <div className="space-y-1.5">
         <label className="block text-sm font-medium text-ink">Model ASR</label>
         <select
@@ -321,8 +299,6 @@ export default function LiveAsrPanel({ config, disabled = false, onSaved }: Live
           className="w-full accent-primary disabled:opacity-50"
         />
       </div>
-      </>
-      )}
 
       <div className="flex items-center gap-3 pt-0.5">
         <button type="button" onClick={handleSave} disabled={isSaving || disabled} className={saveClass}>

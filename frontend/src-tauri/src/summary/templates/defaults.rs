@@ -10,7 +10,8 @@ pub const DAILY_STANDUP: &str = include_str!("../../../templates/daily_standup.j
 pub const STANDARD_MEETING: &str = include_str!("../../../templates/standard_meeting.json");
 
 /// ACT-format meeting conclusions template without tables
-pub const THEO_MAU_ACT_NO_TABLE: &str = include_str!("../../../templates/theo_mau_act_no_table.json");
+pub const THEO_MAU_ACT_NO_TABLE: &str =
+    include_str!("../../../templates/theo_mau_act_no_table.json");
 
 /// Project sync / progress update template
 pub const PROJECT_SYNC: &str = include_str!("../../../templates/project_sync.json");
@@ -19,20 +20,23 @@ pub const PROJECT_SYNC: &str = include_str!("../../../templates/project_sync.jso
 pub const RETROSPECTIVE: &str = include_str!("../../../templates/retrospective.json");
 
 /// Sales & marketing client call template
-pub const SALES_MARKETING_CLIENT_CALL: &str = include_str!("../../../templates/sales_marketing_client_call.json");
+pub const SALES_MARKETING_CLIENT_CALL: &str =
+    include_str!("../../../templates/sales_marketing_client_call.json");
+
+const BUILTIN_TEMPLATES: &[(&str, &str)] = &[
+    ("daily_standup", DAILY_STANDUP),
+    ("standard_meeting", STANDARD_MEETING),
+    ("theo_mau_act_no_table", THEO_MAU_ACT_NO_TABLE),
+    ("project_sync", PROJECT_SYNC),
+    ("retrospective", RETROSPECTIVE),
+    ("sales_marketing_client_call", SALES_MARKETING_CLIENT_CALL),
+];
 
 /// Registry of all built-in templates
 ///
 /// Maps template identifiers to their embedded JSON content
 pub fn get_builtin_templates() -> Vec<(&'static str, &'static str)> {
-    vec![
-        ("daily_standup", DAILY_STANDUP),
-        ("standard_meeting", STANDARD_MEETING),
-        ("theo_mau_act_no_table", THEO_MAU_ACT_NO_TABLE),
-        ("project_sync", PROJECT_SYNC),
-        ("retrospective", RETROSPECTIVE),
-        ("sales_marketing_client_call", SALES_MARKETING_CLIENT_CALL),
-    ]
+    BUILTIN_TEMPLATES.to_vec()
 }
 
 /// Get a built-in template by identifier
@@ -43,27 +47,17 @@ pub fn get_builtin_templates() -> Vec<(&'static str, &'static str)> {
 /// # Returns
 /// The template JSON content if found, None otherwise
 pub fn get_builtin_template(id: &str) -> Option<&'static str> {
-    match id {
-        "daily_standup" => Some(DAILY_STANDUP),
-        "standard_meeting" => Some(STANDARD_MEETING),
-        "theo_mau_act_no_table" => Some(THEO_MAU_ACT_NO_TABLE),
-        "project_sync" => Some(PROJECT_SYNC),
-        "retrospective" => Some(RETROSPECTIVE),
-        "sales_marketing_client_call" => Some(SALES_MARKETING_CLIENT_CALL),
-        _ => None,
-    }
+    BUILTIN_TEMPLATES
+        .iter()
+        .find_map(|(template_id, content)| (*template_id == id).then_some(*content))
 }
 
 /// List all built-in template identifiers
 pub fn list_builtin_template_ids() -> Vec<&'static str> {
-    vec![
-        "daily_standup",
-        "standard_meeting",
-        "theo_mau_act_no_table",
-        "project_sync",
-        "retrospective",
-        "sales_marketing_client_call",
-    ]
+    BUILTIN_TEMPLATES
+        .iter()
+        .map(|(template_id, _)| *template_id)
+        .collect()
 }
 
 #[cfg(test)]

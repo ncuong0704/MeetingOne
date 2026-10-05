@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { subscribeSafely } from '@/lib/asyncSubscription';
 import { recordingService } from '@/services/recordingService';
 
 /**
@@ -71,20 +72,18 @@ export function RecordingStateProvider({ children }: { children: React.ReactNode
 
   // NEW: Status setter with logging
   const setStatus = useCallback((status: RecordingStatus, message?: string) => {
-    console.log(`[RecordingState] Status: ${state.status} → ${status}`, message || '');
-
     setState(prev => ({
       ...prev,
       status,
       statusMessage: message,
     }));
-  }, [state.status, state.isRecording, state.isPaused]);
+  }, []);
 
   /**
    * Sync recording state with backend
    * Called on mount (fixes refresh desync) and periodically while recording
    */
-  const syncWithBackend = async () => {
+  const syncWithBackend = useCallback(async () => {
     try {
       const backendState = await recordingService.getRecordingState();
 
@@ -97,47 +96,52 @@ export function RecordingStateProvider({ children }: { children: React.ReactNode
         activeDuration: backendState.active_duration,
       }));
 
-      console.log('[RecordingStateContext] Synced with backend:', backendState);
+
     } catch (error) {
       console.error('[RecordingStateContext] Failed to sync with backend:', error);
       // Don't update state on error - keep current state
     }
-  };
+  }, []);
 
   /**
    * Start polling backend state (called when recording starts)
    */
-  const startPolling = () => {
+  const startPolling = useCallback(() => {
     if (pollingIntervalRef.current) {
       clearInterval(pollingIntervalRef.current);
     }
 
     console.log('[RecordingStateContext] Starting state polling (500ms interval)');
     pollingIntervalRef.current = setInterval(syncWithBackend, 500);
-  };
+  }, [syncWithBackend]);
 
   /**
    * Stop polling backend state (called when recording stops)
    */
-  const stopPolling = () => {
+  const stopPolling = useCallback(() => {
     if (pollingIntervalRef.current) {
       console.log('[RecordingStateContext] Stopping state polling');
       clearInterval(pollingIntervalRef.current);
       pollingIntervalRef.current = null;
     }
-  };
+  }, []);
 
   /**
    * Set up event listeners for backend state changes
    */
   useEffect(() => {
     console.log('[RecordingStateContext] Setting up event listeners');
+    let disposed = false;
     const unsubscribers: (() => void)[] = [];
+    const subscribe = (registration: () => Promise<() => void>) => {
+      unsubscribers.push(subscribeSafely(registration, (error) => console.warn('Recording listener unavailable', error)));
+    };
 
     const setupListeners = async () => {
       try {
         // Recording started
-        const unlistenStarted = await recordingService.onRecordingStarted(() => {
+        subscribe(() => recordingService.onRecordingStarted(() => {
+          if (disposed) return;
           console.log('[RecordingStateContext] Recording started event');
           setState(prev => ({
             ...prev,
@@ -147,11 +151,11 @@ export function RecordingStateProvider({ children }: { children: React.ReactNode
             status: RecordingStatus.RECORDING,  // NEW: Set status to RECORDING
           }));
           startPolling();
-        });
-        unsubscribers.push(unlistenStarted);
+        }));
 
         // Recording stopped
-        const unlistenStopped = await recordingService.onRecordingStopped((payload) => {
+        subscribe(() => recordingService.onRecordingStopped((payload) => {
+          if (disposed) return;
           console.log('[RecordingStateContext] Recording stopped event:', payload);
           setState(prev => {
             // Set status to STOPPING if not already in stop flow
@@ -176,30 +180,29 @@ export function RecordingStateProvider({ children }: { children: React.ReactNode
             };
           });
           stopPolling();
-        });
-        unsubscribers.push(unlistenStopped);
+        }));
 
         // Recording paused
-        const unlistenPaused = await recordingService.onRecordingPaused(() => {
+        subscribe(() => recordingService.onRecordingPaused(() => {
+          if (disposed) return;
           console.log('[RecordingStateContext] Recording paused event');
           setState(prev => ({
             ...prev,
             isPaused: true,
             isActive: false,
           }));
-        });
-        unsubscribers.push(unlistenPaused);
+        }));
 
         // Recording resumed
-        const unlistenResumed = await recordingService.onRecordingResumed(() => {
+        subscribe(() => recordingService.onRecordingResumed(() => {
+          if (disposed) return;
           console.log('[RecordingStateContext] Recording resumed event');
           setState(prev => ({
             ...prev,
             isPaused: false,
             isActive: true,
           }));
-        });
-        unsubscribers.push(unlistenResumed);
+        }));
 
         console.log('[RecordingStateContext] Event listeners set up successfully');
       } catch (error) {
@@ -210,11 +213,11 @@ export function RecordingStateProvider({ children }: { children: React.ReactNode
     setupListeners();
 
     return () => {
-      console.log('[RecordingStateContext] Cleaning up event listeners');
+      disposed = true;
       unsubscribers.forEach(unsub => unsub());
       stopPolling();
     };
-  }, []);
+  }, [startPolling, stopPolling]);
 
   /**
    * Initial sync on mount - CRITICAL for fixing refresh desync bug
@@ -222,8 +225,8 @@ export function RecordingStateProvider({ children }: { children: React.ReactNode
    */
   useEffect(() => {
     console.log('[RecordingStateContext] Initial mount - syncing with backend');
-    syncWithBackend();
-  }, []);
+    void syncWithBackend();
+  }, [syncWithBackend]);
 
   // NEW: Computed helpers from status
   const contextValue = useMemo(() => ({

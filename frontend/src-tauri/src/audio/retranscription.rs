@@ -1,18 +1,13 @@
 // Retranscription module - re-processes stored audio with the ZipFormer Vietnamese ASR engine.
 
-use crate::audio::audio_processing::create_meeting_folder;
-use crate::audio::decoder::load_audio_for_file_pipeline;
-use crate::audio::transcription::gemini_file::{
-    reject_if_too_long, transcribe_file, vocabulary_from_app,
-};
-use crate::audio::transcription::gemini_key::{resolve_stt_api_key, SttProvider};
-use crate::audio::vad::get_speech_chunks_with_progress;
 use super::common::write_transcripts_json;
-use super::file_batch_prepare::{boost_audio_for_vad, prepare_file_asr_segments};
 use super::constants::AUDIO_EXTENSIONS;
+use super::file_batch_prepare::{boost_audio_for_vad, prepare_file_asr_segments};
+use crate::audio::decoder::load_audio_for_file_pipeline;
+use crate::audio::vad::get_speech_chunks_with_progress;
 use crate::state::AppState;
 use anyhow::{anyhow, Result};
-use log::{debug, error, info, warn};
+use log::{error, info, warn};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -118,9 +113,15 @@ fn find_audio_file(folder: &Path) -> Result<PathBuf> {
         "audio_decoded.wav",
         // Current imports persist only this 16 kHz playback WAV.
         "audio.wav",
-        "audio.mp4", "audio.m4a", "audio.mp3",
-        "audio.flac", "audio.ogg", "recording.mp4",
-        "audio.mkv", "audio.webm", "audio.wma",
+        "audio.mp4",
+        "audio.m4a",
+        "audio.mp3",
+        "audio.flac",
+        "audio.ogg",
+        "recording.mp4",
+        "audio.mkv",
+        "audio.webm",
+        "audio.wma",
     ];
 
     for name in candidates {
@@ -162,11 +163,10 @@ async fn run_retranscription<R: Runtime>(
     }
 
     let path_for_decode = audio_path.clone();
-    let (audio_samples, duration_seconds) = tokio::task::spawn_blocking(move || {
-        load_audio_for_file_pipeline(&path_for_decode, None)
-    })
-    .await
-    .map_err(|e| anyhow!("Decode task panicked: {}", e))??;
+    let (audio_samples, duration_seconds) =
+        tokio::task::spawn_blocking(move || load_audio_for_file_pipeline(&path_for_decode, None))
+            .await
+            .map_err(|e| anyhow!("Decode task panicked: {}", e))??;
 
     info!(
         "Loaded audio for retranscription: {:.2}s, {} samples @ 16kHz mono",
@@ -174,111 +174,72 @@ async fn run_retranscription<R: Runtime>(
         audio_samples.len()
     );
 
-    let file_provider = {
-        let app_state = app
-            .try_state::<AppState>()
-            .ok_or_else(|| anyhow!("App state not available"))?;
-        crate::database::repositories::setting::SettingsRepository::get_stt_provider(
-            app_state.db_manager.pool(),
-            crate::asr_engine::config::AsrPath::File,
-        )
-        .await
-    };
+    let mut segments = {
+        emit_progress(&app, &meeting_id, "vad", 15, "Detecting speech segments...");
 
-    let mut segments = if file_provider == SttProvider::Gemini {
         if RETRANSCRIPTION_CANCELLED.load(Ordering::SeqCst) {
             return Err(anyhow!("Retranscription cancelled"));
         }
-        reject_if_too_long(duration_seconds)?;
-        emit_progress(
-            &app,
-            &meeting_id,
-            "transcribing",
-            25,
-            "Đang nhận dạng bằng Gemini...",
-        );
-        let app_state = app
-            .try_state::<AppState>()
-            .ok_or_else(|| anyhow!("App state not available"))?;
-        let api_key = resolve_stt_api_key(app_state.db_manager.pool())
-            .await
-            .map_err(|e| anyhow!(e))?;
-        let vocab = vocabulary_from_app(&app).await;
-        if RETRANSCRIPTION_CANCELLED.load(Ordering::SeqCst) {
-            return Err(anyhow!("Retranscription cancelled"));
-        }
-        transcribe_file(
-            &api_key,
-            &audio_path,
-            duration_seconds,
-            &vocab,
-            || RETRANSCRIPTION_CANCELLED.load(Ordering::SeqCst),
-            "Retranscription cancelled",
-        )
-        .await?
-    } else {
-    emit_progress(&app, &meeting_id, "vad", 15, "Detecting speech segments...");
 
-    if RETRANSCRIPTION_CANCELLED.load(Ordering::SeqCst) {
-        return Err(anyhow!("Retranscription cancelled"));
-    }
+        let app_for_vad = app.clone();
+        let meeting_id_for_vad = meeting_id.clone();
+        let audio_for_vad = boost_audio_for_vad(&audio_samples);
 
-    let app_for_vad = app.clone();
-    let meeting_id_for_vad = meeting_id.clone();
-    let audio_for_vad = boost_audio_for_vad(&audio_samples);
-
-    let speech_segments = tokio::task::spawn_blocking(move || {
-        get_speech_chunks_with_progress(
-            &audio_for_vad,
-            VAD_REDEMPTION_TIME_MS,
-            |vad_progress, segments_found| {
-                let overall_progress = 20 + (vad_progress as f32 * 0.05) as u32;
-                emit_progress(
-                    &app_for_vad,
-                    &meeting_id_for_vad,
-                    "vad",
-                    overall_progress,
-                    &format!("Detecting speech... {}% ({} found)", vad_progress, segments_found),
-                );
-                !RETRANSCRIPTION_CANCELLED.load(Ordering::SeqCst)
-            },
-        )
-    })
-    .await
-    .map_err(|e| anyhow!("VAD task panicked: {}", e))?
-    .map_err(|e| anyhow!("VAD processing failed: {}", e))?;
-
-    let total_segments = speech_segments.len();
-    info!("VAD detected {} speech segments", total_segments);
-
-    if total_segments == 0 {
-        return Err(anyhow!("No speech detected in audio file"));
-    }
-
-    let file_cfg_preview = {
-        let app_state = app
-            .try_state::<AppState>()
-            .ok_or_else(|| anyhow!("App state not available"))?;
-        crate::database::repositories::setting::SettingsRepository::get_path_asr_config(
-            app_state.db_manager.pool(),
-            crate::asr_engine::config::AsrPath::File,
-        )
-        .await
-    };
-
-    let (processable_segments, leading_context_samples, prepare_stats) = {
-        let audio_for_prepare = audio_samples.clone();
-        let vad_for_prepare = speech_segments.clone();
-        let chunk_sec = file_cfg_preview.max_segment_seconds;
-        tokio::task::spawn_blocking(move || {
-            prepare_file_asr_segments(&audio_for_prepare, vad_for_prepare, chunk_sec)
+        let speech_segments = tokio::task::spawn_blocking(move || {
+            get_speech_chunks_with_progress(
+                &audio_for_vad,
+                VAD_REDEMPTION_TIME_MS,
+                |vad_progress, segments_found| {
+                    let overall_progress = 20 + (vad_progress as f32 * 0.05) as u32;
+                    emit_progress(
+                        &app_for_vad,
+                        &meeting_id_for_vad,
+                        "vad",
+                        overall_progress,
+                        &format!(
+                            "Detecting speech... {}% ({} found)",
+                            vad_progress, segments_found
+                        ),
+                    );
+                    !RETRANSCRIPTION_CANCELLED.load(Ordering::SeqCst)
+                },
+            )
         })
         .await
-        .map_err(|e| anyhow!("Chunk prepare task panicked: {}", e))?
-    };
+        .map_err(|e| anyhow!("VAD task panicked: {}", e))?
+        .map_err(|e| anyhow!("VAD processing failed: {}", e))?;
 
-    let processable_count = processable_segments.len();
-    info!(
+        let total_segments = speech_segments.len();
+        info!("VAD detected {} speech segments", total_segments);
+
+        if total_segments == 0 {
+            return Err(anyhow!("No speech detected in audio file"));
+        }
+
+        let file_cfg_preview = {
+            let app_state = app
+                .try_state::<AppState>()
+                .ok_or_else(|| anyhow!("App state not available"))?;
+            crate::database::repositories::setting::SettingsRepository::get_path_asr_config(
+                app_state.db_manager.pool(),
+                crate::asr_engine::config::AsrPath::File,
+            )
+            .await
+        };
+
+        let (processable_segments, leading_context_samples, prepare_stats) = {
+            let audio_for_prepare = audio_samples.clone();
+            let vad_for_prepare = speech_segments.clone();
+            let chunk_sec = file_cfg_preview.max_segment_seconds;
+            tokio::task::spawn_blocking(move || {
+                prepare_file_asr_segments(&audio_for_prepare, vad_for_prepare, chunk_sec)
+            })
+            .await
+            .map_err(|e| anyhow!("Chunk prepare task panicked: {}", e))?
+        };
+
+        let processable_count = processable_segments.len();
+        info!(
         "Prepared {} ASR chunks for retranscription (from {} VAD segments, {:.1}s speech, preprocess {:.3}s)",
         processable_count,
         prepare_stats.vad_segments_in,
@@ -286,76 +247,84 @@ async fn run_retranscription<R: Runtime>(
         prepare_stats.preprocess_sec
     );
 
-    emit_progress(&app, &meeting_id, "transcribing", 25, "Loading Vietnamese ASR...");
+        emit_progress(
+            &app,
+            &meeting_id,
+            "transcribing",
+            25,
+            "Loading Vietnamese ASR...",
+        );
 
-    // Ensure ASR engine is ready (ROVER or single-model, per file path config)
-    let file_cfg = file_cfg_preview;
+        // Ensure ASR engine is ready (ROVER or single-model, per file path config)
+        let file_cfg = file_cfg_preview;
 
-    let (engine, rover): (
-        Option<std::sync::Arc<crate::asr_engine::engine::AsrEngine>>,
-        Option<std::sync::Arc<tokio::sync::Mutex<crate::rover_engine::engine::RoverDecoder>>>,
-    ) = if file_cfg.rover_enabled {
-        crate::rover_engine::commands::rover_init().await
-            .map_err(|e| anyhow!("Failed to init ROVER: {}", e))?;
-        crate::rover_engine::commands::rover_validate_model_ready(app.clone())
+        let (engine, rover): (
+            Option<std::sync::Arc<crate::asr_engine::engine::AsrEngine>>,
+            Option<std::sync::Arc<tokio::sync::Mutex<crate::rover_engine::engine::RoverDecoder>>>,
+        ) = if file_cfg.rover_enabled {
+            crate::rover_engine::commands::rover_init()
+                .await
+                .map_err(|e| anyhow!("Failed to init ROVER: {}", e))?;
+            crate::rover_engine::commands::rover_validate_model_ready(app.clone())
+                .await
+                .map_err(|e| anyhow!("{}", e))?;
+            let rover =
+                crate::rover_engine::commands::get_engine_arc().map_err(|e| anyhow!("{}", e))?;
+            (None, Some(rover))
+        } else {
+            crate::asr_engine::commands::asr_init()
+                .await
+                .map_err(|e| anyhow!("Failed to init ASR: {}", e))?;
+            crate::asr_engine::commands::asr_validate_model_ready(
+                app.clone(),
+                Some(file_cfg.family_id.clone()),
+                Some(file_cfg.variant.as_str().to_string()),
+                Some(file_cfg.decoding_method.clone()),
+                Some(file_cfg.num_active_paths),
+            )
             .await
             .map_err(|e| anyhow!("{}", e))?;
-        let rover = crate::rover_engine::commands::get_engine_arc()
-            .map_err(|e| anyhow!("{}", e))?;
-        (None, Some(rover))
-    } else {
-        crate::asr_engine::commands::asr_init().await
-            .map_err(|e| anyhow!("Failed to init ASR: {}", e))?;
-        crate::asr_engine::commands::asr_validate_model_ready(
-            app.clone(),
-            Some(file_cfg.family_id.clone()),
-            Some(file_cfg.variant.as_str().to_string()),
-            Some(file_cfg.decoding_method.clone()),
-            Some(file_cfg.num_active_paths),
+            let engine =
+                crate::asr_engine::commands::get_engine_arc().map_err(|e| anyhow!("{}", e))?;
+            (Some(engine), None)
+        };
+
+        // Best-effort CAPU init before retranscription
+        if crate::capu_engine::commands::capu_is_model_downloaded(app.clone())
+            .await
+            .unwrap_or(false)
+        {
+            let _ = crate::capu_engine::commands::capu_init(app.clone()).await;
+        }
+
+        let primary = if let Some(rover) = rover {
+            crate::audio::batch_transcribe::PrimaryEngine::Rover(rover)
+        } else {
+            crate::audio::batch_transcribe::PrimaryEngine::Single(
+                engine.expect("engine must be Some when rover is None"),
+            )
+        };
+
+        let app_for_progress = app.clone();
+        let meeting_id_for_progress = meeting_id.clone();
+        crate::audio::batch_transcribe::batch_transcribe(
+            &app,
+            processable_segments,
+            leading_context_samples,
+            primary,
+            move |done, total| {
+                let progress = 25 + ((done as f32 / total.max(1) as f32) * 55.0) as u32;
+                emit_progress(
+                    &app_for_progress,
+                    &meeting_id_for_progress,
+                    "transcribing",
+                    progress,
+                    &format!("Transcribing segment {} of {}...", done, total),
+                );
+            },
+            || RETRANSCRIPTION_CANCELLED.load(Ordering::SeqCst),
         )
-        .await
-        .map_err(|e| anyhow!("{}", e))?;
-        let engine = crate::asr_engine::commands::get_engine_arc()
-            .map_err(|e| anyhow!("{}", e))?;
-        (Some(engine), None)
-    };
-
-    // Best-effort CAPU init before retranscription
-    if crate::capu_engine::commands::capu_is_model_downloaded(app.clone())
-        .await
-        .unwrap_or(false)
-    {
-        let _ = crate::capu_engine::commands::capu_init(app.clone()).await;
-    }
-
-    let primary = if let Some(rover) = rover {
-        crate::audio::batch_transcribe::PrimaryEngine::Rover(rover)
-    } else {
-        crate::audio::batch_transcribe::PrimaryEngine::Single(
-            engine.expect("engine must be Some when rover is None"),
-        )
-    };
-
-    let app_for_progress = app.clone();
-    let meeting_id_for_progress = meeting_id.clone();
-    crate::audio::batch_transcribe::batch_transcribe(
-        &app,
-        processable_segments,
-        leading_context_samples,
-        primary,
-        move |done, total| {
-            let progress = 25 + ((done as f32 / total.max(1) as f32) * 55.0) as u32;
-            emit_progress(
-                &app_for_progress,
-                &meeting_id_for_progress,
-                "transcribing",
-                progress,
-                &format!("Transcribing segment {} of {}...", done, total),
-            );
-        },
-        || RETRANSCRIPTION_CANCELLED.load(Ordering::SeqCst),
-    )
-    .await?
+        .await?
     };
 
     info!("Transcription complete: {} segments", segments.len());
@@ -398,7 +367,10 @@ async fn run_retranscription<R: Runtime>(
         .ok_or_else(|| anyhow!("App state not available"))?;
 
     let pool = app_state.db_manager.pool();
-    let mut conn = pool.acquire().await.map_err(|e| anyhow!("DB error: {}", e))?;
+    let mut conn = pool
+        .acquire()
+        .await
+        .map_err(|e| anyhow!("DB error: {}", e))?;
     let mut tx = sqlx::Connection::begin(&mut *conn)
         .await
         .map_err(|e| anyhow!("Failed to start transaction: {}", e))?;
@@ -417,10 +389,8 @@ async fn run_retranscription<R: Runtime>(
 
     let mut cluster_to_speaker_id: std::collections::HashMap<usize, String> =
         std::collections::HashMap::new();
-    let mut unique_clusters: Vec<usize> = segments
-        .iter()
-        .filter_map(|s| s.speaker_cluster)
-        .collect();
+    let mut unique_clusters: Vec<usize> =
+        segments.iter().filter_map(|s| s.speaker_cluster).collect();
     unique_clusters.sort_unstable();
     unique_clusters.dedup();
 
@@ -464,12 +434,23 @@ async fn run_retranscription<R: Runtime>(
         .map_err(|e| anyhow!("Failed to insert transcript: {}", e))?;
     }
 
-    tx.commit().await
+    tx.commit()
+        .await
         .map_err(|e| anyhow!("Failed to commit transaction: {}", e))?;
 
-    info!("Updated {} transcripts for meeting {}", segments.len(), meeting_id);
+    info!(
+        "Updated {} transcripts for meeting {}",
+        segments.len(),
+        meeting_id
+    );
 
-    emit_progress(&app, &meeting_id, "saving", 90, "Writing transcript files...");
+    emit_progress(
+        &app,
+        &meeting_id,
+        "saving",
+        90,
+        "Writing transcript files...",
+    );
 
     if let Err(e) = write_transcripts_json(&folder_path, &segments) {
         warn!("Failed to write transcripts.json: {}", e);
@@ -481,11 +462,19 @@ async fn run_retranscription<R: Runtime>(
         .unwrap_or("audio.mp4")
         .to_string();
 
-    if let Err(e) = write_retranscription_metadata(&folder_path, &meeting_id, duration_seconds, &audio_filename) {
+    if let Err(e) =
+        write_retranscription_metadata(&folder_path, &meeting_id, duration_seconds, &audio_filename)
+    {
         warn!("Failed to update metadata.json: {}", e);
     }
 
-    emit_progress(&app, &meeting_id, "complete", 100, "Retranscription complete");
+    emit_progress(
+        &app,
+        &meeting_id,
+        "complete",
+        100,
+        "Retranscription complete",
+    );
 
     Ok(RetranscriptionResult {
         meeting_id,
@@ -495,7 +484,13 @@ async fn run_retranscription<R: Runtime>(
     })
 }
 
-fn emit_progress<R: Runtime>(app: &AppHandle<R>, meeting_id: &str, stage: &str, progress: u32, message: &str) {
+fn emit_progress<R: Runtime>(
+    app: &AppHandle<R>,
+    meeting_id: &str,
+    stage: &str,
+    progress: u32,
+    message: &str,
+) {
     let _ = app.emit(
         "retranscription-progress",
         RetranscriptionProgress {
@@ -507,7 +502,12 @@ fn emit_progress<R: Runtime>(app: &AppHandle<R>, meeting_id: &str, stage: &str, 
     );
 }
 
-fn write_retranscription_metadata(folder: &Path, meeting_id: &str, duration_seconds: f64, audio_filename: &str) -> Result<()> {
+fn write_retranscription_metadata(
+    folder: &Path,
+    meeting_id: &str,
+    duration_seconds: f64,
+    audio_filename: &str,
+) -> Result<()> {
     let metadata_path = folder.join("metadata.json");
     let temp_path = folder.join(".metadata.json.tmp");
     let now = chrono::Utc::now().to_rfc3339();
@@ -518,7 +518,10 @@ fn write_retranscription_metadata(folder: &Path, meeting_id: &str, duration_seco
         if let Some(obj) = value.as_object_mut() {
             obj.insert("retranscribed_at".to_string(), serde_json::json!(now));
             obj.insert("status".to_string(), serde_json::json!("completed"));
-            obj.insert("transcript_file".to_string(), serde_json::json!("transcripts.json"));
+            obj.insert(
+                "transcript_file".to_string(),
+                serde_json::json!("transcripts.json"),
+            );
         }
         value
     } else {
@@ -565,7 +568,15 @@ pub async fn start_retranscription_command<R: Runtime>(
     let meeting_id_clone = meeting_id.clone();
 
     tauri::async_runtime::spawn(async move {
-        let result = start_retranscription(app, meeting_id_clone, meeting_folder_path, language, model, provider).await;
+        let result = start_retranscription(
+            app,
+            meeting_id_clone,
+            meeting_folder_path,
+            language,
+            model,
+            provider,
+        )
+        .await;
         if let Err(e) = result {
             error!("Retranscription failed: {}", e);
         }
@@ -940,7 +951,11 @@ pub(crate) fn spawn_playback_prepare<R: Runtime>(
                 );
             }
             Err(e) => {
-                warn!("Playback sidecar prepare failed for {}: {}", wav.display(), e);
+                warn!(
+                    "Playback sidecar prepare failed for {}: {}",
+                    wav.display(),
+                    e
+                );
                 status_error(&app, &folder_path, e);
             }
         }
@@ -950,9 +965,7 @@ pub(crate) fn spawn_playback_prepare<R: Runtime>(
 fn resolve_playback_sync(folder_path: String) -> Result<ResolvedPlayback, String> {
     let trimmed = folder_path.trim_end_matches(|c| c == '/' || c == '\\');
     let path = find_audio_file(Path::new(trimmed)).map_err(|e| e.to_string())?;
-    let size = std::fs::metadata(&path)
-        .map_err(|e| e.to_string())?
-        .len();
+    let size = std::fs::metadata(&path).map_err(|e| e.to_string())?.len();
     if !playback_file_needs_mp4_transcode(&path, size) {
         return Ok(ResolvedPlayback::Ready(path));
     }
@@ -998,9 +1011,7 @@ pub async fn resolve_meeting_audio_file_path<R: Runtime>(
 /// would be JSON-serialized as an array of numbers — roughly 3x the byte count —
 /// and WebView2's `JSON.parse` of a ~30 MB file's array froze the UI for seconds.
 #[tauri::command]
-pub async fn read_meeting_audio_file(
-    folder_path: String,
-) -> Result<tauri::ipc::Response, String> {
+pub async fn read_meeting_audio_file(folder_path: String) -> Result<tauri::ipc::Response, String> {
     let bytes = tokio::task::spawn_blocking(move || read_meeting_audio_file_sync(folder_path))
         .await
         .map_err(|e| format!("Audio read task panicked: {e}"))??;
@@ -1010,9 +1021,7 @@ pub async fn read_meeting_audio_file(
 fn read_meeting_audio_file_sync(folder_path: String) -> Result<Vec<u8>, String> {
     let trimmed = folder_path.trim_end_matches(|c| c == '/' || c == '\\');
     let path = find_audio_file(Path::new(trimmed)).map_err(|e| e.to_string())?;
-    let len = std::fs::metadata(&path)
-        .map_err(|e| e.to_string())?
-        .len();
+    let len = std::fs::metadata(&path).map_err(|e| e.to_string())?.len();
     if len > MAX_BLOB_BYTES {
         return Err("FILE_TOO_LARGE_FOR_BLOB".to_string());
     }
@@ -1136,8 +1145,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("audio.wav"), b"RIFF-playback").unwrap();
 
-        match resolve_playback_sync(dir.path().to_string_lossy().to_string())
-            .expect("resolve wav")
+        match resolve_playback_sync(dir.path().to_string_lossy().to_string()).expect("resolve wav")
         {
             ResolvedPlayback::Ready(path) => {
                 assert!(path.ends_with("audio.wav"), "{path:?}")

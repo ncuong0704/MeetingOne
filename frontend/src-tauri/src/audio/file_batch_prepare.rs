@@ -72,11 +72,14 @@ fn concat_vad_speech(audio: &[f32], ranges: &[(usize, usize)]) -> (Vec<f32>, Vec
     }
 
     if parts.is_empty() {
-        return (audio.to_vec(), vec![OffsetEntry {
-            concat_start: 0,
-            original_start: 0,
-            length: audio.len(),
-        }]);
+        return (
+            audio.to_vec(),
+            vec![OffsetEntry {
+                concat_start: 0,
+                original_start: 0,
+                length: audio.len(),
+            }],
+        );
     }
 
     (parts, offset_map)
@@ -227,7 +230,13 @@ pub fn preprocess_file_audio(samples: &[f32]) -> Vec<f32> {
     };
     normalized
         .into_iter()
-        .map(|s| if s.is_finite() { s.clamp(-1.0, 1.0) } else { 0.0 })
+        .map(|s| {
+            if s.is_finite() {
+                s.clamp(-1.0, 1.0)
+            } else {
+                0.0
+            }
+        })
         .collect()
 }
 
@@ -257,10 +266,7 @@ fn find_silent_regions(audio: &[f32], threshold: f32, min_silence_sec: f32) -> V
         } else if !is_silent && in_silent {
             let duration_frames = frame_idx - silent_start_frame;
             if duration_frames >= min_frames {
-                silent_regions.push((
-                    silent_start_frame * frame_length,
-                    frame_idx * frame_length,
-                ));
+                silent_regions.push((silent_start_frame * frame_length, frame_idx * frame_length));
             }
             in_silent = false;
         }
@@ -269,10 +275,7 @@ fn find_silent_regions(audio: &[f32], threshold: f32, min_silence_sec: f32) -> V
     if in_silent {
         let duration_frames = num_frames - silent_start_frame;
         if duration_frames >= min_frames {
-            silent_regions.push((
-                silent_start_frame * frame_length,
-                audio.len(),
-            ));
+            silent_regions.push((silent_start_frame * frame_length, audio.len()));
         }
     }
 
@@ -332,7 +335,10 @@ fn build_chunk_plan(
     let mut current_pos = 0usize;
     while current_pos + chunk_samples < concat_total {
         let target = current_pos + chunk_samples;
-        let next_mandatory = mandatory_boundaries.iter().copied().find(|&b| b > current_pos);
+        let next_mandatory = mandatory_boundaries
+            .iter()
+            .copied()
+            .find(|&b| b > current_pos);
 
         let (split, forced) = match next_mandatory {
             Some(b) if b <= target => (b, true),
@@ -422,11 +428,8 @@ pub fn prepare_file_asr_segments(
         );
     }
 
-    let avg_confidence = vad_segments
-        .iter()
-        .map(|s| s.confidence)
-        .sum::<f32>()
-        / vad_segments.len().max(1) as f32;
+    let avg_confidence =
+        vad_segments.iter().map(|s| s.confidence).sum::<f32>() / vad_segments.len().max(1) as f32;
 
     let mut ranges: Vec<(usize, usize)> = vad_segments
         .iter()
@@ -525,7 +528,9 @@ mod tests {
 
     #[test]
     fn concat_and_chunk_produces_multiple_segments_for_long_audio() {
-        let audio: Vec<f32> = (0..(60 * SAMPLE_RATE)).map(|i| (i as f32 * 0.001).sin() * 0.1).collect();
+        let audio: Vec<f32> = (0..(60 * SAMPLE_RATE))
+            .map(|i| (i as f32 * 0.001).sin() * 0.1)
+            .collect();
         let vad = vec![SpeechSegment {
             samples: audio.clone(),
             start_timestamp_ms: 0.0,
@@ -555,9 +560,18 @@ mod tests {
         let overlap_samples = SAMPLE_RATE;
         let mandatory = vec![10 * SAMPLE_RATE];
 
-        let plan = build_chunk_plan(concat_total, &[], chunk_samples, overlap_samples, &mandatory);
+        let plan = build_chunk_plan(
+            concat_total,
+            &[],
+            chunk_samples,
+            overlap_samples,
+            &mandatory,
+        );
 
-        let logical_starts: Vec<usize> = plan.iter().map(|(start, _, overlap)| start + overlap).collect();
+        let logical_starts: Vec<usize> = plan
+            .iter()
+            .map(|(start, _, overlap)| start + overlap)
+            .collect();
         assert_eq!(
             logical_starts,
             vec![0, 10 * SAMPLE_RATE, 40 * SAMPLE_RATE],
@@ -576,7 +590,13 @@ mod tests {
         let overlap_samples = SAMPLE_RATE;
         let mandatory = vec![10 * SAMPLE_RATE];
 
-        let plan = build_chunk_plan(concat_total, &[], chunk_samples, overlap_samples, &mandatory);
+        let plan = build_chunk_plan(
+            concat_total,
+            &[],
+            chunk_samples,
+            overlap_samples,
+            &mandatory,
+        );
 
         let (actual_start, _, overlap_at_start) = plan[1];
         assert_eq!(actual_start, 10 * SAMPLE_RATE, "no lookback into the gap");

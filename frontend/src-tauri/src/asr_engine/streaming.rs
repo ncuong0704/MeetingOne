@@ -1,9 +1,7 @@
 use super::model_family::{ModelFamily, ModelVariant};
 use anyhow::{anyhow, Result};
 use log::info;
-use sherpa_onnx::{
-    OnlineRecognizer, OnlineRecognizerConfig, OnlineTransducerModelConfig,
-};
+use sherpa_onnx::{OnlineRecognizer, OnlineRecognizerConfig, OnlineTransducerModelConfig};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tokio::sync::RwLock;
@@ -40,7 +38,8 @@ impl StreamingEngine {
     }
 
     pub async fn set_hotwords(&self, text: String) {
-        *self.hotwords_text.write().await = crate::asr_engine::hotwords::filter_hotwords_text(&text);
+        *self.hotwords_text.write().await =
+            crate::asr_engine::hotwords::filter_hotwords_text(&text);
     }
 
     pub async fn hotwords(&self) -> String {
@@ -69,7 +68,9 @@ impl StreamingEngine {
         resource_dir: Option<&Path>,
     ) -> Result<()> {
         if !family.is_online_streaming() {
-            return Err(anyhow!("load_model on StreamingEngine requires a streaming family"));
+            return Err(anyhow!(
+                "load_model on StreamingEngine requires a streaming family"
+            ));
         }
         if !family.available_variants().contains(&variant) {
             return Err(anyhow!(
@@ -92,9 +93,18 @@ impl StreamingEngine {
             return Err(anyhow!("Missing streaming model files: {:?}", missing));
         }
 
-        let encoder = dir.join(family.encoder_file(variant)).to_string_lossy().to_string();
-        let decoder = dir.join(family.decoder_file(variant)).to_string_lossy().to_string();
-        let joiner = dir.join(family.joiner_file(variant)).to_string_lossy().to_string();
+        let encoder = dir
+            .join(family.encoder_file(variant))
+            .to_string_lossy()
+            .to_string();
+        let decoder = dir
+            .join(family.decoder_file(variant))
+            .to_string_lossy()
+            .to_string();
+        let joiner = dir
+            .join(family.joiner_file(variant))
+            .to_string_lossy()
+            .to_string();
         let tokens = dir.join(family.token_file()).to_string_lossy().to_string();
 
         let mut config = OnlineRecognizerConfig::default();
@@ -137,7 +147,9 @@ impl StreamingEngine {
         );
 
         let recognizer = tokio::task::block_in_place(|| OnlineRecognizer::create(&config))
-            .ok_or_else(|| anyhow!("Failed to create OnlineRecognizer — check streaming model files"))?;
+            .ok_or_else(|| {
+                anyhow!("Failed to create OnlineRecognizer — check streaming model files")
+            })?;
 
         *self.recognizer.write().await = Some(recognizer);
         *self.current_family.write().await = Some(family);

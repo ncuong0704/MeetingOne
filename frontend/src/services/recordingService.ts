@@ -18,9 +18,26 @@ export interface RecordingState {
 }
 
 export interface RecordingStoppedPayload {
-  message: string;
+  message?: string;
   folder_path?: string;
   meeting_name?: string;
+}
+
+export interface RecordingCompletion {
+  session_id: string;
+  meeting_id: string;
+  meeting_name: string;
+  folder_path: string | null;
+  transcript_count: number;
+  duration_seconds: number;
+  audio_error: string | null;
+  recording_warning: string | null;
+}
+
+export interface RecordingSession {
+  session_id: string;
+  meeting_name: string | null;
+  folder_path: string | null;
 }
 
 /**
@@ -28,6 +45,13 @@ export interface RecordingStoppedPayload {
  * Singleton service for managing recording lifecycle operations
  */
 export class RecordingService {
+  getLastRecordingResult(): Promise<RecordingCompletion | null> {
+    return invoke('get_last_recording_result');
+  }
+
+  getRecordingSession(): Promise<RecordingSession | null> {
+    return invoke('get_recording_session');
+  }
   /**
    * Check if recording is currently active
    * @returns Promise<boolean>

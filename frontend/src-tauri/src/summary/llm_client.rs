@@ -107,7 +107,7 @@ pub async fn generate_summary(
     max_tokens: Option<u32>,
     temperature: Option<f32>,
     top_p: Option<f32>,
-    app_data_dir: Option<&PathBuf>,
+    _app_data_dir: Option<&PathBuf>,
     cancellation_token: Option<&CancellationToken>,
 ) -> Result<String, String> {
     // Check if cancelled before starting
@@ -145,7 +145,10 @@ pub async fn generate_summary(
                     .parse()
                     .map_err(|_| "Invalid anthropic version".to_string())?,
             );
-            ("https://api.anthropic.com/v1/messages".to_string(), header_map)
+            (
+                "https://api.anthropic.com/v1/messages".to_string(),
+                header_map,
+            )
         }
     };
 
@@ -170,22 +173,21 @@ pub async fn generate_summary(
         // For CustomOpenAI, apply optional parameters if provided.
         // If not provided, use defaults commonly expected for OpenAI-compatible servers.
         let (max_tokens_val, temperature_val, top_p_val, reasoning_effort) =
-            if provider == &LLMProvider::CustomOpenAI
-        {
-            let reasoning = if api_url.contains("generativelanguage.googleapis.com") {
-                Some("low".to_string())
+            if provider == &LLMProvider::CustomOpenAI {
+                let reasoning = if api_url.contains("generativelanguage.googleapis.com") {
+                    Some("low".to_string())
+                } else {
+                    None
+                };
+                (
+                    max_tokens.or(Some(CUSTOM_OPENAI_DEFAULT_MAX_TOKENS)),
+                    temperature.or(Some(0.2)),
+                    top_p.or(Some(0.9)),
+                    reasoning,
+                )
             } else {
-                None
+                (None, None, None, None)
             };
-            (
-                max_tokens.or(Some(CUSTOM_OPENAI_DEFAULT_MAX_TOKENS)),
-                temperature.or(Some(0.2)),
-                top_p.or(Some(0.9)),
-                reasoning,
-            )
-        } else {
-            (None, None, None, None)
-        };
 
         serde_json::json!(ChatRequest {
             model: model_name.to_string(),
@@ -216,7 +218,11 @@ pub async fn generate_summary(
         })
     };
 
-    info!("🐞 LLM Request to {}: model={}", provider_name(provider), model_name);
+    info!(
+        "🐞 LLM Request to {}: model={}",
+        provider_name(provider),
+        model_name
+    );
 
     // Send request with timeout and cancellation support
     let request_future = client
@@ -268,7 +274,9 @@ pub async fn generate_summary(
         {
             let wait_msg = extract_wait_time(&error_body)
                 .map(|t| format!(" Vui lòng thử lại sau {}.", t))
-                .unwrap_or_else(|| " Vui lòng thử lại vào ngày mai hoặc đổi nhà cung cấp.".to_string());
+                .unwrap_or_else(|| {
+                    " Vui lòng thử lại vào ngày mai hoặc đổi nhà cung cấp.".to_string()
+                });
             return Err(format!(
                 "Đã vượt giới hạn token hàng ngày của nhà cung cấp.{} (Chi tiết: {})",
                 wait_msg, error_body
@@ -302,8 +310,8 @@ pub async fn generate_summary(
 
         info!("🐞 LLM Response received from {}", provider_name(provider));
 
-        let content = extract_completion_text(&chat_response)
-            .ok_or("No content in LLM response")?;
+        let content =
+            extract_completion_text(&chat_response).ok_or("No content in LLM response")?;
         Ok(content.trim().to_string())
     }
 }
@@ -315,7 +323,10 @@ pub fn chat_completions_url(endpoint: &str) -> String {
         .strip_suffix("/chat/completions")
         .unwrap_or(trimmed)
         .trim_end_matches('/');
-    format!("{}/chat/completions", rewrite_gemini_native_base(without_completions))
+    format!(
+        "{}/chat/completions",
+        rewrite_gemini_native_base(without_completions)
+    )
 }
 
 fn rewrite_gemini_native_base(base: &str) -> String {
@@ -403,10 +414,7 @@ fn nonempty_text(s: String) -> Option<String> {
 
 /// Trích xuất thời gian chờ từ error body, ví dụ "Please try again in 2h18m2.304s"
 pub fn extract_wait_time(body: &str) -> Option<String> {
-    let patterns = [
-        "please try again in ",
-        "retry after ",
-    ];
+    let patterns = ["please try again in ", "retry after "];
     let body_lower = body.to_lowercase();
     for pat in &patterns {
         if let Some(idx) = body_lower.find(pat) {
@@ -469,7 +477,10 @@ mod tests {
     #[test]
     fn extracts_openai_and_gemini_payloads() {
         let openai = json!({"choices":[{"message":{"content":"Xin chào"}}]});
-        assert_eq!(extract_completion_text(&openai).as_deref(), Some("Xin chào"));
+        assert_eq!(
+            extract_completion_text(&openai).as_deref(),
+            Some("Xin chào")
+        );
 
         let reasoning = json!({"choices":[{"message":{"reasoning_content":"ok"}}]});
         assert_eq!(extract_completion_text(&reasoning).as_deref(), Some("ok"));

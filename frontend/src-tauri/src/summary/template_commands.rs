@@ -57,13 +57,15 @@ pub async fn api_list_templates<R: Runtime>(
 
     let template_infos: Vec<TemplateInfo> = templates
         .into_iter()
-        .map(|(id, name, description, is_custom, has_custom_override)| TemplateInfo {
-            id,
-            name,
-            description,
-            is_custom,
-            has_custom_override,
-        })
+        .map(
+            |(id, name, description, is_custom, has_custom_override)| TemplateInfo {
+                id,
+                name,
+                description,
+                is_custom,
+                has_custom_override,
+            },
+        )
         .collect();
 
     info!("Found {} available templates", template_infos.len());
@@ -83,7 +85,10 @@ pub async fn api_get_template_details<R: Runtime>(
     _app: tauri::AppHandle<R>,
     template_id: String,
 ) -> Result<TemplateDetails, String> {
-    info!("api_get_template_details called for template_id: {}", template_id);
+    info!(
+        "api_get_template_details called for template_id: {}",
+        template_id
+    );
 
     let template = templates::get_template(&template_id)?;
 
@@ -147,7 +152,10 @@ pub async fn api_get_template_json<R: Runtime>(
     _app: tauri::AppHandle<R>,
     template_id: String,
 ) -> Result<String, String> {
-    info!("api_get_template_json called for template_id: {}", template_id);
+    info!(
+        "api_get_template_json called for template_id: {}",
+        template_id
+    );
 
     if let Some(content) = templates::get_custom_template_json(&template_id) {
         return Ok(content);
@@ -178,13 +186,21 @@ pub async fn api_save_custom_template<R: Runtime>(
     template_id: String,
     template_json: String,
 ) -> Result<(), String> {
-    info!("api_save_custom_template called for template_id: {}", template_id);
+    info!(
+        "api_save_custom_template called for template_id: {}",
+        template_id
+    );
 
     if template_id.is_empty() {
         return Err("Template ID không được để trống".to_string());
     }
-    if !template_id.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
-        return Err("Template ID chỉ được chứa chữ cái, số, dấu gạch dưới hoặc dấu gạch ngang".to_string());
+    if !template_id
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(
+            "Template ID chỉ được chứa chữ cái, số, dấu gạch dưới hoặc dấu gạch ngang".to_string(),
+        );
     }
 
     templates::validate_and_parse_template(&template_json)
@@ -218,7 +234,10 @@ pub async fn api_delete_custom_template<R: Runtime>(
     _app: tauri::AppHandle<R>,
     template_id: String,
 ) -> Result<(), String> {
-    info!("api_delete_custom_template called for template_id: {}", template_id);
+    info!(
+        "api_delete_custom_template called for template_id: {}",
+        template_id
+    );
 
     let custom_dir = templates::get_custom_templates_dir_pub()
         .ok_or_else(|| "Không xác định được thư mục template".to_string())?;
@@ -229,13 +248,18 @@ pub async fn api_delete_custom_template<R: Runtime>(
         if templates::get_builtin_template(&template_id).is_some() {
             return Err("Không thể xóa template mặc định (built-in)".to_string());
         }
-        return Err(format!("Template tùy chỉnh '{}' không tìm thấy", template_id));
+        return Err(format!(
+            "Template tùy chỉnh '{}' không tìm thấy",
+            template_id
+        ));
     }
 
-    std::fs::remove_file(&file_path)
-        .map_err(|e| format!("Không xóa được file template: {}", e))?;
+    std::fs::remove_file(&file_path).map_err(|e| format!("Không xóa được file template: {}", e))?;
 
-    info!("Custom template '{}' deleted from {:?}", template_id, file_path);
+    info!(
+        "Custom template '{}' deleted from {:?}",
+        template_id, file_path
+    );
     Ok(())
 }
 

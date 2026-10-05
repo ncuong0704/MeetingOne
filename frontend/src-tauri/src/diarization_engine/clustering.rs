@@ -422,8 +422,11 @@ pub fn windows_to_turns(
     }
     let mut ranked: Vec<(usize, f64)> = dur.into_iter().collect();
     ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap().then(a.0.cmp(&b.0)));
-    let remap: std::collections::HashMap<usize, usize> =
-        ranked.iter().enumerate().map(|(n, (old, _))| (*old, n)).collect();
+    let remap: std::collections::HashMap<usize, usize> = ranked
+        .iter()
+        .enumerate()
+        .map(|(n, (old, _))| (*old, n))
+        .collect();
 
     final_segs
         .into_iter()

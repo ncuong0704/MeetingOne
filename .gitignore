@@ -52,6 +52,7 @@ docs/demo.gif
 meeting_minutes.db
 
 # Environment & secrets
+/NOTES.md
 .env
 .env.*
 !.env.example

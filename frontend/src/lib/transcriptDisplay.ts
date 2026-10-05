@@ -91,13 +91,13 @@ export function formatTranscriptPlainText(segments: TranscriptDisplaySegment[]):
 }
 
 /** Plain-text transcript for LLM report generation — same content as the UI, no timestamps. */
-export function formatTranscriptsForSummary(
-    transcripts: Array<{
+export function formatTranscriptsForSummary<T extends {
         id: string;
         text: string;
         speaker_id?: string | null;
         speaker_name?: string | null;
-    }>,
+    }>(
+    transcripts: T[],
 ): string {
     return formatTranscriptPlainText(
         transcripts.map((t) => ({

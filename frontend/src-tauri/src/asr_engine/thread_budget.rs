@@ -65,7 +65,10 @@ mod tests {
         assert_eq!(asr_thread_budget(2, DecodeConcurrency::SingleFileWorker), 1);
         assert_eq!(asr_thread_budget(4, DecodeConcurrency::SingleFileWorker), 2);
         assert_eq!(asr_thread_budget(8, DecodeConcurrency::SingleFileWorker), 4);
-        assert_eq!(asr_thread_budget(16, DecodeConcurrency::SingleFileWorker), 8);
+        assert_eq!(
+            asr_thread_budget(16, DecodeConcurrency::SingleFileWorker),
+            8
+        );
     }
 
     #[test]

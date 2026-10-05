@@ -124,15 +124,7 @@ impl DiarizationEngine {
         let labels = if n <= 2 {
             vec![0usize; n]
         } else {
-            senko_cluster(
-                &mat,
-                self.cfg.mer_cos,
-                4,
-                min_spk,
-                max_spk,
-                0.012,
-                oracle,
-            )
+            senko_cluster(&mat, self.cfg.mer_cos, 4, min_spk, max_spk, 0.012, oracle)
         };
 
         Ok(windows_to_turns(&times, &labels, 0.0))

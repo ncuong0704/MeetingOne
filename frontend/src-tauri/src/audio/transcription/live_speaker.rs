@@ -11,8 +11,8 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 const HOTKEYS_FILE: &str = "speaker_hotkeys.json";
 
 pub const SPEAKER_COLORS: [&str; 9] = [
-    "#2563EB", "#DC2626", "#16A34A", "#CA8A04", "#9333EA", "#DB2777", "#0891B2",
-    "#EA580C", "#65A30D",
+    "#2563EB", "#DC2626", "#16A34A", "#CA8A04", "#9333EA", "#DB2777", "#0891B2", "#EA580C",
+    "#65A30D",
 ];
 
 pub fn color_for_name(name: &str) -> String {

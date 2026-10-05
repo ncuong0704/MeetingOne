@@ -4,7 +4,6 @@ import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Settings2, Database as DatabaseIcon, SparkleIcon, LayoutTemplate, MessageSquareText, Users, LogOut } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { invoke } from '@tauri-apps/api/core';
-import { motion, AnimatePresence } from 'framer-motion';
 import { createDefaultTranscriptModelConfig, ZIPFORMER_MODEL_ID } from '@/constants/modelDefaults';
 import { RecordingSettings } from '@/components/RecordingSettings';
 import { TranscriptSettings } from '@/components/TranscriptSettings';
@@ -39,6 +38,14 @@ export default function SettingsPage() {
   const { user, logout, authRequired } = useAuth();
   const { transcriptModelConfig, setTranscriptModelConfig } = useConfig();
   const [activeTab, setActiveTab] = useState<TabValue>('general');
+  // Mount a tab's panel the first time it's visited, then keep it mounted (hidden via
+  // CSS) so switching back is instant and doesn't re-run its data-fetching effects.
+  const [visitedTabs, setVisitedTabs] = useState<Set<TabValue>>(() => new Set(['general']));
+
+  const handleTabChange = (tab: TabValue) => {
+    setActiveTab(tab);
+    setVisitedTabs((prev) => (prev.has(tab) ? prev : new Set(prev).add(tab)));
+  };
 
   useEffect(() => {
     const loadTranscriptConfig = async () => {
@@ -82,7 +89,7 @@ export default function SettingsPage() {
               return (
                 <button
                   key={value}
-                  onClick={() => setActiveTab(value)}
+                  onClick={() => handleTabChange(value)}
                   className={cn(
                     'w-full flex items-start gap-2.5 rounded-r-md px-3 py-2.5 text-left border-l-2 transition-colors duration-150',
                     isActive
@@ -132,27 +139,39 @@ export default function SettingsPage() {
 
         <main className="flex-1 overflow-y-auto bg-paper">
           <div className="max-w-3xl px-8 py-6">
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={activeTab}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
-              >
-                {activeTab === 'general'             && <RecordingSettings />}
-                {activeTab === 'directory'           && <SpeakerDirectorySettings />}
-                {activeTab === 'Transcriptionmodels' && (
-                  <TranscriptSettings
-                    transcriptModelConfig={transcriptModelConfig}
-                    setTranscriptModelConfig={setTranscriptModelConfig}
-                  />
-                )}
-                {activeTab === 'summaryModels'       && <SummaryModelSettings />}
-                {activeTab === 'templates'           && <TemplateSettings />}
-                {activeTab === 'promptSettings'      && <PromptSettings />}
-              </motion.div>
-            </AnimatePresence>
+            {visitedTabs.has('general') && (
+              <div className={activeTab === 'general' ? undefined : 'hidden'}>
+                <RecordingSettings />
+              </div>
+            )}
+            {visitedTabs.has('directory') && (
+              <div className={activeTab === 'directory' ? undefined : 'hidden'}>
+                <SpeakerDirectorySettings />
+              </div>
+            )}
+            {visitedTabs.has('Transcriptionmodels') && (
+              <div className={activeTab === 'Transcriptionmodels' ? undefined : 'hidden'}>
+                <TranscriptSettings
+                  transcriptModelConfig={transcriptModelConfig}
+                  setTranscriptModelConfig={setTranscriptModelConfig}
+                />
+              </div>
+            )}
+            {visitedTabs.has('summaryModels') && (
+              <div className={activeTab === 'summaryModels' ? undefined : 'hidden'}>
+                <SummaryModelSettings />
+              </div>
+            )}
+            {visitedTabs.has('templates') && (
+              <div className={activeTab === 'templates' ? undefined : 'hidden'}>
+                <TemplateSettings />
+              </div>
+            )}
+            {visitedTabs.has('promptSettings') && (
+              <div className={activeTab === 'promptSettings' ? undefined : 'hidden'}>
+                <PromptSettings />
+              </div>
+            )}
           </div>
         </main>
       </div>

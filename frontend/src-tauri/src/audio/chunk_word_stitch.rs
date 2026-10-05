@@ -16,7 +16,6 @@ pub struct TimedWord {
     pub text: String,
     pub start_sec: f64,
     pub end_sec: f64,
-    pub confidence: f32,
 }
 
 pub fn offset_rover_words(words: &[MergedWord], base_sec: f64) -> Vec<TimedWord> {
@@ -26,7 +25,6 @@ pub fn offset_rover_words(words: &[MergedWord], base_sec: f64) -> Vec<TimedWord>
             text: m.word.text.clone(),
             start_sec: base_sec + m.word.start as f64,
             end_sec: base_sec + m.word.end as f64,
-            confidence: m.word.confidence,
         })
         .collect()
 }
@@ -75,9 +73,8 @@ pub fn find_overlap_cut_index(tail: &[TimedWord], head: &[TimedWord]) -> usize {
             }
         }
 
-        let overlap_window = (head_norm.len() as i32)
-            .min(tail_norm.len() as i32 + offset)
-            - 0.max(offset);
+        let overlap_window =
+            (head_norm.len() as i32).min(tail_norm.len() as i32 + offset) - 0.max(offset);
         let overlap_window = overlap_window.max(1) as usize;
         let match_ratio = score as f32 / overlap_window as f32;
 
@@ -151,32 +148,6 @@ pub fn stitch_word_chunks(
     merged
 }
 
-/// Group continuous words into transcript segments at natural pauses.
-pub fn group_words_into_segments(words: &[TimedWord], gap_sec: f64) -> Vec<(String, f64, f64)> {
-    if words.is_empty() {
-        return Vec::new();
-    }
-
-    let mut out = Vec::new();
-    let mut start_sec = words[0].start_sec;
-    let mut end_sec = words[0].end_sec;
-    let mut texts = vec![words[0].text.clone()];
-
-    for w in words.iter().skip(1) {
-        if w.start_sec - end_sec > gap_sec {
-            out.push((texts.join(" "), start_sec * 1000.0, end_sec * 1000.0));
-            texts = vec![w.text.clone()];
-            start_sec = w.start_sec;
-        } else {
-            texts.push(w.text.clone());
-        }
-        end_sec = w.end_sec;
-    }
-
-    out.push((texts.join(" "), start_sec * 1000.0, end_sec * 1000.0));
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,13 +157,17 @@ mod tests {
             text: text.to_string(),
             start_sec: start,
             end_sec: start + 0.3,
-            confidence: 0.9,
         }
     }
 
     #[test]
     fn find_overlap_cut_index_finds_shared_prefix() {
-        let tail = vec![tw("xin", 0.0), tw("chào", 0.5), tw("các", 1.0), tw("bạn", 1.5)];
+        let tail = vec![
+            tw("xin", 0.0),
+            tw("chào", 0.5),
+            tw("các", 1.0),
+            tw("bạn", 1.5),
+        ];
         let head = vec![
             tw("các", 1.4),
             tw("bạn", 1.7),
@@ -206,14 +181,8 @@ mod tests {
     #[test]
     fn stitch_word_chunks_produces_continuous_timeline() {
         let chunks = vec![
-            (
-                0,
-                vec![tw("một", 0.0), tw("hai", 0.5), tw("ba", 1.0)],
-            ),
-            (
-                1,
-                vec![tw("ba", 0.9), tw("bốn", 1.2), tw("năm", 1.5)],
-            ),
+            (0, vec![tw("một", 0.0), tw("hai", 0.5), tw("ba", 1.0)]),
+            (1, vec![tw("ba", 0.9), tw("bốn", 1.2), tw("năm", 1.5)]),
         ];
         let merged = stitch_word_chunks(chunks, &[0, 16000]);
         let texts: Vec<&str> = merged.iter().map(|w| w.text.as_str()).collect();
@@ -267,7 +236,7 @@ mod tests {
                 vec![
                     tw("hai", 0.6),
                     tw("ba", 0.9),
-                    tw("khác", 1.1),  // unmatched, starts before prev's 1.3 end
+                    tw("khác", 1.1), // unmatched, starts before prev's 1.3 end
                     tw("bốn", 1.4),
                 ],
             ),

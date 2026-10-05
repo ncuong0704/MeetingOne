@@ -78,6 +78,13 @@ module.exports = {
   			md: 'calc(var(--radius) - 2px)',
   			sm: 'calc(var(--radius) - 4px)'
   		},
+  		transitionDuration: {
+  			micro: 'var(--dur-micro)',
+  			short: 'var(--dur-short)'
+  		},
+  		transitionTimingFunction: {
+  			'out-token': 'var(--ease-out)'
+  		},
   		keyframes: {
   			'accordion-down': {
   				from: {

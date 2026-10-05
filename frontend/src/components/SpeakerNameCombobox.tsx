@@ -137,7 +137,7 @@ export function SpeakerNameCombobox({
         className={cn(
           'h-8 w-full rounded-md border bg-paper px-2.5 pr-8 text-sm text-ink',
           'placeholder:text-ink-2/70',
-          'transition-[border-color,background-color] duration-[var(--dur-micro)] ease-[var(--ease-out)]',
+          'transition-[border-color,background-color] duration-micro ease-out-token',
           'focus:outline-none focus-visible:ring-1 focus-visible:ring-ring',
           'disabled:cursor-not-allowed disabled:opacity-50',
           open ? 'border-primary/40 bg-paper-2' : 'border-rule',
@@ -147,7 +147,7 @@ export function SpeakerNameCombobox({
         aria-hidden
         className={cn(
           'pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-2',
-          'transition-transform duration-[var(--dur-micro)] ease-[var(--ease-out)]',
+          'transition-transform duration-micro ease-out-token',
           open && 'rotate-180',
         )}
       />
@@ -179,7 +179,7 @@ export function SpeakerNameCombobox({
                     }}
                     className={cn(
                       'flex w-full items-center gap-2.5 border-l-2 px-2.5 py-1.5 text-left',
-                      'transition-colors duration-[var(--dur-micro)] ease-[var(--ease-out)]',
+                      'transition-colors duration-micro ease-out-token',
                       active
                         ? 'border-primary bg-primary/10'
                         : 'border-transparent hover:bg-paper-2',

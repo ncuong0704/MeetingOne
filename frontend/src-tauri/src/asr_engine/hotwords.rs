@@ -26,7 +26,11 @@ pub fn ensure_bpe_vocab(bpe_model_path: &Path) -> Option<PathBuf> {
     match generate_bpe_vocab(bpe_model_path, &vocab_path) {
         Ok(()) => Some(vocab_path),
         Err(e) => {
-            log::warn!("Failed to generate bpe.vocab from {:?}: {}", bpe_model_path, e);
+            log::warn!(
+                "Failed to generate bpe.vocab from {:?}: {}",
+                bpe_model_path,
+                e
+            );
             None
         }
     }
@@ -62,10 +66,8 @@ fn hotword_phrase_key(line: &str) -> Option<String> {
 }
 
 fn extra_hotword_lines<'a>(stored: &'a str, bundled: &str) -> Vec<&'a str> {
-    let bundled_keys: std::collections::HashSet<String> = bundled
-        .lines()
-        .filter_map(hotword_phrase_key)
-        .collect();
+    let bundled_keys: std::collections::HashSet<String> =
+        bundled.lines().filter_map(hotword_phrase_key).collect();
     stored
         .lines()
         .filter(|line| {
@@ -123,9 +125,7 @@ pub fn effective_hotwords_text(stored: Option<&str>, bundled_raw: Option<&str>) 
 /// Stored lists are overlaid so the textarea shows current defaults plus user extras.
 pub fn display_hotwords_text(stored: Option<&str>, bundled_raw: Option<&str>) -> Option<String> {
     match stored {
-        Some(s) if !s.trim().is_empty() => {
-            Some(overlay_hotwords(s, bundled_raw.unwrap_or("")))
-        }
+        Some(s) if !s.trim().is_empty() => Some(overlay_hotwords(s, bundled_raw.unwrap_or(""))),
         Some(_) => Some(String::new()),
         None => bundled_raw.map(|s| s.to_string()),
     }
@@ -188,14 +188,20 @@ mod tests {
             persist_hotwords_value(Some("ANH MINH\n"), Some(bundled)),
             Some("ANH MINH\n".to_string())
         );
-        assert_eq!(persist_hotwords_value(Some(""), Some(bundled)), Some(String::new()));
+        assert_eq!(
+            persist_hotwords_value(Some(""), Some(bundled)),
+            Some(String::new())
+        );
     }
 
     #[test]
     fn effective_hotwords_text_uses_bundled_when_stored_is_subset() {
         let stored = "TERM_A\n";
         let bundled = "TERM_A\nTERM_B\n# skip";
-        assert_eq!(effective_hotwords_text(Some(stored), Some(bundled)), "TERM_A\nTERM_B");
+        assert_eq!(
+            effective_hotwords_text(Some(stored), Some(bundled)),
+            "TERM_A\nTERM_B"
+        );
     }
 
     #[test]
@@ -255,7 +261,10 @@ mod tests {
         let _ = std::fs::remove_file(&vocab_path);
 
         let result = ensure_bpe_vocab(&bpe_model_path);
-        assert!(result.is_some(), "ensure_bpe_vocab should succeed on a real bpe.model");
+        assert!(
+            result.is_some(),
+            "ensure_bpe_vocab should succeed on a real bpe.model"
+        );
 
         let content = std::fs::read_to_string(&vocab_path).expect("read generated vocab");
         assert!(

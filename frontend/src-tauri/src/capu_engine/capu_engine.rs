@@ -55,7 +55,12 @@ fn run_capu_inference(
         .map_err(|e| anyhow!("Failed to build input_offsets tensor: {}", e))?;
 
     let outputs = session
-        .run(ort::inputs![ids_tensor, mask_tensor, type_tensor, offsets_tensor])
+        .run(ort::inputs![
+            ids_tensor,
+            mask_tensor,
+            type_tensor,
+            offsets_tensor
+        ])
         .map_err(|e| anyhow!("ONNX inference failed: {}", e))?;
 
     let (logits_shape, logits_data) = outputs["logits"]
@@ -216,11 +221,7 @@ impl CapuEngine {
     /// Runs one forward pass over `words` and returns one `Action` per word (already
     /// skipping the CLS/SEP sentinel offsets — see the offset-handling note at the top
     /// of this plan).
-    fn infer_once(
-        &mut self,
-        words: &[String],
-        pause_hints: Option<&[f32]>,
-    ) -> Result<Vec<Action>> {
+    fn infer_once(&mut self, words: &[String], pause_hints: Option<&[f32]>) -> Result<Vec<Action>> {
         let encoding = self.tokenizer.encode_words(words)?;
         if encoding.input_ids.len() > CAPU_MAX_SEQ_LEN {
             return Err(anyhow!(
@@ -355,10 +356,8 @@ impl CapuEngine {
             return Ok((String::new(), trailing_context.to_vec()));
         }
 
-        let trailing_lower: Vec<String> = trailing_context
-            .iter()
-            .map(|w| w.to_lowercase())
-            .collect();
+        let trailing_lower: Vec<String> =
+            trailing_context.iter().map(|w| w.to_lowercase()).collect();
 
         let combined: Vec<String> = trailing_lower
             .iter()
@@ -380,11 +379,8 @@ impl CapuEngine {
             combined
         });
 
-        let (restored, final_boundary_index) = self.restore_words(
-            combined,
-            boundary_index,
-            combined_hints.as_deref(),
-        )?;
+        let (restored, final_boundary_index) =
+            self.restore_words(combined, boundary_index, combined_hints.as_deref())?;
 
         // `final_boundary_index` is the position of the last trailing-context word in
         // `restored`, tracked incrementally through every pass by `apply_pass` — so
@@ -536,7 +532,10 @@ mod bias_tests {
         // Without bias, softmax([0.5, 0.6, 0.0]) narrowly favors index 1 over KEEP (index 0).
         let logits = vec![0.5, 0.6, 0.0];
         let idx = decode_row(&logits, 0, 1, 2, &[2], 1, 3, None);
-        assert_eq!(idx, 0, "level=1 (+0.5 to KEEP) should flip this close call toward KEEP");
+        assert_eq!(
+            idx, 0,
+            "level=1 (+0.5 to KEEP) should flip this close call toward KEEP"
+        );
     }
 
     #[test]
@@ -544,7 +543,10 @@ mod bias_tests {
         // Without bias, softmax([0.6, 0.5, 0.0]) narrowly favors KEEP (index 0).
         let logits = vec![0.6, 0.5, 0.0];
         let idx = decode_row(&logits, 0, 1, 2, &[2], 10, 3, None);
-        assert_eq!(idx, 1, "level=10 (-0.8 to KEEP) should flip this close call away from KEEP");
+        assert_eq!(
+            idx, 1,
+            "level=10 (-0.8 to KEEP) should flip this close call away from KEEP"
+        );
     }
 
     #[test]
@@ -553,7 +555,10 @@ mod bias_tests {
         // KEEP only a small +0.0667 boost, isolating the case-bias effect.
         let logits = vec![0.6, 0.0, 0.5];
         let idx = decode_row(&logits, 0, 1, 2, &[2], 4, 10, None);
-        assert_eq!(idx, 2, "level=10 case bias (+0.5) should flip this close call toward the case action");
+        assert_eq!(
+            idx, 2,
+            "level=10 case bias (+0.5) should flip this close call toward the case action"
+        );
     }
 
     #[test]
@@ -595,7 +600,10 @@ mod pass_tests {
             Some(0),
             vec![Action::MergeSpace, Action::Keep, Action::Keep],
         );
-        assert!(done, "masking the boundary's MergeSpace should leave all-$KEEP");
+        assert!(
+            done,
+            "masking the boundary's MergeSpace should leave all-$KEEP"
+        );
         assert_eq!(out_words, words(&["chào", "hôm", "nay"]));
         assert_eq!(out_boundary, Some(0));
     }
@@ -646,7 +654,10 @@ mod pass_tests {
         // The bug this replaces: `restored.len() - new_words.len()` = 4 - 3 = 1 would
         // have taken from index 1 instead, incorrectly re-including "chào".
         let buggy_take_from = out_words.len().saturating_sub(3);
-        assert_eq!(buggy_take_from, 1, "sanity-check the old formula would have picked index 1");
+        assert_eq!(
+            buggy_take_from, 1,
+            "sanity-check the old formula would have picked index 1"
+        );
     }
 
     #[test]

@@ -58,7 +58,10 @@ pub fn compute_token_confidence(logits: &[f32]) -> TokenConfidence {
         0.0
     };
 
-    TokenConfidence { margin, tsallis_norm }
+    TokenConfidence {
+        margin,
+        tsallis_norm,
+    }
 }
 
 /// Combines a word's minimum per-token margin and maximum per-token entropy into one
@@ -77,7 +80,11 @@ mod tests {
         let logits = vec![10.0, -10.0, -10.0, -10.0];
         let conf = compute_token_confidence(&logits);
         assert!(conf.margin > 0.99, "margin={}", conf.margin);
-        assert!(conf.tsallis_norm < 0.01, "tsallis_norm={}", conf.tsallis_norm);
+        assert!(
+            conf.tsallis_norm < 0.01,
+            "tsallis_norm={}",
+            conf.tsallis_norm
+        );
     }
 
     #[test]

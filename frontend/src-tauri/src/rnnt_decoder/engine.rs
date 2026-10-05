@@ -179,7 +179,9 @@ mod manual_smoke_tests {
         .expect("load decoder");
 
         let (samples, sample_rate) = load_audio(&wav_path);
-        let result = decoder.decode(&samples, sample_rate as f32).expect("decode");
+        let result = decoder
+            .decode(&samples, sample_rate as f32)
+            .expect("decode");
         println!("Text: {}", result.text);
         for w in &result.words {
             println!(

@@ -3,10 +3,7 @@ use anyhow::{anyhow, Result};
 use futures_util::StreamExt;
 use log::info;
 use serde::{Deserialize, Serialize};
-use sherpa_onnx::{
-    OfflineRecognizer, OfflineRecognizerConfig,
-    OfflineTransducerModelConfig,
-};
+use sherpa_onnx::{OfflineRecognizer, OfflineRecognizerConfig, OfflineTransducerModelConfig};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -84,7 +81,8 @@ impl AsrEngine {
     /// per transcribe call via `create_stream_with_hotwords`, not baked into the loaded
     /// recognizer. `text` is filtered (comments/blank lines stripped) before storing.
     pub async fn set_hotwords(&self, text: String) {
-        *self.hotwords_text.write().await = crate::asr_engine::hotwords::filter_hotwords_text(&text);
+        *self.hotwords_text.write().await =
+            crate::asr_engine::hotwords::filter_hotwords_text(&text);
     }
 
     pub async fn get_hotwords(&self) -> String {
@@ -223,8 +221,7 @@ impl AsrEngine {
             let mut file_bytes: u64 = 0;
 
             while let Some(chunk) = stream.next().await {
-                let chunk =
-                    chunk.map_err(|e| anyhow!("Download error for {}: {}", filename, e))?;
+                let chunk = chunk.map_err(|e| anyhow!("Download error for {}: {}", filename, e))?;
                 file.write_all(&chunk)
                     .await
                     .map_err(|e| anyhow!("Write error for {}: {}", filename, e))?;
@@ -388,7 +385,10 @@ impl AsrEngine {
                 config.model_config.bpe_vocab = Some(bpe_vocab_path.to_string_lossy().to_string());
             }
             None => {
-                log::warn!("Hotwords disabled for {} — failed to prepare bpe.vocab", family.id());
+                log::warn!(
+                    "Hotwords disabled for {} — failed to prepare bpe.vocab",
+                    family.id()
+                );
             }
         }
 
@@ -522,9 +522,6 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("OnlineRecognizer"));
+        assert!(result.unwrap_err().to_string().contains("OnlineRecognizer"));
     }
 }

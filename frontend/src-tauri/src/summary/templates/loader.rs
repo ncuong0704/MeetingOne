@@ -1,9 +1,9 @@
 use super::defaults;
 use super::types::Template;
-use std::path::PathBuf;
-use tracing::{debug, info, warn};
 use once_cell::sync::Lazy;
+use std::path::PathBuf;
 use std::sync::RwLock;
+use tracing::{debug, info, warn};
 
 // Global storage for the bundled templates directory path
 static BUNDLED_TEMPLATES_DIR: Lazy<RwLock<Option<PathBuf>>> = Lazy::new(|| RwLock::new(None));
@@ -44,7 +44,10 @@ fn load_bundled_template(template_id: &str) -> Option<String> {
 
     match std::fs::read_to_string(&template_path) {
         Ok(content) => {
-            info!("Loaded bundled template '{}' from {:?}", template_id, template_path);
+            info!(
+                "Loaded bundled template '{}' from {:?}",
+                template_id, template_path
+            );
             Some(content)
         }
         Err(e) => {
@@ -69,7 +72,10 @@ fn load_custom_template(template_id: &str) -> Option<String> {
 
     match std::fs::read_to_string(&template_path) {
         Ok(content) => {
-            info!("Loaded custom template '{}' from {:?}", template_id, template_path);
+            info!(
+                "Loaded custom template '{}' from {:?}",
+                template_id, template_path
+            );
             Some(content)
         }
         Err(e) => {
@@ -236,16 +242,22 @@ pub fn list_templates_with_source() -> Vec<(String, String, String, bool, bool)>
 
     for id in list_template_ids() {
         let is_builtin = builtin_ids.contains(&id.as_str());
-        let custom_file_exists = custom_dir.as_ref().map_or(false, |dir| {
-            dir.join(format!("{}.json", id)).exists()
-        });
+        let custom_file_exists = custom_dir
+            .as_ref()
+            .map_or(false, |dir| dir.join(format!("{}.json", id)).exists());
 
         let is_custom = custom_file_exists && !is_builtin;
         let has_custom_override = custom_file_exists && is_builtin;
 
         match get_template(&id) {
             Ok(template) => {
-                templates.push((id, template.name, template.description, is_custom, has_custom_override));
+                templates.push((
+                    id,
+                    template.name,
+                    template.description,
+                    is_custom,
+                    has_custom_override,
+                ));
             }
             Err(e) => {
                 warn!("Failed to load template '{}': {}", id, e);

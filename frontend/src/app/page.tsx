@@ -227,7 +227,6 @@ export default function Home() {
                   isRecording={recordingState.isRecording}
                   onRecordingStop={(callApi = true) => handleRecordingStop(callApi)}
                   onRecordingStart={handleRecordingStart}
-                  onTranscriptReceived={() => { }}
                   onStopInitiated={() => setIsStopping(true)}
                   barHeights={barHeights}
                   onTranscriptionError={(message) => {

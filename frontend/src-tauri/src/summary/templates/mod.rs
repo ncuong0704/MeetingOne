@@ -1,4 +1,4 @@
-﻿//! Meeting summary template management
+//! Meeting summary template management
 //!
 //! This module provides a flexible template system for generating meeting summaries.
 //! It supports both built-in templates (embedded in the binary) and custom user templates
@@ -42,12 +42,12 @@ mod loader;
 mod types;
 
 // Re-export public API
-pub use loader::{
-    get_template, get_bundled_template_json, get_custom_template_json,
-    get_custom_templates_dir_pub, list_template_ids, list_templates,
-    list_templates_with_source, set_bundled_templates_dir, validate_and_parse_template,
-};
 pub use defaults::get_builtin_template;
+pub use loader::{
+    get_bundled_template_json, get_custom_template_json, get_custom_templates_dir_pub,
+    get_template, list_template_ids, list_templates, list_templates_with_source,
+    set_bundled_templates_dir, validate_and_parse_template,
+};
 pub use types::{Template, TemplateSection};
 
 #[cfg(test)]

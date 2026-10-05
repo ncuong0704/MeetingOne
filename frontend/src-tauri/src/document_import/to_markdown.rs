@@ -12,9 +12,8 @@ static PPTX_CELL_RE: Lazy<Regex> =
 static PPTX_PARA_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?s)<a:p\b[^>]*>.*?</a:p>").expect("static regex is valid"));
 // `<a:t>` must not also match `<a:tc>` / `<a:tbl>` (`[^>]*` would swallow the extra letters).
-static TEXT_RUN_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"<a:t(?:\s[^>]*)?>(.*?)</a:t>").expect("static regex is valid")
-});
+static TEXT_RUN_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"<a:t(?:\s[^>]*)?>(.*?)</a:t>").expect("static regex is valid"));
 
 pub(super) fn decode_xml_entities(s: &str) -> String {
     s.replace("&lt;", "<")

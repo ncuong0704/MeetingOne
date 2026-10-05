@@ -25,6 +25,19 @@ export interface ModelDownloadCompletePayload {
   modelName: string;
 }
 
+export interface BackendTranscript {
+  id: string;
+  text: string;
+  display_time: string;
+  sequence_id: number;
+  audio_start_time: number;
+  audio_end_time: number;
+  duration: number;
+  confidence: number;
+  is_partial?: boolean;
+  speaker_name?: string | null;
+}
+
 /**
  * Transcript Service
  * Singleton service for managing transcription operations and transcript history
@@ -34,8 +47,8 @@ export class TranscriptService {
    * Get transcript history from backend (for reload sync)
    * @returns Promise<Transcript[]>
    */
-  async getTranscriptHistory(): Promise<Transcript[]> {
-    return invoke<Transcript[]>('get_transcript_history');
+  async getTranscriptHistory(): Promise<BackendTranscript[]> {
+    return invoke<BackendTranscript[]>('get_transcript_history');
   }
 
   /**

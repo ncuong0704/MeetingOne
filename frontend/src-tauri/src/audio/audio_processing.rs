@@ -1,6 +1,7 @@
 use anyhow::Result;
 use chrono::Utc;
 use log::{debug, info, warn};
+use nnnoiseless::DenoiseState;
 use realfft::num_complex::{Complex32, ComplexFloat};
 use realfft::RealFftPlanner;
 use rubato::{
@@ -8,7 +9,6 @@ use rubato::{
 };
 use std::io::Write;
 use std::path::PathBuf;
-use nnnoiseless::DenoiseState;
 
 use super::encode::encode_single_audio; // Correct path to encode module
 
@@ -26,7 +26,7 @@ pub fn sanitize_filename(name: &str) -> String {
 }
 
 /// Create a meeting folder with timestamp and return the path
-/// Creates structure: base_path/MeetingName_YYYY-MM-DD_HH-MM/
+/// Creates a unique session directory under base_path.
 ///                    ├── .checkpoints/  (for incremental saves, optional)
 ///
 /// # Arguments
@@ -38,21 +38,28 @@ pub fn create_meeting_folder(
     meeting_name: &str,
     create_checkpoints_dir: bool,
 ) -> Result<PathBuf> {
-    let timestamp = Utc::now().format("%Y-%m-%d_%H-%M").to_string();
+    let timestamp = Utc::now().format("%Y-%m-%d_%H-%M-%S").to_string();
     let sanitized_name = sanitize_filename(meeting_name);
-    let folder_name = format!("{}_{}", sanitized_name, timestamp);
+    let folder_name = format!("{}_{}_{}", sanitized_name, timestamp, uuid::Uuid::new_v4());
     let meeting_folder = base_path.join(folder_name);
 
     // Create main meeting folder
-    std::fs::create_dir_all(&meeting_folder)?;
+    std::fs::create_dir_all(base_path)?;
+    std::fs::create_dir(&meeting_folder)?;
 
     // Only create .checkpoints subdirectory if requested (when auto_save is true)
     if create_checkpoints_dir {
         let checkpoints_dir = meeting_folder.join(".checkpoints");
         std::fs::create_dir_all(&checkpoints_dir)?;
-        log::info!("Created meeting folder with checkpoints: {}", meeting_folder.display());
+        log::info!(
+            "Created meeting folder with checkpoints: {}",
+            meeting_folder.display()
+        );
     } else {
-        log::info!("Created meeting folder without checkpoints: {}", meeting_folder.display());
+        log::info!(
+            "Created meeting folder without checkpoints: {}",
+            meeting_folder.display()
+        );
     }
 
     Ok(meeting_folder)
@@ -70,7 +77,7 @@ pub fn normalize_v2(audio: &[f32]) -> Vec<f32> {
     }
 
     // Increase target RMS for better voice volume while keeping peak in check
-    let target_rms = 0.9;  // Increased from 0.6
+    let target_rms = 0.9; // Increased from 0.6
     let target_peak = 0.95; // Slightly reduced to prevent clipping
 
     let rms_scaling = target_rms / rms;
@@ -178,7 +185,11 @@ impl LoudnessNormalizer {
         // `Filter::process`'s `tp.check_true_peak` call) whether or not anything reads
         // the result — and nothing here does, since true-peak limiting is handled by our
         // own `TruePeakLimiter` below instead. Requesting it was pure wasted computation.
-        let ebur128 = ebur128::EbuR128::new(channels, sample_rate, ebur128::Mode::I | ebur128::Mode::HISTOGRAM)
+        let ebur128 = ebur128::EbuR128::new(
+            channels,
+            sample_rate,
+            ebur128::Mode::I | ebur128::Mode::HISTOGRAM,
+        )
         .map_err(|e| anyhow::anyhow!("Failed to create EBU R128 normalizer: {}", e))?;
 
         let true_peak_limit = 10_f32.powf(TRUE_PEAK_LIMIT as f32 / 20.0);
@@ -259,7 +270,7 @@ pub fn live_microphone_capture_samples(samples: &[f32]) -> Vec<f32> {
 pub struct NoiseSuppressionProcessor {
     denoiser: DenoiseState<'static>,
     frame_buffer: Vec<f32>,
-    frame_size: usize,  // 480 samples at 48kHz = 10ms
+    frame_size: usize, // 480 samples at 48kHz = 10ms
 }
 
 impl NoiseSuppressionProcessor {
@@ -277,7 +288,10 @@ impl NoiseSuppressionProcessor {
 
         const FRAME_SIZE: usize = DenoiseState::FRAME_SIZE;
 
-        info!("Initializing RNNoise noise suppression (frame size: {} samples, 10ms @ 48kHz)", FRAME_SIZE);
+        info!(
+            "Initializing RNNoise noise suppression (frame size: {} samples, 10ms @ 48kHz)",
+            FRAME_SIZE
+        );
 
         Ok(Self {
             denoiser: *DenoiseState::new(),
@@ -387,7 +401,10 @@ impl HighPassFilter {
         let dt = 1.0 / sample_rate_f;
         let alpha = rc / (rc + dt);
 
-        info!("Initializing high-pass filter: cutoff={}Hz @ {}Hz", cutoff_hz, sample_rate);
+        info!(
+            "Initializing high-pass filter: cutoff={}Hz @ {}Hz",
+            cutoff_hz, sample_rate
+        );
 
         Self {
             sample_rate: sample_rate_f,
@@ -435,7 +452,11 @@ pub fn spectral_subtraction(audio: &[f32], d: f32) -> Result<Vec<f32>> {
 
     // If audio is longer than window size, truncate to prevent overflow
     let processed_audio = if audio.len() > window_size {
-        warn!("Audio length {} exceeds window size {}, truncating", audio.len(), window_size);
+        warn!(
+            "Audio length {} exceeds window size {}, truncating",
+            audio.len(),
+            window_size
+        );
         &audio[..window_size]
     } else {
         audio
@@ -545,73 +566,74 @@ pub fn resample(input: &[f32], from_sample_rate: u32, to_sample_rate: u32) -> Re
     let (sinc_len, interpolation_type, oversampling) = if ratio >= 2.0 {
         // Large upsampling (e.g., 8kHz → 16kHz, 16kHz → 48kHz, 24kHz → 48kHz)
         // Needs high quality to avoid artifacts
-        debug!("High-quality upsampling: {}Hz → {}Hz (ratio: {:.2}x)",
-               from_sample_rate, to_sample_rate, ratio);
+        debug!(
+            "High-quality upsampling: {}Hz → {}Hz (ratio: {:.2}x)",
+            from_sample_rate, to_sample_rate, ratio
+        );
         (
-            512,                              // Longer sinc for smoother interpolation
-            SincInterpolationType::Cubic,     // Cubic for best quality
-            512,                              // Higher oversampling
+            512,                          // Longer sinc for smoother interpolation
+            SincInterpolationType::Cubic, // Cubic for best quality
+            512,                          // Higher oversampling
         )
     } else if ratio >= 1.5 {
         // Moderate upsampling (e.g., 32kHz → 48kHz)
-        debug!("Moderate upsampling: {}Hz → {}Hz (ratio: {:.2}x)",
-               from_sample_rate, to_sample_rate, ratio);
-        (
-            384,
-            SincInterpolationType::Cubic,
-            384,
-        )
+        debug!(
+            "Moderate upsampling: {}Hz → {}Hz (ratio: {:.2}x)",
+            from_sample_rate, to_sample_rate, ratio
+        );
+        (384, SincInterpolationType::Cubic, 384)
     } else if ratio > 1.0 {
         // Small upsampling (e.g., 44.1kHz → 48kHz)
-        debug!("Small upsampling: {}Hz → {}Hz (ratio: {:.2}x)",
-               from_sample_rate, to_sample_rate, ratio);
-        (
-            256,
-            SincInterpolationType::Linear,
-            256,
-        )
+        debug!(
+            "Small upsampling: {}Hz → {}Hz (ratio: {:.2}x)",
+            from_sample_rate, to_sample_rate, ratio
+        );
+        (256, SincInterpolationType::Linear, 256)
     } else if ratio <= 0.5 {
         // Large downsampling (e.g., 48kHz → 16kHz, 48kHz → 8kHz)
         // Needs strong anti-aliasing
-        debug!("Anti-aliased downsampling: {}Hz → {}Hz (ratio: {:.2}x)",
-               from_sample_rate, to_sample_rate, ratio);
+        debug!(
+            "Anti-aliased downsampling: {}Hz → {}Hz (ratio: {:.2}x)",
+            from_sample_rate, to_sample_rate, ratio
+        );
         (
-            512,                              // Longer sinc for anti-aliasing
-            SincInterpolationType::Cubic,     // Cubic for quality
+            512,                          // Longer sinc for anti-aliasing
+            SincInterpolationType::Cubic, // Cubic for quality
             512,
         )
     } else {
         // Moderate downsampling (e.g., 48kHz → 24kHz, 48kHz → 32kHz)
-        debug!("Moderate downsampling: {}Hz → {}Hz (ratio: {:.2}x)",
-               from_sample_rate, to_sample_rate, ratio);
-        (
-            384,
-            SincInterpolationType::Linear,
-            384,
-        )
+        debug!(
+            "Moderate downsampling: {}Hz → {}Hz (ratio: {:.2}x)",
+            from_sample_rate, to_sample_rate, ratio
+        );
+        (384, SincInterpolationType::Linear, 384)
     };
 
     let params = SincInterpolationParameters {
         sinc_len,
-        f_cutoff: 0.95,                      // Preserve most of the frequency content
+        f_cutoff: 0.95, // Preserve most of the frequency content
         interpolation: interpolation_type,
         oversampling_factor: oversampling,
-        window: WindowFunction::BlackmanHarris2,  // Best window for audio
+        window: WindowFunction::BlackmanHarris2, // Best window for audio
     };
 
     let mut resampler = SincFixedIn::<f32>::new(
         ratio,
-        2.0,  // Maximum relative deviation
+        2.0, // Maximum relative deviation
         params,
         input.len(),
-        1,    // Mono
+        1, // Mono
     )?;
 
     let waves_in = vec![input.to_vec()];
     let waves_out = resampler.process(&waves_in, None)?;
 
-    debug!("Resampling complete: {} samples → {} samples",
-           input.len(), waves_out[0].len());
+    debug!(
+        "Resampling complete: {} samples → {} samples",
+        input.len(),
+        waves_out[0].len()
+    );
 
     Ok(waves_out.into_iter().next().unwrap())
 }
@@ -636,7 +658,14 @@ pub fn write_audio_to_file(
     device: &str,
     skip_encoding: bool,
 ) -> Result<String> {
-    write_audio_to_file_with_meeting_name(audio, sample_rate, output_path, device, skip_encoding, None)
+    write_audio_to_file_with_meeting_name(
+        audio,
+        sample_rate,
+        output_path,
+        device,
+        skip_encoding,
+        None,
+    )
 }
 
 pub fn write_audio_to_file_with_meeting_name(
@@ -838,7 +867,10 @@ mod write_pcm_wav_tests {
     #[test]
     fn write_pcm_wav_clamps_out_of_range_samples() {
         let dir = std::env::temp_dir();
-        let path = dir.join(format!("write_pcm_wav_clamp_test_{}.wav", std::process::id()));
+        let path = dir.join(format!(
+            "write_pcm_wav_clamp_test_{}.wav",
+            std::process::id()
+        ));
         write_pcm_wav(&[2.0, -2.0], 16000, &path).expect("write wav");
         let bytes = std::fs::read(&path).expect("read back wav");
         std::fs::remove_file(&path).ok();
@@ -918,5 +950,23 @@ mod live_mic_capture_tests {
         let input: Vec<f32> = (0..800).map(|i| if i == 0 { 0.8 } else { 0.01 }).collect();
         let out = live_microphone_capture_samples(&input);
         assert_eq!(out, input);
+    }
+}
+
+#[cfg(test)]
+mod meeting_folder_tests {
+    use super::*;
+
+    #[test]
+    fn same_title_recordings_never_share_a_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let first = create_meeting_folder(&temp.path().to_path_buf(), "Meeting", true).unwrap();
+        std::fs::write(first.join("transcripts.json"), "original").unwrap();
+        let second = create_meeting_folder(&temp.path().to_path_buf(), "Meeting", true).unwrap();
+        assert_ne!(first, second);
+        assert_eq!(
+            std::fs::read_to_string(first.join("transcripts.json")).unwrap(),
+            "original"
+        );
     }
 }

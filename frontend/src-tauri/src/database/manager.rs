@@ -1,48 +1,14 @@
-use sqlx::{
-    migrate::{MigrateError, Migrator},
-    migrate::MigrateDatabase,
-    Result, Sqlite, SqlitePool, Transaction,
-};
+use sqlx::{migrate::MigrateDatabase, migrate::Migrator, Result, Sqlite, SqlitePool, Transaction};
 use std::fs;
 use std::path::Path;
 use tauri::Manager;
 
 static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 
-fn is_migration_repairable(err: &MigrateError) -> bool {
-    let msg = err.to_string();
-    msg.contains("has been modified")
-        || msg.contains("missing in the resolved migrations")
-        || msg.contains("was previously applied but")
-}
-
-async fn sync_migration_checksums(pool: &SqlitePool) -> Result<()> {
-    for migration in MIGRATOR.iter() {
-        sqlx::query(
-            "UPDATE _sqlx_migrations SET checksum = ?1, description = ?2 WHERE version = ?3",
-        )
-        .bind(&migration.checksum[..])
-        .bind(&migration.description)
-        .bind(migration.version)
-        .execute(pool)
-        .await?;
-    }
-    Ok(())
-}
-
 async fn run_migrations(pool: &SqlitePool) -> Result<()> {
-    match MIGRATOR.run(pool).await {
-        Ok(()) => Ok(()),
-        Err(e) if is_migration_repairable(&e) => {
-            log::warn!(
-                "Migration mismatch ({}), syncing checksums from current migration files...",
-                e
-            );
-            sync_migration_checksums(pool).await?;
-            MIGRATOR.run(pool).await.map_err(Into::into)
-        }
-        Err(e) => Err(e.into()),
-    }
+    // Published migrations are immutable. A mismatch requires an explicit
+    // schema repair; rewriting checksums would hide unapplied SQL changes.
+    MIGRATOR.run(pool).await.map_err(Into::into)
 }
 
 #[derive(Clone)]
@@ -104,59 +70,12 @@ impl DatabaseManager {
             .to_string_lossy()
             .to_string();
 
-        // WAL file paths for defensive cleanup
-        let wal_path = app_data_dir.join("meeting_minutes.sqlite-wal");
-        let shm_path = app_data_dir.join("meeting_minutes.sqlite-shm");
-
         log::info!("Tauri DB path: {}", tauri_db_path);
         log::info!("Legacy backend DB path: {}", backend_db_path);
 
-        // Try to open database with defensive WAL handling
-        match Self::new(&tauri_db_path, &backend_db_path).await {
-            Ok(db_manager) => {
-                log::info!("Database opened successfully");
-                Ok(db_manager)
-            }
-            Err(e) => {
-                // Check if error is due to corrupted WAL file
-                let error_msg = e.to_string();
-                if error_msg.contains("malformed") || error_msg.contains("corrupt") {
-                    log::warn!("Database appears corrupted, likely due to orphaned WAL file. Attempting recovery...");
-                    log::warn!("Error details: {}", error_msg);
-
-                    // Delete potentially corrupted WAL/SHM files
-                    if wal_path.exists() {
-                        match fs::remove_file(&wal_path) {
-                            Ok(_) => log::info!("Removed orphaned WAL file: {:?}", wal_path),
-                            Err(e) => log::warn!("Failed to remove WAL file: {}", e),
-                        }
-                    }
-                    if shm_path.exists() {
-                        match fs::remove_file(&shm_path) {
-                            Ok(_) => log::info!("Removed orphaned SHM file: {:?}", shm_path),
-                            Err(e) => log::warn!("Failed to remove SHM file: {}", e),
-                        }
-                    }
-
-                    // Retry connection without WAL files
-                    log::info!("Retrying database connection after WAL cleanup...");
-                    match Self::new(&tauri_db_path, &backend_db_path).await {
-                        Ok(db_manager) => {
-                            log::info!("Database opened successfully after WAL recovery");
-                            Ok(db_manager)
-                        }
-                        Err(retry_err) => {
-                            log::error!("Database connection failed even after WAL cleanup: {}", retry_err);
-                            Err(retry_err)
-                        }
-                    }
-                } else {
-                    // Not a WAL-related error, propagate original error
-                    log::error!("Database connection failed: {}", error_msg);
-                    Err(e)
-                }
-            }
-        }
+        // Preserve WAL/SHM even when opening fails: they can contain committed
+        // data that has not been checkpointed into the main database yet.
+        Self::new(&tauri_db_path, &backend_db_path).await
     }
 
     /// Check if this is the first launch (sqlite database doesn't exist yet)

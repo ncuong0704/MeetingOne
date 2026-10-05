@@ -15,7 +15,6 @@ export type AsrModelFamily =
 export type ModelVariant = 'int8' | 'full';
 export type DecodingMethod = 'greedy_search' | 'modified_beam_search';
 export type AsrPathKind = 'live' | 'file';
-export type SttProvider = 'asr' | 'gemini';
 
 export type AsrNotice = {
   description: string;
@@ -42,7 +41,6 @@ export interface LiveAsrConfig {
   decodingMethod: DecodingMethod;
   numActivePaths: number;
   maxSegmentSeconds: number;
-  provider?: SttProvider;
 }
 
 export interface FileAsrConfig {
@@ -54,7 +52,6 @@ export interface FileAsrConfig {
   roverEnabled: boolean;
   roverFamilyB?: AsrModelFamily | null;
   roverVariantB?: ModelVariant | null;
-  provider?: SttProvider;
 }
 
 export interface SharedTranscriptConfig {
@@ -254,7 +251,6 @@ export const TranscriptConfigAPI = {
       decodingMethod: config.decodingMethod,
       numActivePaths: config.numActivePaths,
       maxSegmentSeconds: config.maxSegmentSeconds,
-      provider: config.provider ?? 'asr',
     }),
   saveFile: (config: FileAsrConfig): Promise<void> =>
     invoke('api_save_file_asr_config', {
@@ -266,14 +262,7 @@ export const TranscriptConfigAPI = {
       roverEnabled: config.roverEnabled,
       roverFamilyB: config.roverEnabled ? config.roverFamilyB : null,
       roverVariantB: config.roverEnabled ? config.roverVariantB : null,
-      provider: config.provider ?? 'asr',
     }),
-  getTranscriptApiKey: (provider: string): Promise<string> =>
-    invoke('api_get_transcript_api_key', { provider }),
-  saveTranscriptApiKey: (provider: string, apiKey: string): Promise<void> =>
-    invoke('api_save_transcript_api_key', { provider, apiKey }),
-  deleteTranscriptApiKey: (provider: string): Promise<void> =>
-    invoke('api_delete_transcript_api_key', { provider }),
   saveShared: (config: SharedTranscriptConfig): Promise<void> =>
     invoke('api_save_shared_transcript_config', {
       hotwords: config.hotwords ?? null,

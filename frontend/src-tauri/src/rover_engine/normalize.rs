@@ -8,7 +8,10 @@ pub fn normalize_word(word: &str) -> String {
     let lowered = word.to_lowercase();
     let trimmed = lowered.trim();
     let nfc_normalized: String = trimmed.nfc().collect();
-    nfc_normalized.chars().filter(|c| c.is_alphanumeric()).collect()
+    nfc_normalized
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .collect()
 }
 
 #[cfg(test)]

@@ -92,12 +92,9 @@ pub const ZIPFORMER_STREAMING_MODEL_NAME: &str = "zipformer-vi-30m-streaming";
 pub const ZIPFORMER_STREAMING_HF_URL: &str =
     "https://huggingface.co/hynt/Zipformer-30M-RNNT-Streaming-6000h/resolve/main";
 pub const ZIPFORMER_STREAMING_SUBDIR: &str = "zipformer-vi-streaming";
-pub const ZIPFORMER_STREAMING_ENCODER: &str =
-    "encoder-epoch-31-avg-11-chunk-64-left-128.fp16.onnx";
-pub const ZIPFORMER_STREAMING_DECODER: &str =
-    "decoder-epoch-31-avg-11-chunk-64-left-128.fp16.onnx";
-pub const ZIPFORMER_STREAMING_JOINER: &str =
-    "joiner-epoch-31-avg-11-chunk-64-left-128.fp16.onnx";
+pub const ZIPFORMER_STREAMING_ENCODER: &str = "encoder-epoch-31-avg-11-chunk-64-left-128.fp16.onnx";
+pub const ZIPFORMER_STREAMING_DECODER: &str = "decoder-epoch-31-avg-11-chunk-64-left-128.fp16.onnx";
+pub const ZIPFORMER_STREAMING_JOINER: &str = "joiner-epoch-31-avg-11-chunk-64-left-128.fp16.onnx";
 pub const ZIPFORMER_STREAMING_SIZE_BYTES: u64 = 51_000_000;
 pub const ZIPFORMER_STREAMING_BPE: &str = "bpe.model";
 pub const ZIPFORMER_STREAMING_TOKENS: &str = "tokens.txt";

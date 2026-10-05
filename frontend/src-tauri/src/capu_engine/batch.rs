@@ -111,7 +111,10 @@ impl CapuBatcher {
                     restored
                 }
                 Err(e) => {
-                    log::warn!("CapuBatcher: CAPU failed on batch, falling back to raw text: {}", e);
+                    log::warn!(
+                        "CapuBatcher: CAPU failed on batch, falling back to raw text: {}",
+                        e
+                    );
                     joined
                 }
             }
@@ -134,7 +137,10 @@ impl CapuBatcher {
     /// ever reaches storage — unlike the live path (`transcription/worker.rs`), which
     /// already emitted the raw text live before Stage 2 ever sees "no engine", so it
     /// safely discards there via `discard_pending` instead.
-    pub fn flush_with_fallback(&mut self, engine: Option<&mut CapuEngine>) -> Option<FinalizedSegment> {
+    pub fn flush_with_fallback(
+        &mut self,
+        engine: Option<&mut CapuEngine>,
+    ) -> Option<FinalizedSegment> {
         match engine {
             Some(engine) => self.flush(engine),
             None => {

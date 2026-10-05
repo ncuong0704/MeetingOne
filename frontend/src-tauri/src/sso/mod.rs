@@ -10,8 +10,8 @@ use tauri_plugin_store::StoreExt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::time::timeout;
-use url::Url;
 use url::form_urlencoded;
+use url::Url;
 
 const STORE_FILE: &str = "sso-session.json";
 const SESSION_KEY: &str = "session";
@@ -43,9 +43,8 @@ impl SsoConfig {
                 .unwrap_or_else(|_| "https://ams.vienthongact.vn/Api/Sso/UserInfo".into()),
             refresh_url: std::env::var("SSO_REFRESH_URL")
                 .unwrap_or_else(|_| "https://ams.vienthongact.vn/Api/Auth/Refresh_Token".into()),
-            redirect_uri: std::env::var("SSO_REDIRECT_URI").unwrap_or_else(|_| {
-                format!("http://127.0.0.1:{}{}", CALLBACK_PORT, CALLBACK_PATH)
-            }),
+            redirect_uri: std::env::var("SSO_REDIRECT_URI")
+                .unwrap_or_else(|_| format!("http://127.0.0.1:{}{}", CALLBACK_PORT, CALLBACK_PATH)),
         }
     }
 
@@ -132,8 +131,7 @@ fn jwt_time_claims(token: &str) -> Option<(Option<i64>, Option<i64>, Option<i64>
 
 /// Log claims + trả về exp để caller kiểm tra "token chết ngay khi cấp".
 fn log_jwt_time_claims(token: &str) -> Option<i64> {
-    let (iat, exp, nbf) =
-        jwt_time_claims(token).unwrap_or((None, None, None));
+    let (iat, exp, nbf) = jwt_time_claims(token).unwrap_or((None, None, None));
     info!(
         "AMS token claims: iat={:?} exp={:?} nbf={:?} (now={})",
         iat,
@@ -285,7 +283,10 @@ async fn exchange_code(config: &SsoConfig, code: &str) -> Result<(String, String
         return Err(anyhow!("AMS Token trả lỗi {}: {}", status, body));
     }
 
-    let raw = response.text().await.context("Không đọc được phản hồi AMS Token")?;
+    let raw = response
+        .text()
+        .await
+        .context("Không đọc được phản hồi AMS Token")?;
     // Log field names + value sizes only (numbers shown raw — never token contents).
     if let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) {
         let shape: Vec<String> = value
@@ -295,7 +296,10 @@ async fn exchange_code(config: &SsoConfig, code: &str) -> Result<(String, String
                     .map(|(k, v)| match v {
                         serde_json::Value::String(s) => format!("{k}={}b", s.len()),
                         serde_json::Value::Object(o) => {
-                            format!("{k}={{{}}}", o.keys().cloned().collect::<Vec<_>>().join(","))
+                            format!(
+                                "{k}={{{}}}",
+                                o.keys().cloned().collect::<Vec<_>>().join(",")
+                            )
                         }
                         other => format!("{k}={other}"),
                     })
@@ -353,10 +357,9 @@ async fn fetch_user_info(config: &SsoConfig, access_token: &str) -> Result<SsoUs
         )));
     }
 
-    let info: SsoUserInfo = response
-        .json()
-        .await
-        .map_err(|e| UserInfoError::Transient(format!("Phản hồi AMS UserInfo không hợp lệ: {}", e)))?;
+    let info: SsoUserInfo = response.json().await.map_err(|e| {
+        UserInfoError::Transient(format!("Phản hồi AMS UserInfo không hợp lệ: {}", e))
+    })?;
     let email = info.email.unwrap_or_default().trim().to_string();
     if email.is_empty() {
         return Err(UserInfoError::NoEmail);
@@ -401,9 +404,7 @@ async fn refresh_access_token(config: &SsoConfig, refresh_token: &str) -> Result
         return Err(anyhow!("refresh_failed"));
     }
 
-    let customs = body
-        .o_customs
-        .ok_or_else(|| anyhow!("refresh_failed"))?;
+    let customs = body.o_customs.ok_or_else(|| anyhow!("refresh_failed"))?;
     let access = customs
         .access_token
         .filter(|v| !v.is_empty())
@@ -430,7 +431,9 @@ fn open_browser(url: &str) -> Result<(), String> {
         Command::new("xdg-open").arg(url).spawn()
     };
 
-    result.map(|_| ()).map_err(|e| format!("Không mở được trình duyệt: {}", e))
+    result
+        .map(|_| ())
+        .map_err(|e| format!("Không mở được trình duyệt: {}", e))
 }
 
 async fn load_session<R: Runtime>(app: &AppHandle<R>) -> Result<Option<StoredSsoSession>, String> {
@@ -453,13 +456,16 @@ async fn load_session<R: Runtime>(app: &AppHandle<R>) -> Result<Option<StoredSso
     }
 }
 
-async fn save_session<R: Runtime>(app: &AppHandle<R>, session: &StoredSsoSession) -> Result<(), String> {
+async fn save_session<R: Runtime>(
+    app: &AppHandle<R>,
+    session: &StoredSsoSession,
+) -> Result<(), String> {
     let store = app
         .store(STORE_FILE)
         .map_err(|e| format!("Không lưu được phiên SSO: {}", e))?;
 
-    let value = serde_json::to_value(session)
-        .map_err(|e| format!("Không serialize phiên SSO: {}", e))?;
+    let value =
+        serde_json::to_value(session).map_err(|e| format!("Không serialize phiên SSO: {}", e))?;
     store.set(SESSION_KEY, value);
     store
         .save()
@@ -680,7 +686,10 @@ mod tests {
             mapped("callback_port_busy: cổng 34517 đang bị chiếm"),
             "callback_port_busy: cổng 34517 đang bị chiếm"
         );
-        assert!(mapped("Không kết nối được AMS Token: error sending request").starts_with("ams_unreachable"));
+        assert!(
+            mapped("Không kết nối được AMS Token: error sending request")
+                .starts_with("ams_unreachable")
+        );
         assert!(mapped("AMS Token trả lỗi 500: oops").starts_with("ams_token_error"));
         assert!(mapped("Không kết nối được AMS UserInfo: timed out").starts_with("ams_unreachable"));
         assert!(mapped("AMS UserInfo trả lỗi 503: busy").starts_with("ams_userinfo_error"));

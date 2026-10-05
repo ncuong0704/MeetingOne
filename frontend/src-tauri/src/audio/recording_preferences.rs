@@ -144,7 +144,7 @@ pub async fn load_recording_preferences<R: Runtime>(
                 let p = {
                     let mut p = p;
                     let backend = crate::audio::capture::get_current_backend();
-                    p.system_audio_backend = Some(backend.to_string());
+                    p.system_audio_backend = Some(backend.config_id());
                     p
                 };
                 p
@@ -325,7 +325,7 @@ pub async fn get_current_audio_backend() -> Result<String, String> {
     #[cfg(target_os = "macos")]
     {
         let backend = crate::audio::capture::get_current_backend();
-        Ok(backend.to_string())
+        Ok(backend.config_id())
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -407,14 +407,14 @@ pub async fn get_audio_backend_info() -> Result<Vec<BackendInfo>, String> {
 
         let backends = vec![
             BackendInfo {
-                id: AudioCaptureBackend::ScreenCaptureKit.to_string(),
+                id: AudioCaptureBackend::ScreenCaptureKit.config_id(),
                 name: AudioCaptureBackend::ScreenCaptureKit.name().to_string(),
                 description: AudioCaptureBackend::ScreenCaptureKit
                     .description()
                     .to_string(),
             },
             BackendInfo {
-                id: AudioCaptureBackend::CoreAudio.to_string(),
+                id: AudioCaptureBackend::CoreAudio.config_id(),
                 name: AudioCaptureBackend::CoreAudio.name().to_string(),
                 description: AudioCaptureBackend::CoreAudio.description().to_string(),
             },
@@ -482,4 +482,3 @@ mod tests {
         );
     }
 }
-

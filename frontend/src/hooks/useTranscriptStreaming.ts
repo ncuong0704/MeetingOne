@@ -24,8 +24,12 @@ export function useTranscriptStreaming(
   const lastSegmentIdRef = useRef<string | null>(null);
   const streamingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  const latestSegment = segments[segments.length - 1];
+  const latestId = latestSegment?.id;
+  const latestText = latestSegment?.text;
+
   useEffect(() => {
-    if (!isRecording || !enableStreaming || segments.length === 0) {
+    if (!isRecording || !enableStreaming || latestId === undefined || latestText === undefined) {
       // Clear streaming when not recording
       if (streamingIntervalRef.current) {
         clearInterval(streamingIntervalRef.current);
@@ -36,11 +40,9 @@ export function useTranscriptStreaming(
       return;
     }
 
-    const latestSegment = segments[segments.length - 1];
-
     // Check if this is a new segment
-    if (latestSegment.id !== lastSegmentIdRef.current) {
-      lastSegmentIdRef.current = latestSegment.id;
+    {
+      lastSegmentIdRef.current = latestId;
 
       // Clear any existing streaming interval
       if (streamingIntervalRef.current) {
@@ -48,19 +50,20 @@ export function useTranscriptStreaming(
         streamingIntervalRef.current = null;
       }
 
-      const fullText = latestSegment.text;
+      const fullText = latestText;
 
       // Show first characters immediately
       const initialText = fullText.substring(0, Math.min(INITIAL_CHARS, fullText.length));
 
       setStreamingSegment({
-        id: latestSegment.id,
+        id: latestId,
         fullText,
         visibleText: initialText,
       });
 
       // If text is short enough, no need to stream
       if (fullText.length <= INITIAL_CHARS) {
+        setStreamingSegment(null);
         return;
       }
 
@@ -100,7 +103,7 @@ export function useTranscriptStreaming(
         streamingIntervalRef.current = null;
       }
     };
-  }, [segments, isRecording, enableStreaming]);
+  }, [latestId, latestText, isRecording, enableStreaming]);
 
   /**
    * Get the display text for a segment, with streaming effect if applicable

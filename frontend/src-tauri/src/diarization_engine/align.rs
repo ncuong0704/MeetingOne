@@ -28,6 +28,9 @@ const SPEAKER_COLORS: [&str; 8] = [
 ];
 
 /// Returns per-segment cluster_index (None if no overlapping turn).
+/// Only exercised by this module's own tests — production code calls
+/// `best_cluster_for_range` directly via `resegment_by_speaker_turns`.
+#[cfg(test)]
 pub fn align_speakers_to_segments(
     segment_ranges: &[(f64, f64)],
     turns: &[SpeakerTurn],
@@ -222,10 +225,7 @@ mod tests {
 
     #[test]
     fn no_turns_yields_none() {
-        assert_eq!(
-            align_speakers_to_segments(&[(0.0, 1.0)], &[]),
-            vec![None]
-        );
+        assert_eq!(align_speakers_to_segments(&[(0.0, 1.0)], &[]), vec![None]);
     }
 
     #[test]

@@ -9,9 +9,8 @@ use std::path::PathBuf;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
-static THINKING_TAG_REGEX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?s)<think(?:ing)?>.*?</think(?:ing)?>").unwrap()
-});
+static THINKING_TAG_REGEX: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?s)<think(?:ing)?>.*?</think(?:ing)?>").unwrap());
 
 /// Cleans markdown output from LLM by removing thinking tags and code fences
 pub fn clean_llm_markdown_output(markdown: &str) -> String {
@@ -128,7 +127,10 @@ pub async fn generate_meeting_summary(
         provider, model_name
     );
 
-    info!("Generating final markdown report with template: {}", template_id);
+    info!(
+        "Generating final markdown report with template: {}",
+        template_id
+    );
 
     let template = templates::get_template(template_id)
         .map_err(|e| format!("Failed to load template '{}': {}", template_id, e))?;
@@ -144,7 +146,8 @@ pub async fn generate_meeting_summary(
         Local::now(),
     );
 
-    let final_user_prompt = build_final_user_prompt(text, documents_context.as_deref(), custom_prompt);
+    let final_user_prompt =
+        build_final_user_prompt(text, documents_context.as_deref(), custom_prompt);
 
     if let Some(token) = cancellation_token {
         if token.is_cancelled() {
@@ -226,10 +229,18 @@ mod tests {
         let result = build_final_user_prompt("t", Some("doc"), "please focus on X");
 
         let transcript_pos = result.find("<transcript>").expect("transcript missing");
-        let documents_pos = result.find("<meeting_documents>").expect("meeting_documents missing");
+        let documents_pos = result
+            .find("<meeting_documents>")
+            .expect("meeting_documents missing");
         let context_pos = result.find("<user_context>").expect("user_context missing");
 
-        assert!(transcript_pos < documents_pos, "transcript should come before meeting_documents");
-        assert!(documents_pos < context_pos, "meeting_documents should come before user_context");
+        assert!(
+            transcript_pos < documents_pos,
+            "transcript should come before meeting_documents"
+        );
+        assert!(
+            documents_pos < context_pos,
+            "meeting_documents should come before user_context"
+        );
     }
 }

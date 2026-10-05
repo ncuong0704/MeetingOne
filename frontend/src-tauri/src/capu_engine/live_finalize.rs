@@ -13,10 +13,8 @@ pub(crate) fn expand_capu_batch(
         .iter()
         .map(|p| (p.raw_text.as_str(), p.audio_start_time, p.audio_end_time))
         .collect();
-    let split = crate::audio::sentence_segment::split_punctuated_onto_utterances(
-        &batch.text,
-        &utterances,
-    );
+    let split =
+        crate::audio::sentence_segment::split_punctuated_onto_utterances(&batch.text, &utterances);
     if split.is_empty() {
         return vec![batch];
     }
@@ -106,6 +104,7 @@ mod tests {
             confidence: 0.9,
             sequence_id: id,
             user_edited,
+            is_partial: false,
             speaker_name: speaker.map(|s| s.to_string()),
         }
     }

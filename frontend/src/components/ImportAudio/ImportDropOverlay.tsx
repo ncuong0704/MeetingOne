@@ -13,7 +13,7 @@ export function ImportDropOverlay({ visible }: ImportDropOverlayProps) {
     <div
       className="fixed inset-0 z-[var(--z-modal)] app-modal-overlay
                  flex items-center justify-center pointer-events-none
-                 transition-opacity duration-[var(--dur-short)] ease-[var(--ease-out)]"
+                 transition-opacity duration-short ease-out-token"
     >
       <div className="border border-dashed border-rule rounded-md
                       p-12 text-center bg-paper-2

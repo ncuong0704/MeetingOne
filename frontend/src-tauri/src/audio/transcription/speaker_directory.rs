@@ -66,7 +66,10 @@ fn defaults_path<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
     if let Ok(resource) = app.path().resource_dir() {
         for path in [
             resource.join(DEFAULTS_SUBDIR).join(DEFAULTS_FILE),
-            resource.join("resources").join(DEFAULTS_SUBDIR).join(DEFAULTS_FILE),
+            resource
+                .join("resources")
+                .join(DEFAULTS_SUBDIR)
+                .join(DEFAULTS_FILE),
             resource.join(DEFAULTS_FILE),
         ] {
             if path.exists() {
@@ -168,7 +171,8 @@ mod tests {
 
     #[test]
     fn defaults_json_accepts_vietnamese_keys_and_missing_id() {
-        let json = r#"[{"hoTen":"Nguyễn Cường","chucVu":"Chuyên viên AI","phongBan":"Phòng CNTT"}]"#;
+        let json =
+            r#"[{"hoTen":"Nguyễn Cường","chucVu":"Chuyên viên AI","phongBan":"Phòng CNTT"}]"#;
         let people: Vec<DirectorySpeaker> = serde_json::from_str(json).unwrap();
         let out = normalize_people(people);
         assert_eq!(out.len(), 1);

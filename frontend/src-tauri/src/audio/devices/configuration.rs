@@ -1,17 +1,6 @@
 use anyhow::{anyhow, Result};
-use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use std::sync::atomic::AtomicU64;
-
-lazy_static! {
-    pub static ref LAST_AUDIO_CAPTURE: AtomicU64 = AtomicU64::new(
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs()
-    );
-}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum AudioTranscriptionEngine {
@@ -127,9 +116,9 @@ pub async fn get_device_and_config(
                 for device in host.input_devices()? {
                     if let Ok(name) = device.name() {
                         if name == audio_device.name {
-                            let default_config = device
-                                .default_input_config()
-                                .map_err(|e| anyhow!("Failed to get default input config: {}", e))?;
+                            let default_config = device.default_input_config().map_err(|e| {
+                                anyhow!("Failed to get default input config: {}", e)
+                            })?;
                             return Ok((device, default_config));
                         }
                     }
@@ -159,9 +148,10 @@ pub async fn get_device_and_config(
                         for device in pulse_host.input_devices()? {
                             if let Ok(name) = device.name() {
                                 if name == audio_device.name {
-                                    let default_config = device
-                                        .default_input_config()
-                                        .map_err(|e| anyhow!("Failed to get default input config: {}", e))?;
+                                    let default_config =
+                                        device.default_input_config().map_err(|e| {
+                                            anyhow!("Failed to get default input config: {}", e)
+                                        })?;
                                     return Ok((device, default_config));
                                 }
                             }

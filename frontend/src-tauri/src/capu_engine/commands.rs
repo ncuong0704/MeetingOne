@@ -38,15 +38,15 @@ pub async fn capu_get_models_directory<R: Runtime>(app: AppHandle<R>) -> Result<
 
 #[tauri::command]
 pub async fn capu_is_model_downloaded<R: Runtime>(app: AppHandle<R>) -> Result<bool, String> {
-    let dir = resolve_capu_dir(&app).ok_or_else(|| "Could not resolve app data directory".to_string())?;
-    Ok(capu_files()
-        .iter()
-        .all(|(name, _)| dir.join(name).exists()))
+    let dir =
+        resolve_capu_dir(&app).ok_or_else(|| "Could not resolve app data directory".to_string())?;
+    Ok(capu_files().iter().all(|(name, _)| dir.join(name).exists()))
 }
 
 #[tauri::command]
 pub async fn capu_download_model<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
-    let dir = resolve_capu_dir(&app).ok_or_else(|| "Could not resolve app data directory".to_string())?;
+    let dir =
+        resolve_capu_dir(&app).ok_or_else(|| "Could not resolve app data directory".to_string())?;
     let app_clone = app.clone();
 
     tauri::async_runtime::spawn(async move {
@@ -138,7 +138,8 @@ async fn resolve_capu_settings<R: Runtime>(_app: &AppHandle<R>) -> (usize, u8, u
 
 #[tauri::command]
 pub async fn capu_init<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
-    let dir = resolve_capu_dir(&app).ok_or_else(|| "Could not resolve app data directory".to_string())?;
+    let dir =
+        resolve_capu_dir(&app).ok_or_else(|| "Could not resolve app data directory".to_string())?;
 
     {
         let guard = CAPU_ENGINE.lock().unwrap();

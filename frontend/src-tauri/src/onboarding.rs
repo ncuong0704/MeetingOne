@@ -1,11 +1,11 @@
+use anyhow::Result;
+use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Runtime};
 use tauri_plugin_store::StoreExt;
-use log::{info, warn, error};
-use anyhow::Result;
 
-use crate::state::AppState;
 use crate::database::repositories::setting::SettingsRepository;
+use crate::state::AppState;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct OnboardingStatus {
@@ -25,9 +25,7 @@ impl Default for OnboardingStatus {
 }
 
 /// Load onboarding status from store
-pub async fn load_onboarding_status<R: Runtime>(
-    app: &AppHandle<R>,
-) -> Result<OnboardingStatus> {
+pub async fn load_onboarding_status<R: Runtime>(app: &AppHandle<R>) -> Result<OnboardingStatus> {
     let store = match app.store("onboarding-status.json") {
         Ok(store) => store,
         Err(e) => {
@@ -43,7 +41,10 @@ pub async fn load_onboarding_status<R: Runtime>(
                 s
             }
             Err(e) => {
-                warn!("Failed to deserialize onboarding status: {}, using defaults", e);
+                warn!(
+                    "Failed to deserialize onboarding status: {}, using defaults",
+                    e
+                );
                 OnboardingStatus::default()
             }
         }
@@ -62,7 +63,8 @@ pub async fn save_onboarding_status<R: Runtime>(
 ) -> Result<()> {
     info!("Saving onboarding status: completed={}", status.completed);
 
-    let store = app.store("onboarding-status.json")
+    let store = app
+        .store("onboarding-status.json")
         .map_err(|e| anyhow::anyhow!("Failed to access onboarding store: {}", e))?;
 
     let mut status = status.clone();
@@ -72,7 +74,8 @@ pub async fn save_onboarding_status<R: Runtime>(
         .map_err(|e| anyhow::anyhow!("Failed to serialize onboarding status: {}", e))?;
 
     store.set("status", status_value);
-    store.save()
+    store
+        .save()
         .map_err(|e| anyhow::anyhow!("Failed to save onboarding store to disk: {}", e))?;
 
     info!("Successfully persisted onboarding status to disk");
@@ -80,16 +83,16 @@ pub async fn save_onboarding_status<R: Runtime>(
 }
 
 /// Reset onboarding status (delete from store)
-pub async fn reset_onboarding_status<R: Runtime>(
-    app: &AppHandle<R>,
-) -> Result<()> {
+pub async fn reset_onboarding_status<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
     info!("Resetting onboarding status");
 
-    let store = app.store("onboarding-status.json")
+    let store = app
+        .store("onboarding-status.json")
         .map_err(|e| anyhow::anyhow!("Failed to access onboarding store: {}", e))?;
 
     store.delete("status");
-    store.save()
+    store
+        .save()
         .map_err(|e| anyhow::anyhow!("Failed to save onboarding store after reset: {}", e))?;
 
     info!("Successfully reset onboarding status");
@@ -105,7 +108,8 @@ pub async fn get_onboarding_status<R: Runtime>(
         .await
         .map_err(|e| format!("Failed to load onboarding status: {}", e))?;
 
-    let store = app.store("onboarding-status.json")
+    let store = app
+        .store("onboarding-status.json")
         .map_err(|e| format!("Failed to access store: {}", e))?;
 
     if store.get("status").is_none() {
@@ -116,9 +120,7 @@ pub async fn get_onboarding_status<R: Runtime>(
 }
 
 #[tauri::command]
-pub async fn reset_onboarding_status_cmd<R: Runtime>(
-    app: AppHandle<R>,
-) -> Result<(), String> {
+pub async fn reset_onboarding_status_cmd<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     reset_onboarding_status(&app)
         .await
         .map_err(|e| format!("Failed to reset onboarding status: {}", e))
@@ -148,7 +150,9 @@ pub async fn complete_onboarding<R: Runtime>(
         None,
         7,
         3,
-    ).await {
+    )
+    .await
+    {
         error!("Failed to save transcription model config: {}", e);
         return Err(format!("Failed to save transcription model config: {}", e));
     }

@@ -19,10 +19,9 @@ fn extract_from_plain_text(path: &Path) -> Result<String, String> {
 fn extract_from_subtitle(path: &Path) -> Result<String, String> {
     let content = std::fs::read_to_string(path).map_err(|e| format!("Lỗi đọc file: {}", e))?;
 
-    let timestamp_re = regex::Regex::new(
-        r"^\s*\d{2}:\d{2}:\d{2}[.,]\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}[.,]\d{3}",
-    )
-    .expect("static regex is valid");
+    let timestamp_re =
+        regex::Regex::new(r"^\s*\d{2}:\d{2}:\d{2}[.,]\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}[.,]\d{3}")
+            .expect("static regex is valid");
     let sequence_re = regex::Regex::new(r"^\s*\d+\s*$").expect("static regex is valid");
 
     let mut lines_out: Vec<String> = Vec::new();
@@ -176,10 +175,7 @@ fn extract_from_pptx(path: &Path) -> Result<String, String> {
         if body.trim().is_empty() {
             continue;
         }
-        slides.push(format!(
-            "<!-- Slide number: {} -->\n\n{}",
-            slide_num, body
-        ));
+        slides.push(format!("<!-- Slide number: {} -->\n\n{}", slide_num, body));
     }
 
     Ok(slides.join("\n\n"))
@@ -224,12 +220,12 @@ pub fn parse_file_segments(path: &Path) -> Result<Vec<transcript_parser::ParsedS
 
     let trimmed = text.trim();
     if trimmed.chars().count() < MIN_CONTENT_LENGTH {
-        return Err(
-            "Không trích xuất được nội dung văn bản (file rỗng hoặc quá ngắn)".to_string(),
-        );
+        return Err("Không trích xuất được nội dung văn bản (file rỗng hoặc quá ngắn)".to_string());
     }
 
-    Ok(transcript_parser::parse_document_content(trimmed, &extension))
+    Ok(transcript_parser::parse_document_content(
+        trimmed, &extension,
+    ))
 }
 
 /// Extract text from `path` and validate it has real content.
@@ -320,20 +316,16 @@ mod tests {
             )
             .add_table(Table::new(vec![
                 TableRow::new(vec![
-                    TableCell::new().add_paragraph(
-                        Paragraph::new().add_run(Run::new().add_text("Mục")),
-                    ),
-                    TableCell::new().add_paragraph(
-                        Paragraph::new().add_run(Run::new().add_text("Chủ trì")),
-                    ),
+                    TableCell::new()
+                        .add_paragraph(Paragraph::new().add_run(Run::new().add_text("Mục"))),
+                    TableCell::new()
+                        .add_paragraph(Paragraph::new().add_run(Run::new().add_text("Chủ trì"))),
                 ]),
                 TableRow::new(vec![
-                    TableCell::new().add_paragraph(
-                        Paragraph::new().add_run(Run::new().add_text("Khai mạc")),
-                    ),
-                    TableCell::new().add_paragraph(
-                        Paragraph::new().add_run(Run::new().add_text("Lan")),
-                    ),
+                    TableCell::new()
+                        .add_paragraph(Paragraph::new().add_run(Run::new().add_text("Khai mạc"))),
+                    TableCell::new()
+                        .add_paragraph(Paragraph::new().add_run(Run::new().add_text("Lan"))),
                 ]),
             ]))
             .build()
@@ -382,7 +374,9 @@ mod tests {
 
         let text = extract_from_pptx(&path).unwrap();
         let first_pos = text.find("First slide").expect("First slide text missing");
-        let second_pos = text.find("Second slide").expect("Second slide text missing");
+        let second_pos = text
+            .find("Second slide")
+            .expect("Second slide text missing");
         assert!(
             first_pos < second_pos,
             "slides should be ordered by slide number, got: {}",
@@ -538,14 +532,21 @@ mod tests {
         std::fs::write(&path, "hi").unwrap();
 
         let result = extract_text_validated(&path);
-        assert!(result.is_err(), "content shorter than MIN_CONTENT_LENGTH should be rejected");
+        assert!(
+            result.is_err(),
+            "content shorter than MIN_CONTENT_LENGTH should be rejected"
+        );
     }
 
     #[test]
     fn test_extract_text_validated_accepts_real_content() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("real.txt");
-        std::fs::write(&path, "Đây là nội dung cuộc họp có đủ độ dài để vượt qua ngưỡng kiểm tra").unwrap();
+        std::fs::write(
+            &path,
+            "Đây là nội dung cuộc họp có đủ độ dài để vượt qua ngưỡng kiểm tra",
+        )
+        .unwrap();
 
         let result = extract_text_validated(&path);
         assert!(result.is_ok());

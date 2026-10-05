@@ -1,22 +1,12 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { toast } from 'sonner';
 import { TranscriptModelProps } from '@/components/TranscriptSettings';
-import { useRecordingState } from '@/contexts/RecordingStateContext';
 import { shouldOpenModelSelectorOnTranscriptionError } from '@/lib/sttError';
 
-export type ModalType =
-  | 'modelSettings'
-  | 'deviceSettings'
-  | 'languageSettings'
-  | 'modelSelector'
-  | 'errorAlert'
-  | 'chunkDropWarning';
+export type ModalType = 'modelSelector' | 'errorAlert' | 'chunkDropWarning';
 
 interface ModalState {
-  modelSettings: boolean;
-  deviceSettings: boolean;
-  languageSettings: boolean;
   modelSelector: boolean;
   errorAlert: boolean;
   chunkDropWarning: boolean;
@@ -46,15 +36,8 @@ interface UseModalStateReturn {
  * - Auto-close on model download completion
  */
 export function useModalState(transcriptModelConfig?: TranscriptModelProps): UseModalStateReturn {
-  const { isRecording } = useRecordingState();
-  const isRecordingRef = useRef(isRecording);
-  isRecordingRef.current = isRecording;
-
   // Modal visibility state
   const [modals, setModals] = useState<ModalState>({
-    modelSettings: false,
-    deviceSettings: false,
-    languageSettings: false,
     modelSelector: false,
     errorAlert: false,
     chunkDropWarning: false,
@@ -90,9 +73,6 @@ export function useModalState(transcriptModelConfig?: TranscriptModelProps): Use
   // Hide all modals
   const hideAllModals = useCallback(() => {
     setModals({
-      modelSettings: false,
-      deviceSettings: false,
-      languageSettings: false,
       modelSelector: false,
       errorAlert: false,
       chunkDropWarning: false,
@@ -140,14 +120,8 @@ export function useModalState(transcriptModelConfig?: TranscriptModelProps): Use
         console.log('Setting up transcription-error listener...');
         unlistenFn = await listen<{ error: string, userMessage: string, actionable: boolean }>('transcription-error', (event) => {
           console.log('Transcription error received:', event.payload);
-          const { error, userMessage, actionable } = event.payload;
-          const openSelector =
-            actionable &&
-            shouldOpenModelSelectorOnTranscriptionError(
-              isRecordingRef.current,
-              error || '',
-              userMessage || '',
-            );
+          const { userMessage, actionable } = event.payload;
+          const openSelector = actionable && shouldOpenModelSelectorOnTranscriptionError();
 
           if (openSelector) {
             // Local model-related errors that require user action

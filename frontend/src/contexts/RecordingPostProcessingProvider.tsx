@@ -1,61 +1,30 @@
 'use client';
 
-import React, { useEffect } from 'react';
-import { listen } from '@tauri-apps/api/event';
+import React, { useEffect, useRef } from 'react';
 import { useRecordingStop } from '@/hooks/useRecordingStop';
+import { recordingService } from '@/services/recordingService';
+import { subscribeSafely } from '@/lib/asyncSubscription';
 
-/**
- * RecordingPostProcessingProvider
- *
- * This provider handles post-processing when recording stops from any source:
- * - Tray menu stop
- * - Global keyboard shortcut
- * - Overlay stop button
- * - Main UI stop button
- *
- * It listens for the 'recording-stop-complete' event from Rust backend
- * and triggers the full post-processing flow (save to database, navigate, analytics)
- * regardless of which page the user is currently on.
- */
+const noop = () => {};
+
+/** All stop sources observe the same durable backend completion. */
 export function RecordingPostProcessingProvider({ children }: { children: React.ReactNode }) {
-  // No-op functions since the global RecordingStateContext already handles state updates
-  // These are only needed for the hook's local component state management
-  const setIsRecording = () => { };
-  const setIsRecordingDisabled = () => { };
-
-  const {
-    handleRecordingStop,
-  } = useRecordingStop(setIsRecording, setIsRecordingDisabled);
+  const { handleRecordingStop } = useRecordingStop(noop, noop);
+  const handler = useRef(handleRecordingStop);
+  handler.current = handleRecordingStop;
 
   useEffect(() => {
-    let unlistenFn: (() => void) | undefined;
-
-    const setupListener = async () => {
-      try {
-        // Listen for recording-stop-complete event from Rust
-        unlistenFn = await listen<boolean>('recording-stop-complete', (event) => {
-          console.log('[RecordingPostProcessing] Received recording-stop-complete event:', event.payload);
-
-          // Call the post-processing handler
-          // event.payload is the callApi boolean (true for normal stops)
-          handleRecordingStop(event.payload);
-        });
-
-        console.log('[RecordingPostProcessing] Event listener set up successfully');
-      } catch (error) {
-        console.error('[RecordingPostProcessing] Failed to set up event listener:', error);
-      }
-    };
-
-    setupListener();
-
-    return () => {
-      if (unlistenFn) {
-        console.log('[RecordingPostProcessing] Cleaning up event listener');
-        unlistenFn();
-      }
-    };
-  }, [handleRecordingStop]);
+    const dispose = subscribeSafely(
+      () => recordingService.onRecordingStopped(() => { void handler.current(true); }),
+      (error) => console.error('Could not observe recording completion', error),
+    );
+    // A reload may miss the event while Rust is still finalizing.
+    let active = true;
+    void recordingService.getLastRecordingResult().then((result) => {
+      if (active && result) void handler.current(true);
+    }).catch((error) => console.warn('Could not restore recording completion', error));
+    return () => { active = false; dispose(); };
+  }, []);
 
   return <>{children}</>;
 }

@@ -2,10 +2,6 @@
 
 use crate::api::TranscriptSegment;
 use crate::audio::decoder::{decode_audio_file, load_audio_for_file_pipeline};
-use crate::audio::transcription::gemini_file::{
-    reject_if_too_long, transcribe_file, vocabulary_from_app,
-};
-use crate::audio::transcription::gemini_key::{resolve_stt_api_key, SttProvider};
 use crate::audio::vad::get_speech_chunks_with_progress;
 use crate::state::AppState;
 use anyhow::{anyhow, Result};
@@ -20,8 +16,8 @@ use uuid::Uuid;
 
 use super::audio_processing::create_meeting_folder;
 use super::common::write_transcripts_json;
-use super::file_batch_prepare::{boost_audio_for_vad, prepare_file_asr_segments};
 use super::constants::AUDIO_EXTENSIONS;
+use super::file_batch_prepare::{boost_audio_for_vad, prepare_file_asr_segments};
 
 /// Global flag to track if import is in progress
 static IMPORT_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
@@ -163,7 +159,11 @@ fn write_import_benchmark_report(
     let transcript_path = dir.join("act_meetingone_transcript_latest.txt");
     if let Ok(json) = serde_json::to_string_pretty(&report) {
         if let Err(e) = std::fs::write(&report_path, json) {
-            warn!("[BENCHMARK] Failed to write {}: {}", report_path.display(), e);
+            warn!(
+                "[BENCHMARK] Failed to write {}: {}",
+                report_path.display(),
+                e
+            );
         } else {
             info!("[BENCHMARK] Wrote report to {}", report_path.display());
         }
@@ -262,8 +262,7 @@ pub fn validate_audio_file(path: &Path) -> Result<AudioFileInfo> {
     }
 
     // Get file size
-    let metadata = std::fs::metadata(path)
-        .map_err(|e| anyhow!("Cannot read file: {}", e))?;
+    let metadata = std::fs::metadata(path).map_err(|e| anyhow!("Cannot read file: {}", e))?;
     let size_bytes = metadata.len();
 
     // Check file size limit
@@ -285,10 +284,7 @@ pub fn validate_audio_file(path: &Path) -> Result<AudioFileInfo> {
     // Try fast metadata-only validation first
     let duration_seconds = match extract_duration_from_metadata(path) {
         Ok(duration) => {
-            debug!(
-                "Got duration from metadata: {:.2}s (fast path)",
-                duration
-            );
+            debug!("Got duration from metadata: {:.2}s (fast path)", duration);
             duration
         }
         Err(e) => {
@@ -320,8 +316,8 @@ fn extract_duration_from_metadata(path: &Path) -> Result<f64> {
     use symphonia::core::probe::Hint;
 
     // Open the file
-    let file = std::fs::File::open(path)
-        .map_err(|e| anyhow!("Failed to open audio file: {}", e))?;
+    let file =
+        std::fs::File::open(path).map_err(|e| anyhow!("Failed to open audio file: {}", e))?;
 
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
@@ -493,24 +489,25 @@ async fn run_import<R: Runtime>(
 
     let path_for_decode = source.clone();
     let meeting_folder_for_persist = meeting_folder.clone();
-    let (audio_samples, duration_seconds, dest_filename) = match tokio::task::spawn_blocking(move || {
-        let (samples, duration) =
-            load_audio_for_file_pipeline(&path_for_decode, Some(decode_progress))?;
-        let dest = persist_imported_playback_audio(&meeting_folder_for_persist, &samples)?;
-        Ok::<_, anyhow::Error>((samples, duration, dest))
-    })
-    .await
-    {
-        Ok(Ok(v)) => v,
-        Ok(Err(e)) => {
-            let _ = std::fs::remove_dir_all(&meeting_folder);
-            return Err(e);
-        }
-        Err(e) => {
-            let _ = std::fs::remove_dir_all(&meeting_folder);
-            return Err(anyhow!("Decode task join error: {}", e));
-        }
-    };
+    let (audio_samples, duration_seconds, dest_filename) =
+        match tokio::task::spawn_blocking(move || {
+            let (samples, duration) =
+                load_audio_for_file_pipeline(&path_for_decode, Some(decode_progress))?;
+            let dest = persist_imported_playback_audio(&meeting_folder_for_persist, &samples)?;
+            Ok::<_, anyhow::Error>((samples, duration, dest))
+        })
+        .await
+        {
+            Ok(Ok(v)) => v,
+            Ok(Err(e)) => {
+                let _ = std::fs::remove_dir_all(&meeting_folder);
+                return Err(e);
+            }
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(&meeting_folder);
+                return Err(anyhow!("Decode task join error: {}", e));
+            }
+        };
 
     info!(
         "Loaded audio for pipeline: {:.2}s, {} samples @ 16kHz mono",
@@ -534,311 +531,284 @@ async fn run_import<R: Runtime>(
         return Err(anyhow!("Import cancelled"));
     }
 
-    let file_provider = {
-        let app_state = app
-            .try_state::<AppState>()
-            .ok_or_else(|| anyhow!("App state not available"))?;
-        crate::database::repositories::setting::SettingsRepository::get_stt_provider(
-            app_state.db_manager.pool(),
-            crate::asr_engine::config::AsrPath::File,
-        )
-        .await
-    };
-
-    let (mut segments, total_segments, processable_count, prepare_stats) =
-        if file_provider == SttProvider::Gemini {
-            if IMPORT_CANCELLED.load(Ordering::SeqCst) {
-                let _ = std::fs::remove_dir_all(&meeting_folder);
-                return Err(anyhow!("Import cancelled"));
-            }
-            emit_progress(&app, "transcribing", 30, "Đang nhận dạng bằng Gemini...");
-            let gemini_result = async {
-                reject_if_too_long(duration_seconds)?;
-                let app_state = app
-                    .try_state::<AppState>()
-                    .ok_or_else(|| anyhow!("App state not available"))?;
-                let api_key = resolve_stt_api_key(app_state.db_manager.pool())
-                    .await
-                    .map_err(|e| anyhow!(e))?;
-                let vocab = vocabulary_from_app(&app).await;
-                let wav = meeting_folder.join(dest_filename);
-                transcribe_file(
-                    &api_key,
-                    &wav,
-                    duration_seconds,
-                    &vocab,
-                    || IMPORT_CANCELLED.load(Ordering::SeqCst),
-                    "Import cancelled",
-                )
-                .await
-            }
-            .await;
-            match gemini_result {
-                Ok(segs) => {
-                    bench.mark("transcribe");
-                    let n = segs.len();
-                    (
-                        segs,
-                        0usize,
-                        n,
-                        super::file_batch_prepare::FilePrepareStats {
-                            vad_segments_in: 0,
-                            vad_ranges_merged: 0,
-                            asr_chunks_out: 0,
-                            preprocess_sec: 0.0,
-                            concat_speech_sec: 0.0,
-                            speech_coverage_pct: 0.0,
-                            used_full_audio_fallback: false,
-                        },
-                    )
-                }
-                Err(e) => {
-                    let _ = std::fs::remove_dir_all(&meeting_folder);
-                    return Err(e);
-                }
-            }
-        } else {
-            info!(
+    let (mut segments, total_segments, processable_count, prepare_stats) = {
+        info!(
                 "Audio ready for VAD (raw decode, preprocess deferred until after VAD concat): {} samples",
                 audio_samples.len()
             );
 
-            emit_progress(&app, "vad", 25, "Detecting speech segments...");
+        emit_progress(&app, "vad", 25, "Detecting speech segments...");
 
-    // Check for cancellation
-    if IMPORT_CANCELLED.load(Ordering::SeqCst) {
-        let _ = std::fs::remove_dir_all(&meeting_folder);
-        return Err(anyhow!("Import cancelled"));
-    }
+        // Check for cancellation
+        if IMPORT_CANCELLED.load(Ordering::SeqCst) {
+            let _ = std::fs::remove_dir_all(&meeting_folder);
+            return Err(anyhow!("Import cancelled"));
+        }
 
-    // Use VAD to find speech segments
-    let app_for_vad = app.clone();
-    let audio_for_vad = boost_audio_for_vad(&audio_samples);
+        // Use VAD to find speech segments
+        let app_for_vad = app.clone();
+        let audio_for_vad = boost_audio_for_vad(&audio_samples);
 
-    let speech_segments = tokio::task::spawn_blocking(move || {
-        get_speech_chunks_with_progress(
-            &audio_for_vad,
-            VAD_REDEMPTION_TIME_MS,
-            |vad_progress, segments_found| {
-                let overall_progress = 25 + (vad_progress as f32 * 0.05) as u32;
-                emit_progress(
-                    &app_for_vad,
-                    "vad",
-                    overall_progress,
-                    &format!(
-                        "Detecting speech segments... {}% ({} found)",
-                        vad_progress, segments_found
-                    ),
-                );
-                !IMPORT_CANCELLED.load(Ordering::SeqCst)
-            },
-        )
-    })
-    .await
-    .map_err(|e| anyhow!("VAD task panicked: {}", e))?
-    .map_err(|e| anyhow!("VAD processing failed: {}", e))?;
-
-    let total_segments = speech_segments.len();
-    info!("VAD detected {} speech segments (redemption_time={}ms)", total_segments, VAD_REDEMPTION_TIME_MS);
-    bench.mark("vad");
-
-    let max_segment_seconds = {
-        let app_state = app
-            .try_state::<AppState>()
-            .ok_or_else(|| anyhow!("App state not available"))?;
-        crate::database::repositories::setting::SettingsRepository::get_path_asr_config(
-            app_state.db_manager.pool(),
-            crate::asr_engine::config::AsrPath::File,
-        )
-        .await
-        .max_segment_seconds
-    };
-
-    let prepare_wall_start = Instant::now();
-    let (processable_segments, leading_context_samples, prepare_stats) = if speech_segments.is_empty() {
-        (Vec::new(), Vec::new(), super::file_batch_prepare::FilePrepareStats {
-            vad_segments_in: 0,
-            vad_ranges_merged: 0,
-            asr_chunks_out: 0,
-            preprocess_sec: 0.0,
-            concat_speech_sec: 0.0,
-            speech_coverage_pct: 0.0,
-            used_full_audio_fallback: false,
-        })
-    } else {
-        let audio_for_prepare = audio_samples.clone();
-        let vad_for_prepare = speech_segments.clone();
-        let chunk_sec = max_segment_seconds;
-        tokio::task::spawn_blocking(move || {
-            prepare_file_asr_segments(&audio_for_prepare, vad_for_prepare, chunk_sec)
+        let speech_segments = tokio::task::spawn_blocking(move || {
+            get_speech_chunks_with_progress(
+                &audio_for_vad,
+                VAD_REDEMPTION_TIME_MS,
+                |vad_progress, segments_found| {
+                    let overall_progress = 25 + (vad_progress as f32 * 0.05) as u32;
+                    emit_progress(
+                        &app_for_vad,
+                        "vad",
+                        overall_progress,
+                        &format!(
+                            "Detecting speech segments... {}% ({} found)",
+                            vad_progress, segments_found
+                        ),
+                    );
+                    !IMPORT_CANCELLED.load(Ordering::SeqCst)
+                },
+            )
         })
         .await
-        .map_err(|e| anyhow!("Chunk prepare task panicked: {}", e))?
-    };
-    let prepare_wall_sec = prepare_wall_start.elapsed().as_secs_f64();
-    bench.push_stage("preprocess", prepare_stats.preprocess_sec);
-    bench.push_stage(
-        "prepare_chunks",
-        (prepare_wall_sec - prepare_stats.preprocess_sec).max(0.0),
-    );
-    bench.reset_tick();
+        .map_err(|e| anyhow!("VAD task panicked: {}", e))?
+        .map_err(|e| anyhow!("VAD processing failed: {}", e))?;
 
-    let processable_count = processable_segments.len();
-    info!(
-        "Prepared {} ASR chunks (from {} VAD segments, {} merged ranges, {:.1}s speech)",
-        processable_count,
-        prepare_stats.vad_segments_in,
-        prepare_stats.vad_ranges_merged,
-        prepare_stats.concat_speech_sec
-    );
-
-    // Diagnostic: log segment duration distribution (VAD raw)
-    if !speech_segments.is_empty() {
-        let durations_ms: Vec<f64> = speech_segments.iter()
-            .map(|s| s.end_timestamp_ms - s.start_timestamp_ms)
-            .collect();
-        let total_speech_ms: f64 = durations_ms.iter().sum();
-        let avg_duration = total_speech_ms / durations_ms.len() as f64;
-        let min_duration = durations_ms.iter().cloned().fold(f64::INFINITY, f64::min);
-        let max_duration = durations_ms.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let total_segments = speech_segments.len();
         info!(
+            "VAD detected {} speech segments (redemption_time={}ms)",
+            total_segments, VAD_REDEMPTION_TIME_MS
+        );
+        bench.mark("vad");
+
+        let max_segment_seconds = {
+            let app_state = app
+                .try_state::<AppState>()
+                .ok_or_else(|| anyhow!("App state not available"))?;
+            crate::database::repositories::setting::SettingsRepository::get_path_asr_config(
+                app_state.db_manager.pool(),
+                crate::asr_engine::config::AsrPath::File,
+            )
+            .await
+            .max_segment_seconds
+        };
+
+        let prepare_wall_start = Instant::now();
+        let (processable_segments, leading_context_samples, prepare_stats) =
+            if speech_segments.is_empty() {
+                (
+                    Vec::new(),
+                    Vec::new(),
+                    super::file_batch_prepare::FilePrepareStats {
+                        vad_segments_in: 0,
+                        vad_ranges_merged: 0,
+                        asr_chunks_out: 0,
+                        preprocess_sec: 0.0,
+                        concat_speech_sec: 0.0,
+                        speech_coverage_pct: 0.0,
+                        used_full_audio_fallback: false,
+                    },
+                )
+            } else {
+                let audio_for_prepare = audio_samples.clone();
+                let vad_for_prepare = speech_segments.clone();
+                let chunk_sec = max_segment_seconds;
+                tokio::task::spawn_blocking(move || {
+                    prepare_file_asr_segments(&audio_for_prepare, vad_for_prepare, chunk_sec)
+                })
+                .await
+                .map_err(|e| anyhow!("Chunk prepare task panicked: {}", e))?
+            };
+        let prepare_wall_sec = prepare_wall_start.elapsed().as_secs_f64();
+        bench.push_stage("preprocess", prepare_stats.preprocess_sec);
+        bench.push_stage(
+            "prepare_chunks",
+            (prepare_wall_sec - prepare_stats.preprocess_sec).max(0.0),
+        );
+        bench.reset_tick();
+
+        let processable_count = processable_segments.len();
+        info!(
+            "Prepared {} ASR chunks (from {} VAD segments, {} merged ranges, {:.1}s speech)",
+            prepare_stats.asr_chunks_out,
+            prepare_stats.vad_segments_in,
+            prepare_stats.vad_ranges_merged,
+            prepare_stats.concat_speech_sec
+        );
+
+        // Diagnostic: log segment duration distribution (VAD raw)
+        if !speech_segments.is_empty() {
+            let durations_ms: Vec<f64> = speech_segments
+                .iter()
+                .map(|s| s.end_timestamp_ms - s.start_timestamp_ms)
+                .collect();
+            let total_speech_ms: f64 = durations_ms.iter().sum();
+            let avg_duration = total_speech_ms / durations_ms.len() as f64;
+            let min_duration = durations_ms.iter().cloned().fold(f64::INFINITY, f64::min);
+            let max_duration = durations_ms
+                .iter()
+                .cloned()
+                .fold(f64::NEG_INFINITY, f64::max);
+            info!(
             "VAD segment stats: avg={:.0}ms, min={:.0}ms, max={:.0}ms, total_speech={:.1}s/{:.1}s ({:.0}%)",
             avg_duration, min_duration, max_duration,
             total_speech_ms / 1000.0, duration_seconds,
             (total_speech_ms / 1000.0 / duration_seconds) * 100.0
         );
-        // Log first 10 segments for detailed inspection
-        for (i, seg) in speech_segments.iter().take(10).enumerate() {
-            let dur = seg.end_timestamp_ms - seg.start_timestamp_ms;
-            debug!("  Segment {}: {:.0}ms-{:.0}ms ({:.0}ms, {} samples)",
-                i, seg.start_timestamp_ms, seg.end_timestamp_ms, dur, seg.samples.len());
+            // Log first 10 segments for detailed inspection
+            for (i, seg) in speech_segments.iter().take(10).enumerate() {
+                let dur = seg.end_timestamp_ms - seg.start_timestamp_ms;
+                debug!(
+                    "  Segment {}: {:.0}ms-{:.0}ms ({:.0}ms, {} samples)",
+                    i,
+                    seg.start_timestamp_ms,
+                    seg.end_timestamp_ms,
+                    dur,
+                    seg.samples.len()
+                );
+            }
+            if total_segments > 10 {
+                debug!("  ... and {} more segments", total_segments - 10);
+            }
         }
-        if total_segments > 10 {
-            debug!("  ... and {} more segments", total_segments - 10);
-        }
-    }
 
-    if total_segments == 0 {
-        warn!("No speech detected in audio");
+        if total_segments == 0 {
+            warn!("No speech detected in audio");
 
-        // Emit warning to frontend
-        let _ = app.emit(
-            "import-warning",
-            ImportWarning {
-                warning: "No speech detected in audio file".to_string(),
-                details: Some(
-                    "The file was imported successfully, but VAD did not detect any speech. \
-                     The meeting was created but contains no transcripts.".to_string()
-                ),
-            },
-        );
-        // Still create the meeting, just with no transcripts
-    }
-
-    // Check for cancellation
-    if IMPORT_CANCELLED.load(Ordering::SeqCst) {
-        let _ = std::fs::remove_dir_all(&meeting_folder);
-        return Err(anyhow!("Import cancelled"));
-    }
-
-    emit_progress(&app, "transcribing", 30, "Loading transcription engine...");
-
-    // Initialize ASR engine (ROVER or single-model, per file path config)
-    let file_cfg = {
-        let app_state = app
-            .try_state::<AppState>()
-            .ok_or_else(|| anyhow!("App state not available"))?;
-        crate::database::repositories::setting::SettingsRepository::get_path_asr_config(
-            app_state.db_manager.pool(),
-            crate::asr_engine::config::AsrPath::File,
-        )
-        .await
-    };
-
-    let (asr, rover): (
-        Option<std::sync::Arc<crate::asr_engine::engine::AsrEngine>>,
-        Option<std::sync::Arc<tokio::sync::Mutex<crate::rover_engine::engine::RoverDecoder>>>,
-    ) = if file_cfg.rover_enabled {
-        emit_progress(&app, "transcribing", 32, "Đang khởi tạo ROVER...");
-        crate::rover_engine::commands::rover_init().await
-            .map_err(|e| anyhow!("Failed to init ROVER: {}", e))?;
-        emit_progress(&app, "transcribing", 35, "Đang tải model A và B cho ROVER...");
-        crate::rover_engine::commands::rover_validate_model_ready(app.clone())
-            .await
-            .map_err(|e| anyhow!("{}", e))?;
-        emit_progress(&app, "transcribing", 38, "ROVER sẵn sàng, bắt đầu nhận dạng...");
-        let rover = crate::rover_engine::commands::get_engine_arc()
-            .map_err(|e| anyhow!("{}", e))?;
-        (None, Some(rover))
-    } else {
-        emit_progress(&app, "transcribing", 32, "Đang tải model nhận dạng...");
-        crate::asr_engine::commands::asr_init().await
-            .map_err(|e| anyhow!("Failed to init ASR: {}", e))?;
-        crate::asr_engine::commands::asr_validate_model_ready(
-            app.clone(),
-            Some(file_cfg.family_id.clone()),
-            Some(file_cfg.variant.as_str().to_string()),
-            Some(file_cfg.decoding_method.clone()),
-            Some(file_cfg.num_active_paths),
-        )
-        .await
-        .map_err(|e| anyhow!("{}", e))?;
-        let asr = crate::asr_engine::commands::get_engine_arc()
-            .map_err(|e| anyhow!("{}", e))?;
-        emit_progress(&app, "transcribing", 38, "Model sẵn sàng, bắt đầu nhận dạng...");
-        (Some(asr), None)
-    };
-    bench.mark("asr_init");
-
-    // Best-effort CAPU init before import transcription
-    if crate::capu_engine::commands::capu_is_model_downloaded(app.clone())
-        .await
-        .unwrap_or(false)
-    {
-        let _ = crate::capu_engine::commands::capu_init(app.clone()).await;
-    }
-
-    let primary = if let Some(rover) = rover {
-        crate::audio::batch_transcribe::PrimaryEngine::Rover(rover)
-    } else {
-        crate::audio::batch_transcribe::PrimaryEngine::Single(
-            asr.expect("asr must be Some when rover is None"),
-        )
-    };
-
-            let app_for_progress = app.clone();
-            let segments = match crate::audio::batch_transcribe::batch_transcribe(
-                &app,
-                processable_segments,
-                leading_context_samples,
-                primary,
-                move |done, total| {
-                    let progress = 30 + ((done as f32 / total.max(1) as f32) * 50.0) as u32;
-                    emit_progress(
-                        &app_for_progress,
-                        "transcribing",
-                        progress,
-                        &format!("Transcribing segment {} of {}...", done, total),
-                    );
+            // Emit warning to frontend
+            let _ = app.emit(
+                "import-warning",
+                ImportWarning {
+                    warning: "No speech detected in audio file".to_string(),
+                    details: Some(
+                        "The file was imported successfully, but VAD did not detect any speech. \
+                     The meeting was created but contains no transcripts."
+                            .to_string(),
+                    ),
                 },
-                || IMPORT_CANCELLED.load(Ordering::SeqCst),
+            );
+            // Still create the meeting, just with no transcripts
+        }
+
+        // Check for cancellation
+        if IMPORT_CANCELLED.load(Ordering::SeqCst) {
+            let _ = std::fs::remove_dir_all(&meeting_folder);
+            return Err(anyhow!("Import cancelled"));
+        }
+
+        emit_progress(&app, "transcribing", 30, "Loading transcription engine...");
+
+        // Initialize ASR engine (ROVER or single-model, per file path config)
+        let file_cfg = {
+            let app_state = app
+                .try_state::<AppState>()
+                .ok_or_else(|| anyhow!("App state not available"))?;
+            crate::database::repositories::setting::SettingsRepository::get_path_asr_config(
+                app_state.db_manager.pool(),
+                crate::asr_engine::config::AsrPath::File,
             )
             .await
-            {
-                Ok(segments) => segments,
-                Err(e) => {
-                    // Cancellation (or any other transcription failure) leaves the copied audio
-                    // file and meeting folder behind unless we clean up here — every other
-                    // early-return path in this function already does this same cleanup.
-                    let _ = std::fs::remove_dir_all(&meeting_folder);
-                    return Err(e);
-                }
-            };
-
-            info!("Transcription complete: {} segments", segments.len());
-            bench.mark("transcribe");
-            (segments, total_segments, processable_count, prepare_stats)
         };
+
+        let (asr, rover): (
+            Option<std::sync::Arc<crate::asr_engine::engine::AsrEngine>>,
+            Option<std::sync::Arc<tokio::sync::Mutex<crate::rover_engine::engine::RoverDecoder>>>,
+        ) = if file_cfg.rover_enabled {
+            emit_progress(&app, "transcribing", 32, "Đang khởi tạo ROVER...");
+            crate::rover_engine::commands::rover_init()
+                .await
+                .map_err(|e| anyhow!("Failed to init ROVER: {}", e))?;
+            emit_progress(
+                &app,
+                "transcribing",
+                35,
+                "Đang tải model A và B cho ROVER...",
+            );
+            crate::rover_engine::commands::rover_validate_model_ready(app.clone())
+                .await
+                .map_err(|e| anyhow!("{}", e))?;
+            emit_progress(
+                &app,
+                "transcribing",
+                38,
+                "ROVER sẵn sàng, bắt đầu nhận dạng...",
+            );
+            let rover =
+                crate::rover_engine::commands::get_engine_arc().map_err(|e| anyhow!("{}", e))?;
+            (None, Some(rover))
+        } else {
+            emit_progress(&app, "transcribing", 32, "Đang tải model nhận dạng...");
+            crate::asr_engine::commands::asr_init()
+                .await
+                .map_err(|e| anyhow!("Failed to init ASR: {}", e))?;
+            crate::asr_engine::commands::asr_validate_model_ready(
+                app.clone(),
+                Some(file_cfg.family_id.clone()),
+                Some(file_cfg.variant.as_str().to_string()),
+                Some(file_cfg.decoding_method.clone()),
+                Some(file_cfg.num_active_paths),
+            )
+            .await
+            .map_err(|e| anyhow!("{}", e))?;
+            let asr =
+                crate::asr_engine::commands::get_engine_arc().map_err(|e| anyhow!("{}", e))?;
+            emit_progress(
+                &app,
+                "transcribing",
+                38,
+                "Model sẵn sàng, bắt đầu nhận dạng...",
+            );
+            (Some(asr), None)
+        };
+        bench.mark("asr_init");
+
+        // Best-effort CAPU init before import transcription
+        if crate::capu_engine::commands::capu_is_model_downloaded(app.clone())
+            .await
+            .unwrap_or(false)
+        {
+            let _ = crate::capu_engine::commands::capu_init(app.clone()).await;
+        }
+
+        let primary = if let Some(rover) = rover {
+            crate::audio::batch_transcribe::PrimaryEngine::Rover(rover)
+        } else {
+            crate::audio::batch_transcribe::PrimaryEngine::Single(
+                asr.expect("asr must be Some when rover is None"),
+            )
+        };
+
+        let app_for_progress = app.clone();
+        let segments = match crate::audio::batch_transcribe::batch_transcribe(
+            &app,
+            processable_segments,
+            leading_context_samples,
+            primary,
+            move |done, total| {
+                let progress = 30 + ((done as f32 / total.max(1) as f32) * 50.0) as u32;
+                emit_progress(
+                    &app_for_progress,
+                    "transcribing",
+                    progress,
+                    &format!("Transcribing segment {} of {}...", done, total),
+                );
+            },
+            || IMPORT_CANCELLED.load(Ordering::SeqCst),
+        )
+        .await
+        {
+            Ok(segments) => segments,
+            Err(e) => {
+                // Cancellation (or any other transcription failure) leaves the copied audio
+                // file and meeting folder behind unless we clean up here — every other
+                // early-return path in this function already does this same cleanup.
+                let _ = std::fs::remove_dir_all(&meeting_folder);
+                return Err(e);
+            }
+        };
+
+        info!("Transcription complete: {} segments", segments.len());
+        bench.mark("transcribe");
+        (segments, total_segments, processable_count, prepare_stats)
+    };
 
     info!("Transcription complete: {} segments", segments.len());
 
@@ -854,12 +824,13 @@ async fn run_import<R: Runtime>(
         let (enabled, num_speakers) =
             resolve_diarization_options(diarization_enabled, diarization_num_speakers);
         if let Some(state) = app.try_state::<AppState>() {
-            if let Err(e) = crate::database::repositories::setting::SettingsRepository::save_diarization_config(
-                state.db_manager.pool(),
-                enabled,
-                num_speakers.map(|n| n as i32),
-            )
-            .await
+            if let Err(e) =
+                crate::database::repositories::setting::SettingsRepository::save_diarization_config(
+                    state.db_manager.pool(),
+                    enabled,
+                    num_speakers.map(|n| n as i32),
+                )
+                .await
             {
                 warn!("Failed to persist diarization choice: {e}");
             }
@@ -946,7 +917,6 @@ fn emit_progress<R: Runtime>(app: &AppHandle<R>, stage: &str, progress: u32, mes
         },
     );
 }
-
 
 /// Attach diarization by splitting CAPU segments on turn boundaries (keeps minority speakers).
 pub(crate) fn attach_diarization_clusters(
@@ -1052,7 +1022,10 @@ pub(crate) async fn maybe_apply_diarization<R: Runtime>(
     };
 
     attach_diarization_clusters(segments, &turns);
-    let labeled = segments.iter().filter(|s| s.speaker_cluster.is_some()).count();
+    let labeled = segments
+        .iter()
+        .filter(|s| s.speaker_cluster.is_some())
+        .count();
     info!(
         "Diarization attached speakers to {}/{} segments ({} turns)",
         labeled,
@@ -1072,7 +1045,10 @@ async fn create_meeting_with_transcripts(
     let now = chrono::Utc::now();
 
     // Start transaction
-    let mut conn = pool.acquire().await.map_err(|e| anyhow!("DB error: {}", e))?;
+    let mut conn = pool
+        .acquire()
+        .await
+        .map_err(|e| anyhow!("DB error: {}", e))?;
     let mut tx = sqlx::Connection::begin(&mut *conn)
         .await
         .map_err(|e| anyhow!("Failed to start transaction: {}", e))?;
@@ -1094,10 +1070,8 @@ async fn create_meeting_with_transcripts(
     // Upsert meeting_speakers for distinct clusters, map cluster_index -> speaker id
     let mut cluster_to_speaker_id: std::collections::HashMap<usize, String> =
         std::collections::HashMap::new();
-    let mut unique_clusters: Vec<usize> = segments
-        .iter()
-        .filter_map(|s| s.speaker_cluster)
-        .collect();
+    let mut unique_clusters: Vec<usize> =
+        segments.iter().filter_map(|s| s.speaker_cluster).collect();
     unique_clusters.sort_unstable();
     unique_clusters.dedup();
 
@@ -1156,7 +1130,6 @@ async fn create_meeting_with_transcripts(
 
     Ok(meeting_id)
 }
-
 
 /// Filename of the single audio asset kept after import (playback + retranscription).
 const IMPORT_PLAYBACK_AUDIO_FILENAME: &str = "audio.wav";
@@ -1220,7 +1193,10 @@ pub async fn select_and_validate_audio_command<R: Runtime>(
         app_clone
             .dialog()
             .file()
-            .add_filter("Audio Files", &AUDIO_EXTENSIONS.iter().map(|s| *s).collect::<Vec<_>>())
+            .add_filter(
+                "Audio Files",
+                &AUDIO_EXTENSIONS.iter().map(|s| *s).collect::<Vec<_>>(),
+            )
             .blocking_pick_file()
     })
     .await
@@ -1364,7 +1340,11 @@ mod tests {
             // Should succeed and return a reasonable duration
             assert!(result.is_ok());
             let duration = result.unwrap();
-            assert!(duration > 0.0 && duration < 60.0, "Duration {} seems unreasonable", duration);
+            assert!(
+                duration > 0.0 && duration < 60.0,
+                "Duration {} seems unreasonable",
+                duration
+            );
         }
     }
 
@@ -1410,7 +1390,10 @@ mod tests {
 
         let result = validate_audio_file(&temp_file);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Unsupported format"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Unsupported format"));
 
         // Cleanup
         let _ = std::fs::remove_file(temp_file);
@@ -1446,7 +1429,11 @@ mod tests {
         };
 
         let result = split_segment_at_silence(&segment, 25 * 16000);
-        assert!(result.len() >= 2, "Should split into at least 2 segments, got {}", result.len());
+        assert!(
+            result.len() >= 2,
+            "Should split into at least 2 segments, got {}",
+            result.len()
+        );
 
         // All sub-segments should have samples
         for (i, seg) in result.iter().enumerate() {
@@ -1454,7 +1441,9 @@ mod tests {
             assert!(
                 seg.start_timestamp_ms < seg.end_timestamp_ms,
                 "Segment {} has invalid timestamps: {} >= {}",
-                i, seg.start_timestamp_ms, seg.end_timestamp_ms
+                i,
+                seg.start_timestamp_ms,
+                seg.end_timestamp_ms
             );
         }
     }
@@ -1474,7 +1463,10 @@ mod tests {
 
         // Total samples should exceed input due to overlap
         let total_samples: usize = result.iter().map(|s| s.samples.len()).sum();
-        assert!(total_samples >= 60 * 16000, "Overlap should not lose samples");
+        assert!(
+            total_samples >= 60 * 16000,
+            "Overlap should not lose samples"
+        );
     }
 
     #[test]
@@ -1504,7 +1496,11 @@ mod tests {
         ];
 
         let result = write_transcripts_json(dir.path(), &segments);
-        assert!(result.is_ok(), "write_transcripts_json failed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "write_transcripts_json failed: {:?}",
+            result
+        );
 
         // Verify file exists and is valid JSON
         let path = dir.path().join("transcripts.json");
@@ -1525,18 +1521,16 @@ mod tests {
 
     #[test]
     fn attach_diarization_clusters_by_max_overlap() {
-        let mut segments = vec![
-            TranscriptSegment {
-                id: "a".into(),
-                text: "one two three four five six".into(),
-                timestamp: "t".into(),
-                audio_start_time: Some(0.0),
-                audio_end_time: Some(10.0),
-                duration: Some(10.0),
-                speaker_cluster: None,
-                speaker_name: None,
-            },
-        ];
+        let mut segments = vec![TranscriptSegment {
+            id: "a".into(),
+            text: "one two three four five six".into(),
+            timestamp: "t".into(),
+            audio_start_time: Some(0.0),
+            audio_end_time: Some(10.0),
+            duration: Some(10.0),
+            speaker_cluster: None,
+            speaker_name: None,
+        }];
         let turns = vec![
             crate::diarization_engine::SpeakerTurn {
                 start_sec: 0.0,
@@ -1560,7 +1554,10 @@ mod tests {
     #[test]
     fn resolve_diarization_options_defaults_to_disabled() {
         assert_eq!(resolve_diarization_options(None, None), (false, None));
-        assert_eq!(resolve_diarization_options(Some(false), Some(4)), (false, None));
+        assert_eq!(
+            resolve_diarization_options(Some(false), Some(4)),
+            (false, None)
+        );
     }
 
     #[test]
@@ -1570,7 +1567,10 @@ mod tests {
             resolve_diarization_options(Some(true), Some(3)),
             (true, Some(3))
         );
-        assert_eq!(resolve_diarization_options(Some(true), Some(0)), (true, None));
+        assert_eq!(
+            resolve_diarization_options(Some(true), Some(0)),
+            (true, None)
+        );
         assert_eq!(
             resolve_diarization_options(Some(true), Some(21)),
             (true, None)
@@ -1590,8 +1590,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let samples = vec![0.1f32; 1600];
 
-        let filename = persist_imported_playback_audio(dir.path(), &samples)
-            .expect("persist playback audio");
+        let filename =
+            persist_imported_playback_audio(dir.path(), &samples).expect("persist playback audio");
 
         assert_eq!(filename, "audio.wav");
         assert!(dir.path().join("audio.wav").exists());
@@ -1613,7 +1613,11 @@ mod tests {
                     .unwrap_or(false)
             })
             .collect();
-        assert_eq!(audio_files.len(), 1, "import should persist only the playback audio");
+        assert_eq!(
+            audio_files.len(),
+            1,
+            "import should persist only the playback audio"
+        );
     }
 
     #[test]
@@ -1657,8 +1661,8 @@ mod tests {
 
         // Step 1: Decode
         println!("Decoding {}...", audio_path);
-        let decoded = crate::audio::decoder::decode_audio_file(path)
-            .expect("Failed to decode audio file");
+        let decoded =
+            crate::audio::decoder::decode_audio_file(path).expect("Failed to decode audio file");
         println!(
             "Decoded: {:.2}s, {}Hz, {} channels, {} samples",
             decoded.duration_seconds,
@@ -1670,7 +1674,11 @@ mod tests {
         // Step 2: Resample to 16kHz mono
         println!("Resampling to 16kHz mono...");
         let samples = decoded.to_whisper_format();
-        println!("Resampled: {} samples ({:.2}s at 16kHz)", samples.len(), samples.len() as f64 / 16000.0);
+        println!(
+            "Resampled: {} samples ({:.2}s at 16kHz)",
+            samples.len(),
+            samples.len() as f64 / 16000.0
+        );
 
         // Step 3: Run VAD with both redemption times and compare
         for redemption_ms in [400u32, 2000] {
@@ -1684,13 +1692,15 @@ mod tests {
                     }
                     true
                 },
-            ).expect("VAD failed");
+            )
+            .expect("VAD failed");
 
             let total_segments = segments.len();
             println!("Found {} segments", total_segments);
 
             if !segments.is_empty() {
-                let durations: Vec<f64> = segments.iter()
+                let durations: Vec<f64> = segments
+                    .iter()
                     .map(|s| s.end_timestamp_ms - s.start_timestamp_ms)
                     .collect();
                 let total_speech: f64 = durations.iter().sum();

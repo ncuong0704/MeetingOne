@@ -35,22 +35,48 @@ impl TranscriptsRepository {
         transcripts: &[TranscriptSegment],
         folder_path: Option<String>,
     ) -> Result<String, SqlxError> {
+        Self::save_transcript_for_session(pool, meeting_title, transcripts, folder_path, None).await
+    }
+
+    /// Persist a recording or recovery exactly once, even if the caller retries
+    /// after SQLite committed but before the completion event reached the UI.
+    pub async fn save_transcript_for_session(
+        pool: &SqlitePool,
+        meeting_title: &str,
+        transcripts: &[TranscriptSegment],
+        folder_path: Option<String>,
+        session_id: Option<&str>,
+    ) -> Result<String, SqlxError> {
         let meeting_id = format!("meeting-{}", Uuid::new_v4());
 
         let mut conn = pool.acquire().await?;
         let mut transaction = conn.begin().await?;
 
+        if let Some(session_id) = session_id {
+            if let Some(existing) = sqlx::query_scalar::<_, String>(
+                "SELECT id FROM meetings WHERE recording_session_id = ?",
+            )
+            .bind(session_id)
+            .fetch_optional(&mut *transaction)
+            .await?
+            {
+                transaction.commit().await?;
+                return Ok(existing);
+            }
+        }
+
         let now = Utc::now();
 
         // 1. Create the new meeting
         let result = sqlx::query(
-            "INSERT INTO meetings (id, title, created_at, updated_at, folder_path) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO meetings (id, title, created_at, updated_at, folder_path, recording_session_id) VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(&meeting_id)
         .bind(meeting_title)
         .bind(now)
         .bind(now)
         .bind(&folder_path)
+        .bind(session_id)
         .execute(&mut *transaction)
         .await;
 
@@ -62,11 +88,8 @@ impl TranscriptsRepository {
 
         info!("Successfully created meeting with id: {}", meeting_id);
 
-        let speaker_names = unique_speaker_names(
-            transcripts
-                .iter()
-                .map(|s| s.speaker_name.as_deref()),
-        );
+        let speaker_names =
+            unique_speaker_names(transcripts.iter().map(|s| s.speaker_name.as_deref()));
         let mut name_to_id: HashMap<String, String> = HashMap::new();
         for (cluster_index, name) in speaker_names.iter().enumerate() {
             let speaker_id = format!("speaker-{}", Uuid::new_v4());
@@ -196,20 +219,34 @@ impl TranscriptsRepository {
 
     /// Helper function to extract a snippet of text around the first match of a query.
     fn get_match_context(transcript: &str, query: &str) -> String {
-        let transcript_lower = transcript.to_lowercase();
-        let query_lower = query.to_lowercase();
+        let chars: Vec<char> = transcript.chars().collect();
+        let mut transcript_lower = String::new();
+        let mut original_indices = Vec::new();
+        // Lowercasing may expand a character (e.g. İ -> i + combining dot).
+        // Map every lowercase byte back to its original character index.
+        for (index, ch) in chars.iter().enumerate() {
+            for lower in ch.to_lowercase() {
+                transcript_lower.push(lower);
+                original_indices.extend(std::iter::repeat(index).take(lower.len_utf8()));
+            }
+        }
+        let query_lower: String = query.chars().flat_map(char::to_lowercase).collect();
 
-        match transcript_lower.find(&query_lower) {
+        match transcript_lower
+            .find(&query_lower)
+            .filter(|_| !query_lower.is_empty())
+        {
             Some(match_index) => {
-                let start_index = match_index.saturating_sub(100);
-                let end_index = (match_index + query.len() + 100).min(transcript.len());
+                let start_index = original_indices[match_index].saturating_sub(100);
+                let end_index =
+                    (original_indices[match_index + query_lower.len() - 1] + 101).min(chars.len());
 
                 let mut context = String::new();
                 if start_index > 0 {
                     context.push_str("...");
                 }
-                context.push_str(&transcript[start_index..end_index]);
-                if end_index < transcript.len() {
+                context.extend(chars[start_index..end_index].iter());
+                if end_index < chars.len() {
                     context.push_str("...");
                 }
                 context
@@ -243,5 +280,79 @@ mod tests {
     #[test]
     fn unique_speaker_names_all_blank_is_empty() {
         assert!(unique_speaker_names([None, Some(""), Some("  ")]).is_empty());
+    }
+
+    #[test]
+    fn match_context_handles_vietnamese_and_emoji() {
+        let text = format!("{}họp{}", "ệ".repeat(150), "🦀".repeat(150));
+        let snippet = TranscriptsRepository::get_match_context(&text, "HỌP");
+        assert_eq!(
+            snippet,
+            format!("...{}họp{}...", "ệ".repeat(100), "🦀".repeat(100))
+        );
+    }
+
+    #[test]
+    fn match_context_maps_expanding_lowercase_to_original_text() {
+        let text = format!("{}TARGET{}", "İ".repeat(120), "ệ".repeat(120));
+        let snippet = TranscriptsRepository::get_match_context(&text, "target");
+        assert_eq!(
+            snippet,
+            format!("...{}TARGET{}...", "İ".repeat(100), "ệ".repeat(100))
+        );
+    }
+
+    #[tokio::test]
+    async fn retrying_a_committed_session_does_not_duplicate_meetings() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        let segment = TranscriptSegment {
+            id: "seg_1".into(),
+            text: "Xin chào".into(),
+            timestamp: "12:00".into(),
+            audio_start_time: Some(0.0),
+            audio_end_time: Some(1.0),
+            duration: Some(1.0),
+            speaker_name: Some("Lan".into()),
+            speaker_cluster: None,
+        };
+        let first = TranscriptsRepository::save_transcript_for_session(
+            &pool,
+            "Meeting",
+            &[segment],
+            None,
+            Some("session-a"),
+        )
+        .await
+        .unwrap();
+        let retry = TranscriptsRepository::save_transcript_for_session(
+            &pool,
+            "Meeting",
+            &[],
+            None,
+            Some("session-a"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(first, retry);
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM transcripts")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 1);
+        let other = TranscriptsRepository::save_transcript_for_session(
+            &pool,
+            "Meeting",
+            &[],
+            None,
+            Some("session-b"),
+        )
+        .await
+        .unwrap();
+        assert_ne!(first, other);
     }
 }

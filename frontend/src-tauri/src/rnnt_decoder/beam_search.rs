@@ -109,9 +109,7 @@ fn top_k_indices(scores: &[f32], k: usize) -> Vec<usize> {
     let k = k.min(scores.len());
     let mut indices: Vec<usize> = (0..scores.len()).collect();
     if k > 0 && k < indices.len() {
-        indices.select_nth_unstable_by(k - 1, |&a, &b| {
-            scores[b].partial_cmp(&scores[a]).unwrap()
-        });
+        indices.select_nth_unstable_by(k - 1, |&a, &b| scores[b].partial_cmp(&scores[a]).unwrap());
     }
     indices.truncate(k);
     indices.sort_unstable_by(|&a, &b| scores[b].partial_cmp(&scores[a]).unwrap());

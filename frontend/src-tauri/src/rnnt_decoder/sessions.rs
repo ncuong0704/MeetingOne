@@ -23,7 +23,12 @@ fn load_session(path: &Path, label: &str, threads: usize) -> Result<Session> {
 }
 
 impl RnntSessions {
-    pub fn load(encoder_path: &Path, decoder_path: &Path, joiner_path: &Path, threads: usize) -> Result<Self> {
+    pub fn load(
+        encoder_path: &Path,
+        decoder_path: &Path,
+        joiner_path: &Path,
+        threads: usize,
+    ) -> Result<Self> {
         Ok(Self {
             encoder: load_session(encoder_path, "encoder", threads)?,
             decoder: load_session(decoder_path, "decoder", threads)?,

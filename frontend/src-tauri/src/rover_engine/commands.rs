@@ -76,10 +76,18 @@ pub async fn rover_load_model<R: Runtime>(
     }
 
     if !files_present(&base, fa, va) {
-        return Err(format!("Missing model files for {} ({})", fa.id(), va.as_str()));
+        return Err(format!(
+            "Missing model files for {} ({})",
+            fa.id(),
+            va.as_str()
+        ));
     }
     if !files_present(&base, fb, vb) {
-        return Err(format!("Missing model files for {} ({})", fb.id(), vb.as_str()));
+        return Err(format!(
+            "Missing model files for {} ({})",
+            fb.id(),
+            vb.as_str()
+        ));
     }
 
     let (enc_a, dec_a, joi_a, tok_a) = family_paths(&base, fa, va);
@@ -176,10 +184,18 @@ pub async fn rover_validate_model_ready<R: Runtime>(app: AppHandle<R>) -> Result
     let base = crate::asr_engine::commands::resolve_models_base_dir(&app)
         .ok_or_else(|| "Cannot resolve models directory".to_string())?;
     if !files_present(&base, fa, va) {
-        return Err(format!("Missing model files for {} ({})", fa.id(), va.as_str()));
+        return Err(format!(
+            "Missing model files for {} ({})",
+            fa.id(),
+            va.as_str()
+        ));
     }
     if !files_present(&base, fb, vb) {
-        return Err(format!("Missing model files for {} ({})", fb.id(), vb.as_str()));
+        return Err(format!(
+            "Missing model files for {} ({})",
+            fb.id(),
+            vb.as_str()
+        ));
     }
 
     let needs_reload = {

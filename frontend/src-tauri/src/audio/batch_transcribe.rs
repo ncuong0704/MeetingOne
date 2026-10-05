@@ -10,9 +10,7 @@ use crate::api::TranscriptSegment;
 use crate::asr_engine::engine::AsrEngine;
 use crate::asr_engine::model_family::{ModelFamily, ModelVariant};
 use crate::asr_engine::thread_budget::{asr_thread_budget, DecodeConcurrency};
-use crate::audio::chunk_word_stitch::{
-    offset_rover_words, stitch_word_chunks, TimedWord,
-};
+use crate::audio::chunk_word_stitch::{offset_rover_words, stitch_word_chunks, TimedWord};
 use crate::audio::sentence_segment::finalize_rover_word_timeline;
 use crate::audio::vad::SpeechSegment;
 use crate::capu_engine::batch::{CapuBatcher, PendingSegment};
@@ -177,7 +175,10 @@ fn finalize_with_capu(raw_results: Vec<(String, f64, f64)>) -> Vec<TranscriptSeg
         capu_sec += capu_start.elapsed().as_secs_f64();
     }
 
-    log::info!("[BENCHMARK] stage=lowercase_only duration_sec={:.3}", normalize_sec);
+    log::info!(
+        "[BENCHMARK] stage=lowercase_only duration_sec={:.3}",
+        normalize_sec
+    );
     log::info!("[BENCHMARK] stage=capu_only duration_sec={:.3}", capu_sec);
 
     finalized_segments
@@ -278,7 +279,8 @@ async fn transcribe_sequential_rover_words(
         if segment.samples.len() < 1600 {
             continue;
         }
-        let words = decode_rover_words_for_segment(rover, &segment, i, leading_context_samples).await?;
+        let words =
+            decode_rover_words_for_segment(rover, &segment, i, leading_context_samples).await?;
         if !words.is_empty() {
             results.push((i, words));
         }
@@ -404,7 +406,10 @@ async fn transcribe_sequential(
         }
         let text = transcribe_one(primary, &segment.samples).await?;
         if !text.trim().is_empty() {
-            results.push((i, (text, segment.start_timestamp_ms, segment.end_timestamp_ms)));
+            results.push((
+                i,
+                (text, segment.start_timestamp_ms, segment.end_timestamp_ms),
+            ));
         }
     }
     on_progress(total, total);
@@ -443,7 +448,10 @@ async fn run_worker(
             }
         };
         if !text.trim().is_empty() {
-            results.push((i, (text, segment.start_timestamp_ms, segment.end_timestamp_ms)));
+            results.push((
+                i,
+                (text, segment.start_timestamp_ms, segment.end_timestamp_ms),
+            ));
         }
         if let Some(c) = &done_counter {
             c.fetch_add(1, Ordering::Relaxed);
@@ -567,7 +575,15 @@ async fn build_worker_pair<R: Runtime>(
             )
             .await?;
             let worker_b = build_rover_worker(
-                enc_a, dec_a, joi_a, tok_a, enc_b, dec_b, joi_b, tok_b, threads_per_decoder,
+                enc_a,
+                dec_a,
+                joi_a,
+                tok_a,
+                enc_b,
+                dec_b,
+                joi_b,
+                tok_b,
+                threads_per_decoder,
             )
             .await?;
             Ok((Worker::Rover(worker_a), Worker::Rover(worker_b)))
@@ -619,10 +635,8 @@ async fn transcribe_parallel<R: Runtime>(
 
     let (result_a, result_b) = tokio::join!(handle_a, handle_b);
 
-    let results_a = result_a
-        .map_err(|e| anyhow!("ASR worker A task panicked: {}", e))??;
-    let results_b = result_b
-        .map_err(|e| anyhow!("ASR worker B task panicked: {}", e))??;
+    let results_a = result_a.map_err(|e| anyhow!("ASR worker A task panicked: {}", e))??;
+    let results_b = result_b.map_err(|e| anyhow!("ASR worker B task panicked: {}", e))??;
     on_progress(total, total);
 
     Ok(merge_indexed_keep_index(results_a, results_b))
@@ -699,7 +713,15 @@ pub async fn batch_transcribe<R: Runtime>(
 
     let asr_start = std::time::Instant::now();
     let indexed_raw_results = if should_parallelize(total, physical_cores) {
-        transcribe_parallel(app, segments, &primary, physical_cores, &mut on_progress, is_cancelled).await?
+        transcribe_parallel(
+            app,
+            segments,
+            &primary,
+            physical_cores,
+            &mut on_progress,
+            is_cancelled,
+        )
+        .await?
     } else {
         transcribe_sequential(segments, &primary, &mut on_progress, &is_cancelled).await?
     };
@@ -763,7 +785,10 @@ mod tests {
     fn trim_overlap_prefix_returns_next_unchanged_when_no_overlap_matches() {
         let prev = "một hai ba";
         let next = "hoàn toàn khác nhau";
-        assert_eq!(trim_overlap_prefix(prev, next, MAX_OVERLAP_WORDS_TO_CHECK), next);
+        assert_eq!(
+            trim_overlap_prefix(prev, next, MAX_OVERLAP_WORDS_TO_CHECK),
+            next
+        );
     }
 
     #[test]
@@ -842,7 +867,11 @@ mod tests {
             ("CAC BAN".to_string(), 1000.0, 2000.0),
         ];
         let segments = finalize_with_capu(raw);
-        assert_eq!(segments.len(), 1, "small input stays under the word budget, one batch");
+        assert_eq!(
+            segments.len(),
+            1,
+            "small input stays under the word budget, one batch"
+        );
         assert_eq!(segments[0].text, "xin chao cac ban");
         assert_eq!(segments[0].audio_start_time, Some(0.0));
         assert_eq!(segments[0].audio_end_time, Some(2.0));
@@ -881,6 +910,9 @@ mod tests {
         // First batch starts at the first segment's start time, last batch ends at the
         // last segment's end time — no audio lost at the boundaries.
         assert_eq!(segments.first().unwrap().audio_start_time, Some(0.0));
-        assert_eq!(segments.last().unwrap().audio_end_time, Some(49.0 * 2000.0 / 1000.0 + 1.0));
+        assert_eq!(
+            segments.last().unwrap().audio_end_time,
+            Some(49.0 * 2000.0 / 1000.0 + 1.0)
+        );
     }
 }

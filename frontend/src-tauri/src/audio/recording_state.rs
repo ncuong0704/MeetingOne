@@ -1,12 +1,12 @@
+use anyhow::Result;
+use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
-use parking_lot::Mutex;
 use std::time::Instant;
 use tokio::sync::mpsc;
-use anyhow::Result;
 
-use super::devices::AudioDevice;
 use super::buffer_pool::AudioBufferPool;
+use super::devices::AudioDevice;
 
 /// Device type for audio chunks
 #[derive(Debug, Clone, PartialEq)]
@@ -62,7 +62,7 @@ impl AudioError {
             AudioError::InitializationFailed => false,
             AudioError::ConfigurationError => false,
             AudioError::PermissionDenied => false,
-            AudioError::BufferOverflow => true,
+            AudioError::BufferOverflow => false,
             AudioError::SampleRateUnsupported => false,
         }
     }
@@ -78,7 +78,9 @@ impl AudioError {
             AudioError::InitializationFailed => "Failed to initialize audio system",
             AudioError::ConfigurationError => "Audio configuration error",
             AudioError::PermissionDenied => "Microphone permission denied",
-            AudioError::BufferOverflow => "Audio buffer overflow",
+            AudioError::BufferOverflow => {
+                "Audio processing is too slow. Capture stopped; stop the session to save."
+            }
             AudioError::SampleRateUnsupported => "Audio sample rate not supported",
         }
     }
@@ -98,7 +100,7 @@ pub struct RecordingState {
     is_recording: AtomicBool,
     is_paused: AtomicBool,
     microphone_muted: AtomicBool,
-    is_reconnecting: AtomicBool,  // NEW: Attempting to reconnect to device
+    is_reconnecting: AtomicBool, // NEW: Attempting to reconnect to device
 
     // Audio devices
     microphone_device: Mutex<Option<Arc<AudioDevice>>>,
@@ -107,7 +109,7 @@ pub struct RecordingState {
     disconnected_device: Mutex<Option<(Arc<AudioDevice>, DeviceType)>>,
 
     // Audio pipeline
-    audio_sender: Mutex<Option<mpsc::UnboundedSender<AudioChunk>>>,
+    audio_sender: Mutex<Option<mpsc::Sender<AudioChunk>>>,
 
     // Memory optimization
     buffer_pool: AudioBufferPool,
@@ -123,6 +125,7 @@ pub struct RecordingState {
 
     // Recording start time for accurate timestamps
     recording_start: Mutex<Option<Instant>>,
+    recording_end: Mutex<Option<Instant>>,
     // Pause time tracking
     pause_start: Mutex<Option<Instant>>,
     total_pause_duration: Mutex<std::time::Duration>,
@@ -146,6 +149,7 @@ impl RecordingState {
             error_callback: Mutex::new(None),
             stats: Mutex::new(RecordingStats::default()),
             recording_start: Mutex::new(None),
+            recording_end: Mutex::new(None),
             pause_start: Mutex::new(None),
             total_pause_duration: Mutex::new(std::time::Duration::ZERO),
         })
@@ -156,6 +160,7 @@ impl RecordingState {
         self.is_recording.store(true, Ordering::SeqCst);
         self.microphone_muted.store(false, Ordering::SeqCst);
         *self.recording_start.lock() = Some(Instant::now());
+        *self.recording_end.lock() = None;
         self.error_count.store(0, Ordering::SeqCst);
         self.recoverable_error_count.store(0, Ordering::SeqCst);
         *self.last_error.lock() = None;
@@ -163,6 +168,13 @@ impl RecordingState {
     }
 
     pub fn stop_recording(&self) {
+        let now = Instant::now();
+        self.recording_end.lock().get_or_insert(now);
+        if self.is_paused.load(Ordering::SeqCst) {
+            if let Some(start) = self.pause_start.lock().take() {
+                *self.total_pause_duration.lock() += now.duration_since(start);
+            }
+        }
         self.is_recording.store(false, Ordering::SeqCst);
         self.is_paused.store(false, Ordering::SeqCst);
         self.microphone_muted.store(false, Ordering::SeqCst);
@@ -205,7 +217,10 @@ impl RecordingState {
         if let Some(pause_start) = self.pause_start.lock().take() {
             let pause_duration = pause_start.elapsed();
             *self.total_pause_duration.lock() += pause_duration;
-            log::info!("Recording resumed after pause of {:.2}s", pause_duration.as_secs_f64());
+            log::info!(
+                "Recording resumed after pause of {:.2}s",
+                pause_duration.as_secs_f64()
+            );
         }
 
         self.is_paused.store(false, Ordering::SeqCst);
@@ -272,7 +287,7 @@ impl RecordingState {
     }
 
     // Audio pipeline management
-    pub fn set_audio_sender(&self, sender: mpsc::UnboundedSender<AudioChunk>) {
+    pub fn set_audio_sender(&self, sender: mpsc::Sender<AudioChunk>) {
         *self.audio_sender.lock() = Some(sender);
     }
 
@@ -286,17 +301,27 @@ impl RecordingState {
             return Ok(()); // Silently discard microphone chunks while muted
         }
 
-        if let Some(sender) = self.audio_sender.lock().as_ref() {
-            sender.send(chunk).map_err(|_| anyhow::anyhow!("Failed to send audio chunk"))?;
-
-            // Update statistics
-            let mut stats = self.stats.lock();
-            stats.chunks_processed += 1;
-            stats.last_activity = Some(Instant::now());
-            Ok(())
-        } else {
-            // Return an error when no sender is available (pipeline not ready)
-            Err(anyhow::anyhow!("Audio pipeline not ready - no sender available"))
+        let sender = self
+            .audio_sender
+            .lock()
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("Audio pipeline not ready"))?;
+        match sender.try_send(chunk) {
+            Ok(()) => {
+                let mut stats = self.stats.lock();
+                stats.chunks_processed += 1;
+                stats.last_activity = Some(Instant::now());
+                Ok(())
+            }
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                // Audio callbacks must not block. Surface overload explicitly.
+                self.report_error(AudioError::BufferOverflow);
+                Err(anyhow::anyhow!("Audio capture queue full"))
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                self.report_error(AudioError::ChannelClosed);
+                Err(anyhow::anyhow!("Audio channel closed"))
+            }
         }
     }
 
@@ -314,11 +339,18 @@ impl RecordingState {
         // Track recoverable vs non-recoverable errors separately
         if error.is_recoverable() {
             let recoverable_count = self.recoverable_error_count.fetch_add(1, Ordering::SeqCst) + 1;
-            log::warn!("Recoverable audio error ({}): {:?}", recoverable_count, error);
+            log::warn!(
+                "Recoverable audio error ({}): {:?}",
+                recoverable_count,
+                error
+            );
 
             // Allow more recoverable errors before stopping
             if recoverable_count >= 10 {
-                log::error!("Too many recoverable errors ({}), stopping recording", recoverable_count);
+                log::error!(
+                    "Too many recoverable errors ({}), stopping recording",
+                    recoverable_count
+                );
                 self.stop_recording();
             }
         } else {
@@ -342,7 +374,10 @@ impl RecordingState {
 
         // Fallback: stop recording after too many total errors
         if count >= 15 {
-            log::error!("Too many total audio errors ({}), stopping recording", count);
+            log::error!(
+                "Too many total audio errors ({}), stopping recording",
+                count
+            );
             self.stop_recording();
         }
     }
@@ -373,14 +408,23 @@ impl RecordingState {
     }
 
     pub fn get_recording_duration(&self) -> Option<f64> {
-        self.recording_start
-            .lock()
-            .map(|start| start.elapsed().as_secs_f64())
+        self.recording_start.lock().map(|start| {
+            self.recording_end
+                .lock()
+                .unwrap_or_else(Instant::now)
+                .duration_since(start)
+                .as_secs_f64()
+        })
     }
 
     pub fn get_active_recording_duration(&self) -> Option<f64> {
         self.recording_start.lock().map(|start| {
-            let total_duration = start.elapsed().as_secs_f64();
+            let total_duration = self
+                .recording_end
+                .lock()
+                .unwrap_or_else(Instant::now)
+                .duration_since(start)
+                .as_secs_f64();
             let pause_duration = self.get_total_pause_duration();
             let current_pause = if self.is_paused() {
                 self.pause_start
@@ -425,6 +469,7 @@ impl RecordingState {
         *self.error_callback.lock() = None;
         *self.stats.lock() = RecordingStats::default();
         *self.recording_start.lock() = None;
+        *self.recording_end.lock() = None;
         *self.pause_start.lock() = None;
         *self.total_pause_duration.lock() = std::time::Duration::ZERO;
         self.error_count.store(0, Ordering::SeqCst);
@@ -453,6 +498,7 @@ impl Default for RecordingState {
             error_callback: Mutex::new(None),
             stats: Mutex::new(RecordingStats::default()),
             recording_start: Mutex::new(None),
+            recording_end: Mutex::new(None),
             pause_start: Mutex::new(None),
             total_pause_duration: Mutex::new(std::time::Duration::ZERO),
         }
@@ -473,6 +519,37 @@ impl Clone for RecordingStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stopped_duration_excludes_asr_shutdown_and_retry_time() {
+        let state = RecordingState::new();
+        state.start_recording().unwrap();
+        state.stop_recording();
+        let duration = state.get_active_recording_duration().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        state.stop_recording();
+        assert_eq!(state.get_active_recording_duration().unwrap(), duration);
+    }
+
+    #[test]
+    fn capture_overload_stops_capture_and_reports_one_fatal_error() {
+        let state = RecordingState::new();
+        state.start_recording().unwrap();
+        let (sender, _receiver) = mpsc::channel(1);
+        state.set_audio_sender(sender);
+        let chunk = AudioChunk {
+            data: vec![0.0; 960],
+            sample_rate: 48000,
+            timestamp: 0.0,
+            chunk_id: 0,
+            device_type: DeviceType::Microphone,
+        };
+        state.send_audio_chunk(chunk.clone()).unwrap();
+        assert!(state.send_audio_chunk(chunk).is_err());
+        assert!(!state.is_recording());
+        assert!(state.has_fatal_error());
+        assert_eq!(state.get_error_count(), 1);
+    }
 
     #[test]
     fn test_error_callback_lock_released_before_invocation() {

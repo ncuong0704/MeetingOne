@@ -30,7 +30,10 @@ pub async fn identify_user(
 }
 
 #[command]
-pub async fn track_meeting_started(_meeting_id: String, _meeting_title: String) -> Result<(), String> {
+pub async fn track_meeting_started(
+    _meeting_id: String,
+    _meeting_title: String,
+) -> Result<(), String> {
     Ok(())
 }
 
@@ -53,7 +56,10 @@ pub async fn track_meeting_deleted(_meeting_id: String) -> Result<(), String> {
 }
 
 #[command]
-pub async fn track_settings_changed(_setting_type: String, _new_value: String) -> Result<(), String> {
+pub async fn track_settings_changed(
+    _setting_type: String,
+    _new_value: String,
+) -> Result<(), String> {
     Ok(())
 }
 
@@ -108,7 +114,10 @@ pub async fn track_summary_generation_completed(
 }
 
 #[command]
-pub async fn track_summary_regenerated(_model_provider: String, _model_name: String) -> Result<(), String> {
+pub async fn track_summary_regenerated(
+    _model_provider: String,
+    _model_name: String,
+) -> Result<(), String> {
     Ok(())
 }
 

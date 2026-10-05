@@ -131,17 +131,12 @@ pub fn parse_subtitle(content: &str) -> Vec<ParsedSegment> {
     let mut current_end: Option<f64> = None;
     let mut current_text: Vec<String> = Vec::new();
 
-    let mut flush = |segments: &mut Vec<ParsedSegment>,
-                     current_start: &mut Option<f64>,
-                     current_end: &mut Option<f64>,
-                     current_text: &mut Vec<String>| {
+    let flush = |segments: &mut Vec<ParsedSegment>,
+                 current_start: &mut Option<f64>,
+                 current_end: &mut Option<f64>,
+                 current_text: &mut Vec<String>| {
         if current_start.is_some() || current_end.is_some() {
-            push_segment(
-                segments,
-                current_text,
-                *current_start,
-                *current_end,
-            );
+            push_segment(segments, current_text, *current_start, *current_end);
         }
         current_start.take();
         current_end.take();
@@ -204,17 +199,12 @@ pub fn parse_timestamped_lines(content: &str) -> Vec<ParsedSegment> {
     let mut current_end: Option<f64> = None;
     let mut current_text: Vec<String> = Vec::new();
 
-    let mut flush = |segments: &mut Vec<ParsedSegment>,
-                     current_start: &mut Option<f64>,
-                     current_end: &mut Option<f64>,
-                     current_text: &mut Vec<String>| {
+    let flush = |segments: &mut Vec<ParsedSegment>,
+                 current_start: &mut Option<f64>,
+                 current_end: &mut Option<f64>,
+                 current_text: &mut Vec<String>| {
         if current_start.is_some() {
-            push_segment(
-                segments,
-                current_text,
-                *current_start,
-                *current_end,
-            );
+            push_segment(segments, current_text, *current_start, *current_end);
         }
         current_start.take();
         current_end.take();
@@ -315,7 +305,7 @@ pub fn parse_document_content(content: &str, extension: &str) -> Vec<ParsedSegme
         return Vec::new();
     }
 
-    let mut segments = match extension {
+    let segments = match extension {
         "srt" | "vtt" => parse_subtitle(trimmed),
         "txt" => {
             if trimmed.contains("-->") {
@@ -327,7 +317,9 @@ pub fn parse_document_content(content: &str, extension: &str) -> Vec<ParsedSegme
         _ => Vec::new(),
     };
 
-    let has_timestamps = segments.iter().any(|segment| segment.start_seconds.is_some());
+    let has_timestamps = segments
+        .iter()
+        .any(|segment| segment.start_seconds.is_some());
     if has_timestamps {
         return segments;
     }

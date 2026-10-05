@@ -1,5 +1,5 @@
-use crate::database::models::TranscriptSetting;
 use crate::asr_engine::model_family::{ModelFamily, ModelVariant};
+use crate::database::models::TranscriptSetting;
 
 /// ASR processing path — live recording vs file import/retranscription.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,9 +45,7 @@ impl PathAsrConfig {
             .clone()
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| row.decoding_method.clone());
-        let num_active_paths = row
-            .live_num_active_paths
-            .unwrap_or(row.num_active_paths);
+        let num_active_paths = row.live_num_active_paths.unwrap_or(row.num_active_paths);
         let max_seg = row
             .live_max_segment_seconds
             .unwrap_or(row.max_segment_seconds);
@@ -88,9 +86,7 @@ impl PathAsrConfig {
             .clone()
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| row.decoding_method.clone());
-        let num_active_paths = row
-            .file_num_active_paths
-            .unwrap_or(row.num_active_paths);
+        let num_active_paths = row.file_num_active_paths.unwrap_or(row.num_active_paths);
         let max_seg = row
             .file_max_segment_seconds
             .unwrap_or(row.max_segment_seconds);

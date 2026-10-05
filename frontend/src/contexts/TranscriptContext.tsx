@@ -1,17 +1,18 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback, ReactNode, MutableRefObject } from 'react';
-import { Transcript, TranscriptUpdate } from '@/types';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo, type ReactNode, type MutableRefObject } from 'react';
+import type { Transcript, TranscriptUpdate } from '@/types';
 import { toast } from 'sonner';
-import { useRecordingState } from './RecordingStateContext';
 import { transcriptService } from '@/services/transcriptService';
 import { recordingService } from '@/services/recordingService';
 import { indexedDBService } from '@/services/indexedDBService';
 import { formatTranscriptPlainText } from '@/lib/transcriptDisplay';
+import { TranscriptLedger } from '@/lib/transcriptLedger';
+import { subscribeSafely } from '@/lib/asyncSubscription';
 
 interface TranscriptContextType {
   transcripts: Transcript[];
-  transcriptsRef: MutableRefObject<Transcript[]>
+  transcriptsRef: MutableRefObject<Transcript[]>;
   addTranscript: (update: TranscriptUpdate) => void;
   copyTranscript: () => void;
   flushBuffer: () => void;
@@ -20,7 +21,7 @@ interface TranscriptContextType {
   setMeetingTitle: (title: string) => void;
   clearTranscripts: () => void;
   currentMeetingId: string | null;
-  markMeetingAsSaved: () => Promise<void>;
+  markMeetingAsSaved: (savedId?: string, audioPending?: boolean, sessionId?: string) => Promise<void>;
   updateTranscriptBySequenceId: (sequenceId: number, newText: string) => void;
 }
 
@@ -30,525 +31,167 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
   const [transcripts, setTranscripts] = useState<Transcript[]>([]);
   const [meetingTitle, setMeetingTitle] = useState('+ Cuộc họp mới');
   const [currentMeetingId, setCurrentMeetingId] = useState<string | null>(null);
-
-  // Recording state context - provides backend-synced state
-  const recordingState = useRecordingState();
-
-  // Refs for transcript management
-  const transcriptsRef = useRef<Transcript[]>(transcripts);
-  const isUserAtBottomRef = useRef<boolean>(true);
+  const transcriptsRef = useRef<Transcript[]>([]);
+  const sessionRef = useRef<string | null>(null);
+  const ledger = useRef(new TranscriptLedger());
   const transcriptContainerRef = useRef<HTMLDivElement>(null);
-  const finalFlushRef = useRef<(() => void) | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout>>();
+  const metadataReady = useRef<Promise<void>>(Promise.resolve());
+  const pendingRecovery = useRef(new Map<number, TranscriptUpdate>());
 
-  // Keep ref updated with current transcripts
-  useEffect(() => {
-    transcriptsRef.current = transcripts;
-  }, [transcripts]);
-
-  // Smart auto-scroll: Track user scroll position
-  useEffect(() => {
-    const handleScroll = () => {
-      const container = transcriptContainerRef.current;
-      if (!container) return;
-
-      const { scrollTop, scrollHeight, clientHeight } = container;
-      const isAtBottom = scrollTop + clientHeight >= scrollHeight - 10; // 10px tolerance
-      isUserAtBottomRef.current = isAtBottom;
-    };
-
-    const container = transcriptContainerRef.current;
-    if (container) {
-      container.addEventListener('scroll', handleScroll);
-      return () => container.removeEventListener('scroll', handleScroll);
-    }
+  const flushBuffer = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = undefined;
+    const snapshot = ledger.current.snapshot();
+    transcriptsRef.current = snapshot;
+    setTranscripts(snapshot);
   }, []);
 
-  // Auto-scroll when transcripts change (only if user is at bottom)
-  useEffect(() => {
-    // Only auto-scroll if user was at the bottom before new content
-    if (isUserAtBottomRef.current && transcriptContainerRef.current) {
-      // Wait for Framer Motion animation to complete (150ms) before scrolling
-      // This ensures scrollHeight includes the full rendered height of the new transcript
-      const scrollTimeout = setTimeout(() => {
-        const container = transcriptContainerRef.current;
-        if (container) {
-          container.scrollTo({
-            top: container.scrollHeight,
-            behavior: 'smooth'
-          });
-        }
-      }, 150); // Match Framer Motion transition duration
-
-      return () => clearTimeout(scrollTimeout);
-    }
-  }, [transcripts]);
-
-  // Initialize IndexedDB and listen for recording-started/stopped events
-  useEffect(() => {
-    let unlistenRecordingStarted: (() => void) | undefined;
-    let unlistenRecordingStopped: (() => void) | undefined;
-
-    const setupRecordingListeners = async () => {
-      try {
-        // Initialize IndexedDB
-        await indexedDBService.init();
-
-        // Listen for recording-started event
-        unlistenRecordingStarted = await recordingService.onRecordingStarted(async () => {
-          try {
-            // Generate unique meeting ID
-            const meetingId = `meeting-${Date.now()}`;
-            setCurrentMeetingId(meetingId);
-
-            // Store in sessionStorage as fallback for markMeetingAsSaved
-            sessionStorage.setItem('indexeddb_current_meeting_id', meetingId);
-            console.log('[Recording Started] 💾 IndexedDB meeting ID stored:', meetingId);
-
-            // Get meeting name
-            const meetingName = await recordingService.getRecordingMeetingName();
-
-            // Use a better fallback that matches the backend's naming pattern
-            const effectiveTitle = meetingName || `Meeting ${new Date().toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-')}`;
-
-            // Initialize meeting metadata in IndexedDB
-            await indexedDBService.saveMeetingMetadata({
-              meetingId,
-              title: effectiveTitle,
-              startTime: Date.now(),
-              lastUpdated: Date.now(),
-              transcriptCount: 0,
-              savedToSQLite: false,
-              folderPath: undefined // Will update shortly
-            });
-
-            // Synchronize meeting title to state (fixes tray stop title issue)
-            setMeetingTitle(effectiveTitle);
-
-            // Fetch folder path from backend and update metadata
-            // This ensures folder path is persisted even if app crashes
-            try {
-              const { invoke } = await import('@tauri-apps/api/core');
-              const folderPath = await invoke<string>('get_meeting_folder_path');
-              if (folderPath) {
-                const metadata = await indexedDBService.getMeetingMetadata(meetingId);
-                if (metadata) {
-                  metadata.folderPath = folderPath;
-                  await indexedDBService.saveMeetingMetadata(metadata);
-                }
-              }
-            } catch (error) {
-              // Non-fatal - will be set on stop if recording completes normally
-            }
-          } catch (error) {
-            console.error('Failed to initialize meeting in IndexedDB:', error);
-          }
-        });
-
-        // Listen for recording-stopped event
-        unlistenRecordingStopped = await recordingService.onRecordingStopped(async (payload) => {
-          try {
-            if (currentMeetingId) {
-              // Update folder path in IndexedDB
-              const metadata = await indexedDBService.getMeetingMetadata(currentMeetingId);
-
-              if (metadata && payload.folder_path) {
-                metadata.folderPath = payload.folder_path;
-                await indexedDBService.saveMeetingMetadata(metadata);
-              }
-            }
-          } catch (error) {
-            console.error('Failed to update meeting metadata on stop:', error);
-          }
-        });
-      } catch (error) {
-        console.error('Failed to setup recording listeners:', error);
-      }
-    };
-
-    setupRecordingListeners();
-
-    return () => {
-      if (unlistenRecordingStarted) {
-        unlistenRecordingStarted();
-        console.log('🧹 Recording started listener cleaned up');
-      }
-      if (unlistenRecordingStopped) {
-        unlistenRecordingStopped();
-        console.log('🧹 Recording stopped listener cleaned up');
-      }
-    };
-  }, [currentMeetingId]);
-
-  // Main transcript buffering logic with sequence_id ordering
-  useEffect(() => {
-    let unlistenFn: (() => void) | undefined;
-    let transcriptCounter = 0;
-    let transcriptBuffer = new Map<number, Transcript>();
-    let lastProcessedSequence = 0;
-    let processingTimer: NodeJS.Timeout | undefined;
-
-    const processBufferedTranscripts = (forceFlush = false) => {
-      const sortedTranscripts: Transcript[] = [];
-
-      // Process all available sequential transcripts
-      let nextSequence = lastProcessedSequence + 1;
-      while (transcriptBuffer.has(nextSequence)) {
-        const bufferedTranscript = transcriptBuffer.get(nextSequence)!;
-        sortedTranscripts.push(bufferedTranscript);
-        transcriptBuffer.delete(nextSequence);
-        lastProcessedSequence = nextSequence;
-        nextSequence++;
-      }
-
-      // Add any buffered transcripts that might be out of order
-      const now = Date.now();
-      const staleThreshold = 100;  // 100ms safety net only (serial workers = sequential order)
-      const recentThreshold = 0;    // Show immediately - no delay needed with serial processing
-      const staleTranscripts: Transcript[] = [];
-      const recentTranscripts: Transcript[] = [];
-      const forceFlushTranscripts: Transcript[] = [];
-
-      for (const [sequenceId, transcript] of transcriptBuffer.entries()) {
-        if (forceFlush) {
-          // Force flush mode: process ALL remaining transcripts regardless of timing
-          forceFlushTranscripts.push(transcript);
-          transcriptBuffer.delete(sequenceId);
-          console.log(`Force flush: processing transcript with sequence_id ${sequenceId}`);
-        } else {
-          const transcriptAge = now - parseInt(transcript.id.split('-')[0]);
-          if (transcriptAge > staleThreshold) {
-            // Process stale transcripts (>100ms old - safety net)
-            staleTranscripts.push(transcript);
-            transcriptBuffer.delete(sequenceId);
-          } else if (transcriptAge >= recentThreshold) {
-            // Process immediately (0ms threshold with serial workers)
-            recentTranscripts.push(transcript);
-            transcriptBuffer.delete(sequenceId);
-            console.log(`Processing transcript with sequence_id ${sequenceId}, age: ${transcriptAge}ms`);
-          }
-        }
-      }
-
-      // Sort both stale and recent transcripts by chunk_start_time, then by sequence_id
-      const sortTranscripts = (transcripts: Transcript[]) => {
-        return transcripts.sort((a, b) => {
-          const chunkTimeDiff = (a.chunk_start_time || 0) - (b.chunk_start_time || 0);
-          if (chunkTimeDiff !== 0) return chunkTimeDiff;
-          return (a.sequence_id || 0) - (b.sequence_id || 0);
-        });
-      };
-
-      const sortedStaleTranscripts = sortTranscripts(staleTranscripts);
-      const sortedRecentTranscripts = sortTranscripts(recentTranscripts);
-      const sortedForceFlushTranscripts = sortTranscripts(forceFlushTranscripts);
-
-      const allNewTranscripts = [...sortedTranscripts, ...sortedRecentTranscripts, ...sortedStaleTranscripts, ...sortedForceFlushTranscripts];
-
-      if (allNewTranscripts.length > 0) {
-        setTranscripts(prev => {
-          const bySeq = new Map<number, Transcript>();
-          for (const t of prev) {
-            if (t.sequence_id !== undefined) {
-              bySeq.set(t.sequence_id, t);
-            }
-          }
-          for (const incoming of allNewTranscripts) {
-            if (incoming.sequence_id === undefined) continue;
-            const existing = bySeq.get(incoming.sequence_id);
-            bySeq.set(
-              incoming.sequence_id,
-              existing
-                ? {
-                    ...existing,
-                    text: incoming.text,
-                    timestamp: incoming.timestamp,
-                    is_partial: incoming.is_partial,
-                    confidence: incoming.confidence,
-                    audio_start_time: incoming.audio_start_time,
-                    audio_end_time: incoming.audio_end_time,
-                    duration: incoming.duration,
-                    chunk_start_time: incoming.chunk_start_time,
-                    speaker_name: incoming.speaker_name,
-                    speaker_color: incoming.speaker_color,
-                  }
-                : incoming
-            );
-          }
-
-          return [...bySeq.values()].sort((a, b) => {
-            const chunkTimeDiff = (a.chunk_start_time || 0) - (b.chunk_start_time || 0);
-            if (chunkTimeDiff !== 0) return chunkTimeDiff;
-            return (a.sequence_id || 0) - (b.sequence_id || 0);
-          });
-        });
-
-        // Log the processing summary
-        const logMessage = forceFlush
-          ? `Force flush processed ${allNewTranscripts.length} transcripts (${sortedTranscripts.length} sequential, ${forceFlushTranscripts.length} forced)`
-          : `Processed ${allNewTranscripts.length} transcripts (${sortedTranscripts.length} sequential, ${recentTranscripts.length} recent, ${staleTranscripts.length} stale)`;
-        console.log(logMessage);
-      }
-    };
-
-    // Assign final flush function to ref for external access
-    finalFlushRef.current = () => processBufferedTranscripts(true);
-
-    const setupListener = async () => {
-      try {
-        console.log('🔥 Setting up MAIN transcript listener during component initialization...');
-        unlistenFn = await transcriptService.onTranscriptUpdate((update) => {
-          const now = Date.now();
-          console.log('🎯 MAIN LISTENER: Received transcript update:', {
-            sequence_id: update.sequence_id,
-            text: update.text.substring(0, 50) + '...',
-            timestamp: update.timestamp,
-            is_partial: update.is_partial,
-            received_at: new Date(now).toISOString(),
-            buffer_size_before: transcriptBuffer.size
-          });
-
-          const newTranscript: Transcript = transcriptBuffer.get(update.sequence_id) ?? {
-            id: `${Date.now()}-${transcriptCounter++}`,
-            text: update.text,
-            timestamp: update.timestamp,
-            sequence_id: update.sequence_id,
-            chunk_start_time: update.chunk_start_time,
-            is_partial: update.is_partial,
-            confidence: update.confidence,
-            audio_start_time: update.audio_start_time,
-            audio_end_time: update.audio_end_time,
-            duration: update.duration,
-          };
-
-          newTranscript.text = update.text;
-          newTranscript.timestamp = update.timestamp;
-          newTranscript.is_partial = update.is_partial;
-          newTranscript.confidence = update.confidence;
-          newTranscript.audio_start_time = update.audio_start_time;
-          newTranscript.audio_end_time = update.audio_end_time;
-          newTranscript.duration = update.duration;
-          newTranscript.chunk_start_time = update.chunk_start_time;
-          newTranscript.speaker_name = update.speaker_name ?? newTranscript.speaker_name;
-          newTranscript.speaker_color = update.speaker_color ?? newTranscript.speaker_color;
-
-          transcriptBuffer.set(update.sequence_id, newTranscript);
-          console.log(`✅ MAIN LISTENER: Buffered transcript with sequence_id ${update.sequence_id}. Buffer size: ${transcriptBuffer.size}, Last processed: ${lastProcessedSequence}`);
-
-          if (currentMeetingId) {
-            indexedDBService.saveTranscript(currentMeetingId, update)
-              .catch(err => console.warn('IndexedDB save failed:', err));
-          }
-
-          if (processingTimer) {
-            clearTimeout(processingTimer);
-          }
-
-          processingTimer = setTimeout(processBufferedTranscripts, 10);
-        });
-        console.log('✅ MAIN transcript listener setup complete');
-      } catch (error) {
-        console.error('❌ Failed to setup MAIN transcript listener:', error);
-            alert('Không thiết lập được listener bản ghi. Xem chi tiết trong console.');
-      }
-    };
-
-    setupListener();
-    console.log('Started enhanced listener setup');
-
-    return () => {
-      console.log('🧹 CLEANUP: Cleaning up MAIN transcript listener...');
-      if (processingTimer) {
-        clearTimeout(processingTimer);
-        console.log('🧹 CLEANUP: Cleared processing timer');
-      }
-      if (unlistenFn) {
-        unlistenFn();
-        console.log('🧹 CLEANUP: MAIN transcript listener cleaned up');
-      }
-    };
-  }, [currentMeetingId]); // Add currentMeetingId dependency
-
-  // Sync transcript history and meeting name from backend on reload
-  // This fixes the issue where reloading during active recording causes state desync
-  useEffect(() => {
-    const syncFromBackend = async () => {
-      // If recording is active and we have no local transcripts, sync from backend
-      if (recordingState.isRecording && transcripts.length === 0) {
-        try {
-          console.log('[Reload Sync] Recording active after reload, syncing transcript history...');
-
-          // Fetch transcript history from backend
-          const history = await transcriptService.getTranscriptHistory();
-          console.log(`[Reload Sync] Retrieved ${history.length} transcript segments from backend`);
-
-          // Convert backend format to frontend Transcript format
-          const formattedTranscripts: Transcript[] = history.map((segment: any) => ({
-            id: segment.id,
-            text: segment.text,
-            timestamp: segment.display_time, // Use display_time for UI
-            sequence_id: segment.sequence_id,
-            chunk_start_time: segment.audio_start_time,
-            is_partial: false, // History segments are always final
-            confidence: segment.confidence,
-            audio_start_time: segment.audio_start_time,
-            audio_end_time: segment.audio_end_time,
-            duration: segment.duration,
-            speaker_name: segment.speaker_name,
-          }));
-
-          setTranscripts(formattedTranscripts);
-          console.log('[Reload Sync] ✅ Transcript history synced successfully');
-
-          // Fetch meeting name from backend
-          const meetingName = await recordingService.getRecordingMeetingName();
-          if (meetingName) {
-            console.log('[Reload Sync] Retrieved meeting name:', meetingName);
-            setMeetingTitle(meetingName);
-            console.log('[Reload Sync] ✅ Meeting title synced successfully');
-          }
-        } catch (error) {
-          console.error('[Reload Sync] Failed to sync from backend:', error);
-        }
-      }
-    };
-
-    syncFromBackend();
-  }, [recordingState.isRecording]); // Run when recording state changes
-
-  // Manual transcript update handler (for RecordingControls component)
   const addTranscript = useCallback((update: TranscriptUpdate) => {
-    console.log('🎯 addTranscript called with:', {
-      sequence_id: update.sequence_id,
-      text: update.text.substring(0, 50) + '...',
-      timestamp: update.timestamp,
-      is_partial: update.is_partial
-    });
+    ledger.current.upsert(update);
+    if (!timer.current) timer.current = setTimeout(flushBuffer, 50);
+  }, [flushBuffer]);
 
-    const newTranscript: Transcript = {
-      id: update.sequence_id ? update.sequence_id.toString() : Date.now().toString(),
-      text: update.text,
-      timestamp: update.timestamp,
-      sequence_id: update.sequence_id || 0,
-      chunk_start_time: update.chunk_start_time,
-      is_partial: update.is_partial,
-      confidence: update.confidence,
-      audio_start_time: update.audio_start_time,
-      audio_end_time: update.audio_end_time,
-      duration: update.duration,
-      speaker_name: update.speaker_name,
-      speaker_color: update.speaker_color,
-    };
+  const clearTranscripts = useCallback(() => {
+    ledger.current.clear();
+    pendingRecovery.current.clear();
+    flushBuffer();
+  }, [flushBuffer]);
 
-    setTranscripts(prev => {
-      console.log('📊 Current transcripts count before update:', prev.length);
-
-      // Check if this transcript already exists
-      const exists = prev.some(
-        t => t.text === update.text && t.timestamp === update.timestamp
-      );
-      if (exists) {
-        console.log('🚫 Duplicate transcript detected, skipping:', update.text.substring(0, 30) + '...');
-        return prev;
+  useEffect(() => {
+    let disposed = false;
+    let generation = 0;
+    const persist = (update: TranscriptUpdate) => {
+      const session = sessionRef.current;
+      if (!session) {
+        const previous = pendingRecovery.current.get(update.sequence_id);
+        if (!previous || previous.is_partial || !update.is_partial) {
+          pendingRecovery.current.set(update.sequence_id, update);
+        }
+        return;
       }
+      const ready = metadataReady.current;
+      void ready.then(() => indexedDBService.saveTranscript(session, update))
+        .catch((error) => console.warn('Recovery checkpoint unavailable', error));
+    };
+    const initializeSession = async (isNew: boolean) => {
+      const token = ++generation;
+      if (isNew) {
+        sessionRef.current = null;
+        sessionStorage.removeItem('indexeddb_current_meeting_id');
+        clearTranscripts();
+      }
+      const session = await recordingService.getRecordingSession();
+      if (disposed || token !== generation) return;
+      if (!session) {
+        // sessionStorage can survive a WebView reload after an interrupted session.
+        if (!await recordingService.isRecording() && !disposed && token === generation) {
+          sessionRef.current = null;
+          setCurrentMeetingId(null);
+          sessionStorage.removeItem('indexeddb_current_meeting_id');
+        }
+        return;
+      }
+      sessionRef.current = session.session_id;
+      sessionStorage.setItem('indexeddb_current_meeting_id', session.session_id);
+      setCurrentMeetingId(session.session_id);
+      setMeetingTitle(session.meeting_name ?? '+ Cuộc họp mới');
+      metadataReady.current = (async () => {
+        const existing = await indexedDBService.getMeetingMetadata(session.session_id);
+        await indexedDBService.saveMeetingMetadata({
+          meetingId: session.session_id, title: session.meeting_name ?? 'Cuộc họp',
+          startTime: Date.now(), lastUpdated: Date.now(), transcriptCount: 0,
+          savedToSQLite: false, ...existing,
+          folderPath: session.folder_path ?? existing?.folderPath,
+        });
+      })();
+      await metadataReady.current;
+      if (disposed || token !== generation) return;
+      for (const update of pendingRecovery.current.values()) persist(update);
+      pendingRecovery.current.clear();
 
-      // Add new transcript and sort by sequence_id to maintain order
-      const updated = [...prev, newTranscript];
-      const sorted = updated.sort((a, b) => (a.sequence_id || 0) - (b.sequence_id || 0));
-
-      console.log('✅ Added new transcript. New count:', sorted.length);
-      console.log('📝 Latest transcript:', {
-        id: newTranscript.id,
-        text: newTranscript.text.substring(0, 30) + '...',
-        sequence_id: newTranscript.sequence_id
-      });
-
-      return sorted;
-    });
-  }, []);
+      if (!isNew) {
+        const history = await transcriptService.getTranscriptHistory();
+        if (disposed || token !== generation) return;
+        for (const segment of history) {
+          if (ledger.current.has(segment.sequence_id)) continue;
+          const update: TranscriptUpdate = {
+            text: segment.text, timestamp: segment.display_time, source: 'Audio',
+            sequence_id: segment.sequence_id, chunk_start_time: segment.audio_start_time,
+            is_partial: segment.is_partial ?? false, confidence: segment.confidence,
+            audio_start_time: segment.audio_start_time, audio_end_time: segment.audio_end_time,
+            duration: segment.duration, speaker_name: segment.speaker_name,
+          };
+          addTranscript(update);
+          persist(update);
+        }
+        flushBuffer();
+      }
+    };
+    const error = (failure: unknown) => console.warn('Transcript synchronization unavailable', failure);
+    const disposers = [
+      subscribeSafely(() => transcriptService.onTranscriptUpdate((update) => {
+        if (disposed) return;
+        addTranscript(update);
+        persist(update);
+      }), error),
+      subscribeSafely(() => recordingService.onRecordingStarted(() => {
+        void initializeSession(true).catch(error);
+      }), error),
+    ];
+    void initializeSession(false).catch(error);
+    return () => {
+      disposed = true;
+      generation++;
+      disposers.forEach((dispose) => dispose());
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = undefined;
+    };
+  }, [addTranscript, clearTranscripts, flushBuffer]);
 
   const copyTranscript = useCallback(() => {
-    const fullTranscript = formatTranscriptPlainText(
-      transcripts.map((t) => ({
-        id: t.id,
-        text: t.text,
-        speakerId: t.speaker_id ?? null,
-        speakerName: t.speaker_name ?? null,
-      })),
-    );
-    navigator.clipboard.writeText(fullTranscript);
-
-    toast.success('Đã sao chép bản ghi vào bảng nhớ tạm');
-  }, [transcripts]);
-
-  // Force flush buffer (for final transcript processing)
-  const flushBuffer = useCallback(() => {
-    if (finalFlushRef.current) {
-      console.log('🔄 Flushing transcript buffer...');
-      finalFlushRef.current();
-    }
-  }, []);
-
-  // Clear transcripts (used when starting new recording)
-  const clearTranscripts = useCallback(() => {
-    setTranscripts([]);
-    // Don't clear currentMeetingId here - it will be set by recording-started event
-  }, []);
-
-  const updateTranscriptBySequenceId = useCallback((sequenceId: number, newText: string) => {
-    setTranscripts(prev =>
-      prev.map(t => (t.sequence_id === sequenceId ? { ...t, text: newText } : t))
+    const text = formatTranscriptPlainText(transcriptsRef.current.map((t) => ({
+      id: t.id, text: t.text, speakerId: t.speaker_id ?? null, speakerName: t.speaker_name ?? null,
+    })));
+    void navigator.clipboard.writeText(text).then(
+      () => toast.success('Đã sao chép bản ghi vào bảng nhớ tạm'),
+      () => toast.error('Không sao chép được bản ghi'),
     );
   }, []);
 
-  // Mark current meeting as saved in IndexedDB
-  const markMeetingAsSaved = useCallback(async () => {
-    // Try context state first, fallback to sessionStorage
-    const meetingId = currentMeetingId || sessionStorage.getItem('indexeddb_current_meeting_id');
+  const updateTranscriptBySequenceId = useCallback((sequenceId: number, text: string) => {
+    ledger.current.edit(sequenceId, text);
+    flushBuffer();
+  }, [flushBuffer]);
 
-    if (!meetingId) {
-      console.error('[IndexedDB] ❌ Cannot mark meeting as saved: No meeting ID available!');
-      console.error('[IndexedDB] currentMeetingId:', currentMeetingId);
-      console.error('[IndexedDB] sessionStorage:', sessionStorage.getItem('indexeddb_current_meeting_id'));
-      return;
-    }
-
+  const markMeetingAsSaved = useCallback(async (savedId?: string, audioPending = false, sessionId?: string) => {
+    const id = sessionId ?? sessionRef.current ?? sessionStorage.getItem('indexeddb_current_meeting_id');
+    if (!id) return;
     try {
-      await indexedDBService.markMeetingSaved(meetingId);
-
-      // Clear both sources
-      setCurrentMeetingId(null);
-      sessionStorage.removeItem('indexeddb_current_meeting_id');
+      await metadataReady.current;
+      await indexedDBService.markMeetingSaved(id, savedId, audioPending);
+      if (sessionRef.current === id) {
+        sessionRef.current = null;
+        setCurrentMeetingId(null);
+        sessionStorage.removeItem('indexeddb_current_meeting_id');
+      }
     } catch (error) {
-      console.error('[IndexedDB] ❌ Failed to mark meeting as saved:', error);
+      // SQLite is already committed. Retain recovery metadata for a future retry.
+      console.warn('Meeting saved; recovery metadata could not be updated', error);
     }
-  }, [currentMeetingId]);
+  }, []);
 
-  const value: TranscriptContextType = {
-    transcripts,
-    transcriptsRef,
-    addTranscript,
-    copyTranscript,
-    flushBuffer,
-    transcriptContainerRef,
-    meetingTitle,
-    setMeetingTitle,
-    clearTranscripts,
-    currentMeetingId,
-    markMeetingAsSaved,
-    updateTranscriptBySequenceId,
-  };
-
-  return (
-    <TranscriptContext.Provider value={value}>
-      {children}
-    </TranscriptContext.Provider>
-  );
+  const value = useMemo<TranscriptContextType>(() => ({
+    transcripts, transcriptsRef, addTranscript, copyTranscript, flushBuffer,
+    transcriptContainerRef, meetingTitle, setMeetingTitle, clearTranscripts,
+    currentMeetingId, markMeetingAsSaved, updateTranscriptBySequenceId,
+  }), [transcripts, addTranscript, copyTranscript, flushBuffer, meetingTitle,
+      clearTranscripts, currentMeetingId, markMeetingAsSaved, updateTranscriptBySequenceId]);
+  return <TranscriptContext.Provider value={value}>{children}</TranscriptContext.Provider>;
 }
 
 export function useTranscripts() {
   const context = useContext(TranscriptContext);
-  if (context === undefined) {
-    throw new Error('useTranscripts must be used within a TranscriptProvider');
-  }
+  if (!context) throw new Error('useTranscripts must be used within a TranscriptProvider');
   return context;
 }

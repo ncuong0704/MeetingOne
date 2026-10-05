@@ -7,7 +7,6 @@ import { useSidebar } from './SidebarProvider';
 import type { CurrentMeeting } from '@/components/Sidebar/SidebarProvider';
 import { ConfirmationModal } from '../ConfirmationModel/confirmation-modal';
 import { ModelConfig } from '@/components/ModelSettingsModal';
-import { SettingTabs } from '../SettingTabs';
 import { TranscriptModelProps } from '@/components/TranscriptSettings';
 import Analytics from '@/lib/analytics';
 import { invoke } from '@tauri-apps/api/core';
@@ -680,7 +679,7 @@ const Sidebar: React.FC = () => {
   return (
     <div className="fixed top-0 left-0 h-screen z-40">
       <div
-        className={`h-screen bg-rail border-r border-rule flex flex-col transition-all duration-[var(--dur-short)] ease-[var(--ease-out)] ${isCollapsed ? 'w-16' : 'w-64'
+        className={`h-screen bg-rail border-r border-rule flex flex-col transition-all duration-short ease-out-token ${isCollapsed ? 'w-16' : 'w-64'
           }`}
       >
         <div className="flex-shrink-0 border-b border-rule">

@@ -18,7 +18,10 @@ impl PromptConfig {
 
     /// Nâng cấp prompt đã lưu khi thiếu placeholder mới (ví dụ `{template_markdown}`).
     pub fn migrate_to_current_defaults(&self) -> Option<Self> {
-        if self.system_prompt_final_template.contains("{template_markdown}") {
+        if self
+            .system_prompt_final_template
+            .contains("{template_markdown}")
+        {
             return None;
         }
 
@@ -56,8 +59,12 @@ mod tests {
             system_prompt_final_template: "Hello {section_instructions}".to_string(),
         };
         let migrated = old.migrate_to_current_defaults().expect("should migrate");
-        assert!(migrated.system_prompt_final_template.contains("{template_markdown}"));
-        assert!(migrated.system_prompt_final_template.starts_with("Hello {section_instructions}"));
+        assert!(migrated
+            .system_prompt_final_template
+            .contains("{template_markdown}"));
+        assert!(migrated
+            .system_prompt_final_template
+            .starts_with("Hello {section_instructions}"));
     }
 
     #[test]

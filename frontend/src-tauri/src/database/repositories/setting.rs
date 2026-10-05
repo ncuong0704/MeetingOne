@@ -1,6 +1,5 @@
-use crate::database::models::{Setting, TranscriptSetting};
 use crate::asr_engine::config::{AsrPath, PathAsrConfig};
-use crate::audio::transcription::gemini_key::SttProvider;
+use crate::database::models::{Setting, TranscriptSetting};
 use crate::summary::CustomOpenAIConfig;
 use sqlx::SqlitePool;
 
@@ -74,9 +73,7 @@ impl SettingsRepository {
         provider: &str,
     ) -> std::result::Result<Vec<String>, sqlx::Error> {
         let setting = Self::get_model_config(pool).await?;
-        let map_str = setting
-            .and_then(|s| s.fallback_models)
-            .unwrap_or_default();
+        let map_str = setting.and_then(|s| s.fallback_models).unwrap_or_default();
         if map_str.is_empty() {
             return Ok(vec![]);
         }
@@ -169,7 +166,6 @@ impl SettingsRepository {
                 .fetch_optional(pool)
                 .await?;
         Ok(setting)
-
     }
 
     pub async fn save_transcript_config(
@@ -248,9 +244,7 @@ impl SettingsRepository {
             rover_family_b: None,
             rover_variant_b: None,
             hotwords: None,
-            capu_cpu_threads: Some(
-                crate::capu_engine::cpu_topology::FIXED_CAPU_CPU_THREADS as i32,
-            ),
+            capu_cpu_threads: Some(crate::capu_engine::cpu_topology::FIXED_CAPU_CPU_THREADS as i32),
             capu_punctuation_level: crate::capu_engine::cpu_topology::FIXED_CAPU_PUNCTUATION_LEVEL
                 as i32,
             capu_case_level: crate::capu_engine::cpu_topology::FIXED_CAPU_CASE_LEVEL as i32,
@@ -275,7 +269,9 @@ impl SettingsRepository {
         }
     }
 
-    async fn ensure_transcript_settings_row(pool: &SqlitePool) -> std::result::Result<(), sqlx::Error> {
+    async fn ensure_transcript_settings_row(
+        pool: &SqlitePool,
+    ) -> std::result::Result<(), sqlx::Error> {
         sqlx::query(
             r#"
             INSERT INTO transcript_settings (id, provider, model)
@@ -412,96 +408,9 @@ impl SettingsRepository {
     }
 
     pub async fn get_max_segment_seconds(pool: &SqlitePool) -> u32 {
-        Self::get_path_asr_config(pool, AsrPath::Live).await.max_segment_seconds
-    }
-
-    pub fn stt_provider_for(row: &TranscriptSetting, path: AsrPath) -> SttProvider {
-        match path {
-            AsrPath::Live => SttProvider::from_db(row.live_provider.as_deref()),
-            AsrPath::File => SttProvider::from_db(row.file_provider.as_deref()),
-        }
-    }
-
-    pub async fn get_stt_provider(pool: &SqlitePool, path: AsrPath) -> SttProvider {
-        match Self::get_transcript_config(pool).await {
-            Ok(Some(row)) => Self::stt_provider_for(&row, path),
-            _ => SttProvider::Asr,
-        }
-    }
-
-    pub async fn save_live_provider(
-        pool: &SqlitePool,
-        provider: &str,
-    ) -> std::result::Result<(), sqlx::Error> {
-        Self::ensure_transcript_settings_row(pool).await?;
-        sqlx::query("UPDATE transcript_settings SET liveProvider = $1 WHERE id = '1'")
-            .bind(SttProvider::from_db(Some(provider)).as_str())
-            .execute(pool)
-            .await?;
-        Ok(())
-    }
-
-    pub async fn save_file_provider(
-        pool: &SqlitePool,
-        provider: &str,
-    ) -> std::result::Result<(), sqlx::Error> {
-        Self::ensure_transcript_settings_row(pool).await?;
-        sqlx::query("UPDATE transcript_settings SET fileProvider = $1 WHERE id = '1'")
-            .bind(SttProvider::from_db(Some(provider)).as_str())
-            .execute(pool)
-            .await?;
-        Ok(())
-    }
-
-    /// Transcript Gemini override on transcript_settings.geminiApiKey (LLM key: settings.geminiApiKey).
-    pub async fn save_transcript_api_key(
-        pool: &SqlitePool,
-        provider: &str,
-        api_key: &str,
-    ) -> std::result::Result<(), sqlx::Error> {
-        if provider != "gemini" {
-            return Err(sqlx::Error::Protocol(
-                format!("Unsupported transcript provider: {}. Only gemini is supported.", provider).into(),
-            ));
-        }
-        Self::ensure_transcript_settings_row(pool).await?;
-        sqlx::query("UPDATE transcript_settings SET geminiApiKey = $1 WHERE id = '1'")
-            .bind(api_key)
-            .execute(pool)
-            .await?;
-        Ok(())
-    }
-
-    pub async fn get_transcript_api_key(
-        pool: &SqlitePool,
-        provider: &str,
-    ) -> std::result::Result<Option<String>, sqlx::Error> {
-        if provider != "gemini" {
-            return Err(sqlx::Error::Protocol(
-                format!("Unsupported transcript provider: {}. Only gemini is supported.", provider).into(),
-            ));
-        }
-        let key = sqlx::query_scalar::<_, Option<String>>(
-            "SELECT geminiApiKey FROM transcript_settings WHERE id = '1' LIMIT 1",
-        )
-        .fetch_optional(pool)
-        .await?;
-        Ok(key.flatten().filter(|s| !s.is_empty()))
-    }
-
-    pub async fn delete_transcript_api_key(
-        pool: &SqlitePool,
-        provider: &str,
-    ) -> std::result::Result<(), sqlx::Error> {
-        if provider != "gemini" {
-            return Err(sqlx::Error::Protocol(
-                format!("Unsupported transcript provider: {}. Only gemini is supported.", provider).into(),
-            ));
-        }
-        sqlx::query("UPDATE transcript_settings SET geminiApiKey = NULL WHERE id = '1'")
-            .execute(pool)
-            .await?;
-        Ok(())
+        Self::get_path_asr_config(pool, AsrPath::Live)
+            .await
+            .max_segment_seconds
     }
 
     pub async fn delete_api_key(
@@ -556,7 +465,7 @@ impl SettingsRepository {
             FROM settings
             WHERE id = '1'
             LIMIT 1
-            "#
+            "#,
         )
         .fetch_optional(pool)
         .await?;
@@ -567,10 +476,11 @@ impl SettingsRepository {
 
                 if let Some(json) = config_json {
                     // Parse JSON into CustomOpenAIConfig
-                    let config: CustomOpenAIConfig = serde_json::from_str(&json)
-                        .map_err(|e| sqlx::Error::Protocol(
-                            format!("Invalid JSON in customOpenAIConfig: {}", e).into()
-                        ))?;
+                    let config: CustomOpenAIConfig = serde_json::from_str(&json).map_err(|e| {
+                        sqlx::Error::Protocol(
+                            format!("Invalid JSON in customOpenAIConfig: {}", e).into(),
+                        )
+                    })?;
 
                     Ok(Some(config))
                 } else {
@@ -595,10 +505,9 @@ impl SettingsRepository {
         config: &CustomOpenAIConfig,
     ) -> std::result::Result<(), sqlx::Error> {
         // Serialize config to JSON
-        let config_json = serde_json::to_string(config)
-            .map_err(|e| sqlx::Error::Protocol(
-                format!("Failed to serialize config to JSON: {}", e).into()
-            ))?;
+        let config_json = serde_json::to_string(config).map_err(|e| {
+            sqlx::Error::Protocol(format!("Failed to serialize config to JSON: {}", e).into())
+        })?;
 
         // Upsert into settings table
         sqlx::query(
@@ -636,9 +545,11 @@ impl SettingsRepository {
                 match json {
                     Some(j) => {
                         let config: crate::summary::PromptConfig = serde_json::from_str(&j)
-                            .map_err(|e| sqlx::Error::Protocol(
-                                format!("Invalid JSON in promptSettings: {}", e).into()
-                            ))?;
+                            .map_err(|e| {
+                                sqlx::Error::Protocol(
+                                    format!("Invalid JSON in promptSettings: {}", e).into(),
+                                )
+                            })?;
                         Ok(Some(config))
                     }
                     None => Ok(None),
@@ -653,10 +564,9 @@ impl SettingsRepository {
         pool: &SqlitePool,
         config: &crate::summary::PromptConfig,
     ) -> std::result::Result<(), sqlx::Error> {
-        let json = serde_json::to_string(config)
-            .map_err(|e| sqlx::Error::Protocol(
-                format!("Failed to serialize prompt settings: {}", e).into()
-            ))?;
+        let json = serde_json::to_string(config).map_err(|e| {
+            sqlx::Error::Protocol(format!("Failed to serialize prompt settings: {}", e).into())
+        })?;
 
         sqlx::query(
             r#"
@@ -674,9 +584,7 @@ impl SettingsRepository {
     }
 
     /// Resets custom prompt settings to built-in defaults by clearing the stored JSON.
-    pub async fn reset_prompt_settings(
-        pool: &SqlitePool,
-    ) -> std::result::Result<(), sqlx::Error> {
+    pub async fn reset_prompt_settings(pool: &SqlitePool) -> std::result::Result<(), sqlx::Error> {
         sqlx::query("UPDATE settings SET promptSettings = NULL WHERE id = '1'")
             .execute(pool)
             .await?;

@@ -25,12 +25,25 @@ impl RoverDecoder {
         threads_per_decoder: usize,
     ) -> Result<Self> {
         let decoder_a = RnntDecoder::load(
-            family_a.0, family_a.1, family_a.2, family_a.3, beam_size, threads_per_decoder,
+            family_a.0,
+            family_a.1,
+            family_a.2,
+            family_a.3,
+            beam_size,
+            threads_per_decoder,
         )?;
         let decoder_b = RnntDecoder::load(
-            family_b.0, family_b.1, family_b.2, family_b.3, beam_size, threads_per_decoder,
+            family_b.0,
+            family_b.1,
+            family_b.2,
+            family_b.3,
+            beam_size,
+            threads_per_decoder,
         )?;
-        Ok(Self { decoder_a, decoder_b })
+        Ok(Self {
+            decoder_a,
+            decoder_b,
+        })
     }
 
     /// Computes fbank once and shares it between both concurrently-running models —
@@ -45,8 +58,12 @@ impl RoverDecoder {
             let fbank_ref = &fbank;
             let handle_a = scope.spawn(move || decoder_a.decode_with_fbank(fbank_ref));
             let handle_b = scope.spawn(move || decoder_b.decode_with_fbank(fbank_ref));
-            let result_a = handle_a.join().map_err(|_| anyhow!("Decoder A thread panicked"));
-            let result_b = handle_b.join().map_err(|_| anyhow!("Decoder B thread panicked"));
+            let result_a = handle_a
+                .join()
+                .map_err(|_| anyhow!("Decoder A thread panicked"));
+            let result_b = handle_b
+                .join()
+                .map_err(|_| anyhow!("Decoder B thread panicked"));
             (result_a, result_b)
         });
 
@@ -60,7 +77,10 @@ impl RoverDecoder {
             .collect::<Vec<_>>()
             .join(" ");
 
-        Ok(RoverDecodeResult { text, words: merged })
+        Ok(RoverDecodeResult {
+            text,
+            words: merged,
+        })
     }
 }
 
@@ -125,11 +145,7 @@ mod manual_smoke_tests {
             let marker = if w.disagree { "*" } else { " " };
             println!(
                 "  {}{} [{:.2}-{:.2}s] conf={:.3}",
-                marker,
-                w.word.text,
-                w.word.start,
-                w.word.end,
-                w.word.confidence
+                marker, w.word.text, w.word.start, w.word.end, w.word.confidence
             );
         }
 

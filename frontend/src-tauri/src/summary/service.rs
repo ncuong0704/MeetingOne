@@ -5,11 +5,11 @@ use crate::database::repositories::{
 use crate::summary::llm_client::LLMProvider;
 use crate::summary::processor::{extract_meeting_name_from_markdown, generate_meeting_summary};
 use chrono::Utc;
+use once_cell::sync::Lazy;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use once_cell::sync::Lazy;
 use tauri::{AppHandle, Manager};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
@@ -41,7 +41,10 @@ impl SummaryService {
                 return true;
             }
         }
-        warn!("No active summary generation found for meeting: {}", meeting_id);
+        warn!(
+            "No active summary generation found for meeting: {}",
+            meeting_id
+        );
         false
     }
 
@@ -121,7 +124,8 @@ impl SummaryService {
                     return;
                 }
                 Err(e) => {
-                    let err_msg = format!("Failed to retrieve API key for {}: {}", &model_provider, e);
+                    let err_msg =
+                        format!("Failed to retrieve API key for {}: {}", &model_provider, e);
                     Self::update_process_failed(&pool, &meeting_id, &err_msg).await;
                     return;
                 }
@@ -129,33 +133,38 @@ impl SummaryService {
         };
 
         // Get CustomOpenAI config if provider is CustomOpenAI
-        let (custom_openai_endpoint, custom_openai_api_key, custom_openai_max_tokens, custom_openai_temperature, custom_openai_top_p) =
-            if provider == LLMProvider::CustomOpenAI {
-                match SettingsRepository::get_custom_openai_config(&pool).await {
-                    Ok(Some(config)) => {
-                        info!("✓ Using custom OpenAI endpoint: {}", config.endpoint);
-                        (
-                            Some(config.endpoint),
-                            config.api_key,
-                            config.max_tokens.map(|t| t as u32),
-                            config.temperature,
-                            config.top_p,
-                        )
-                    }
-                    Ok(None) => {
-                        let err_msg = "Custom OpenAI provider selected but no configuration found";
-                        Self::update_process_failed(&pool, &meeting_id, err_msg).await;
-                        return;
-                    }
-                    Err(e) => {
-                        let err_msg = format!("Failed to retrieve custom OpenAI config: {}", e);
-                        Self::update_process_failed(&pool, &meeting_id, &err_msg).await;
-                        return;
-                    }
+        let (
+            custom_openai_endpoint,
+            custom_openai_api_key,
+            custom_openai_max_tokens,
+            custom_openai_temperature,
+            custom_openai_top_p,
+        ) = if provider == LLMProvider::CustomOpenAI {
+            match SettingsRepository::get_custom_openai_config(&pool).await {
+                Ok(Some(config)) => {
+                    info!("✓ Using custom OpenAI endpoint: {}", config.endpoint);
+                    (
+                        Some(config.endpoint),
+                        config.api_key,
+                        config.max_tokens.map(|t| t as u32),
+                        config.temperature,
+                        config.top_p,
+                    )
                 }
-            } else {
-                (None, None, None, None, None)
-            };
+                Ok(None) => {
+                    let err_msg = "Custom OpenAI provider selected but no configuration found";
+                    Self::update_process_failed(&pool, &meeting_id, err_msg).await;
+                    return;
+                }
+                Err(e) => {
+                    let err_msg = format!("Failed to retrieve custom OpenAI config: {}", e);
+                    Self::update_process_failed(&pool, &meeting_id, &err_msg).await;
+                    return;
+                }
+            }
+        } else {
+            (None, None, None, None, None)
+        };
 
         // For CustomOpenAI, use its API key (if any) instead of the empty string
         let final_api_key = if provider == LLMProvider::CustomOpenAI {
@@ -174,16 +183,20 @@ impl SummaryService {
             }
         };
 
-        let fallback_models = crate::database::repositories::setting::SettingsRepository::get_fallback_models(
-            &pool, &model_provider,
-        )
-        .await
-        .unwrap_or_default();
+        let fallback_models =
+            crate::database::repositories::setting::SettingsRepository::get_fallback_models(
+                &pool,
+                &model_provider,
+            )
+            .await
+            .unwrap_or_default();
 
         let mut models_to_try = vec![model_name.clone()];
         models_to_try.extend(fallback_models.into_iter().filter(|m| m != &model_name));
 
-        let meeting_created_at = match MeetingsRepository::get_meeting_metadata(&pool, &meeting_id).await {
+        let meeting_created_at = match MeetingsRepository::get_meeting_metadata(&pool, &meeting_id)
+            .await
+        {
             Ok(Some(meeting)) => meeting.created_at.0,
             Ok(None) => {
                 warn!(
@@ -201,7 +214,12 @@ impl SummaryService {
             }
         };
 
-        let documents_context = match MeetingDocumentsRepository::list_by_meeting(&pool, &meeting_id).await {
+        let documents_context = match MeetingDocumentsRepository::list_by_meeting(
+            &pool,
+            &meeting_id,
+        )
+        .await
+        {
             Ok(docs) if !docs.is_empty() => Some(
                 docs.iter()
                     .map(|d| format!("--- Tài liệu: {} ---\n{}", d.filename, d.extracted_text))
@@ -225,7 +243,9 @@ impl SummaryService {
             if idx > 0 {
                 warn!(
                     "Model '{}' rate limited, switching to fallback model '{}' (provider: {})",
-                    models_to_try[idx - 1], current_model, model_provider
+                    models_to_try[idx - 1],
+                    current_model,
+                    model_provider
                 );
             }
             let attempt = generate_meeting_summary(
@@ -249,13 +269,25 @@ impl SummaryService {
             .await;
 
             match &attempt {
-                Ok(_) => { result = attempt; break; }
-                Err(e) if e.contains("cancelled") => { result = attempt; break; }
+                Ok(_) => {
+                    result = attempt;
+                    break;
+                }
+                Err(e) if e.contains("cancelled") => {
+                    result = attempt;
+                    break;
+                }
                 Err(e) if Self::is_provider_rate_limit(e) && idx + 1 < models_to_try.len() => {
-                    warn!("Rate limit on model '{}': {}. Trying next fallback...", current_model, e);
+                    warn!(
+                        "Rate limit on model '{}': {}. Trying next fallback...",
+                        current_model, e
+                    );
                     continue;
                 }
-                Err(_) => { result = attempt; break; }
+                Err(_) => {
+                    result = attempt;
+                    break;
+                }
             }
         }
 
@@ -290,7 +322,8 @@ impl SummaryService {
                             name, meeting_id
                         );
                         if let Err(e) =
-                            MeetingsRepository::update_meeting_title(&pool, &meeting_id, &name).await
+                            MeetingsRepository::update_meeting_title(&pool, &meeting_id, &name)
+                                .await
                         {
                             error!("Failed to update meeting name for {}: {}", meeting_id, e);
                         }
@@ -329,23 +362,26 @@ impl SummaryService {
                 )
                 .await
                 {
-                    error!(
-                        "Failed to save completed process for {}: {}",
-                        meeting_id, e
-                    );
+                    error!("Failed to save completed process for {}: {}", meeting_id, e);
                 } else {
-                    info!(
-                        "Summary saved successfully for meeting_id: {}",
-                        meeting_id
-                    );
+                    info!("Summary saved successfully for meeting_id: {}", meeting_id);
                 }
             }
             Err(e) => {
                 // Check if error is due to cancellation
                 if e.contains("cancelled") {
-                    info!("Summary generation was cancelled for meeting_id: {}", meeting_id);
-                    if let Err(db_err) = SummaryProcessesRepository::update_process_cancelled(&pool, &meeting_id).await {
-                        error!("Failed to update DB status to cancelled for {}: {}", meeting_id, db_err);
+                    info!(
+                        "Summary generation was cancelled for meeting_id: {}",
+                        meeting_id
+                    );
+                    if let Err(db_err) =
+                        SummaryProcessesRepository::update_process_cancelled(&pool, &meeting_id)
+                            .await
+                    {
+                        error!(
+                            "Failed to update DB status to cancelled for {}: {}",
+                            meeting_id, db_err
+                        );
                     }
                 } else {
                     Self::update_process_failed(&pool, &meeting_id, &e).await;

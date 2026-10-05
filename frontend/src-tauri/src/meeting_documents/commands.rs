@@ -114,7 +114,10 @@ pub async fn api_list_meeting_documents<R: Runtime>(
             .await
             .map_err(|e| format!("Lỗi tải danh sách tài liệu: {}", e))?;
 
-    Ok(documents.into_iter().map(MeetingDocumentInfo::from).collect())
+    Ok(documents
+        .into_iter()
+        .map(MeetingDocumentInfo::from)
+        .collect())
 }
 
 /// Deletes an attached document by id.
@@ -129,10 +132,7 @@ pub async fn api_delete_meeting_document<R: Runtime>(
 
     match MeetingDocumentsRepository::delete(app_state.db_manager.pool(), &document_id).await {
         Ok(true) => Ok(()),
-        Ok(false) => Err(format!(
-            "Không tìm thấy tài liệu để xóa: {}",
-            document_id
-        )),
+        Ok(false) => Err(format!("Không tìm thấy tài liệu để xóa: {}", document_id)),
         Err(e) => Err(format!("Lỗi xóa tài liệu: {}", e)),
     }
 }

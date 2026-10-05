@@ -3,15 +3,15 @@
 // TranscriptionEngine and initialization logic for Vietnamese ASR.
 
 use super::asr_provider::AsrProvider;
-use super::gemini_key::{needs_local_asr, resolve_stt_api_key};
 use super::provider::TranscriptionProvider;
 use crate::asr_engine::config::AsrPath;
-use crate::database::repositories::setting::SettingsRepository;
 use log::{info, warn};
 use std::sync::Arc;
 use tauri::{AppHandle, Manager, Runtime};
 
-async fn live_asr_config<R: Runtime>(app: &AppHandle<R>) -> Option<crate::asr_engine::config::PathAsrConfig> {
+async fn live_asr_config<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Option<crate::asr_engine::config::PathAsrConfig> {
     let Some(app_state) = app.try_state::<crate::state::AppState>() else {
         return None;
     };
@@ -60,15 +60,8 @@ impl TranscriptionEngine {
 pub async fn validate_transcription_model_ready<R: Runtime>(
     app: &AppHandle<R>,
 ) -> Result<(), String> {
-    let Some(app_state) = app.try_state::<crate::state::AppState>() else {
+    if app.try_state::<crate::state::AppState>().is_none() {
         return Err("App state not available".to_string());
-    };
-    let pool = app_state.db_manager.pool();
-    let provider = SettingsRepository::get_stt_provider(pool, AsrPath::Live).await;
-    if !needs_local_asr(provider) {
-        info!("Gemini live STT: checking API key (skip local ASR init)");
-        resolve_stt_api_key(pool).await?;
-        return Ok(());
     }
 
     info!("🔍 Validating Vietnamese ASR model (live path)...");

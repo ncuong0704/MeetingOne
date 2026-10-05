@@ -1,27 +1,18 @@
-import { ModelConfig } from "@/components/ModelSettingsModal";
-import { PreferenceSettings } from "@/components/PreferenceSettings";
-import { DeviceSelection } from "@/components/DeviceSelection";
-import { LanguageSelection } from "@/components/LanguageSelection";
 import { TranscriptSettings } from "@/components/TranscriptSettings";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { toast } from "sonner";
 import { useConfig } from "@/contexts/ConfigContext";
-import { useRecordingState } from "@/contexts/RecordingStateContext";
 
-type modalType = "modelSettings" | "deviceSettings" | "languageSettings" | "modelSelector" | "errorAlert" | "chunkDropWarning";
+type modalType = "modelSelector" | "errorAlert" | "chunkDropWarning";
 
 /**
  * SettingsModals Component
  *
  * All settings modals consolidated into a single component.
- * Uses ConfigContext and RecordingStateContext internally - no prop drilling needed!
+ * Uses ConfigContext internally - no prop drilling needed!
  */
 
 interface SettingsModalsProps {
   modals: {
-    modelSettings: boolean;
-    deviceSettings: boolean;
-    languageSettings: boolean;
     modelSelector: boolean;
     errorAlert: boolean;
     chunkDropWarning: boolean;
@@ -41,179 +32,13 @@ export function SettingsModals({
 }: SettingsModalsProps) {
   // Contexts
   const {
-    modelConfig,
-    setModelConfig,
-    modelOptions,
-    selectedDevices,
-    setSelectedDevices,
-    audioCaptureSource,
-    selectedLanguage,
-    setSelectedLanguage,
     transcriptModelConfig,
     setTranscriptModelConfig,
     showConfidenceIndicator,
     toggleConfidenceIndicator,
   } = useConfig();
 
-  const { isRecording } = useRecordingState();
-
   return <>
-    {/* Legacy Settings Modal */}
-    {modals.modelSettings && (
-      <div className="fixed inset-0 app-modal-overlay flex items-center justify-center z-[var(--z-modal)] p-4">
-        <div className="app-surface max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
-          {/* Header */}
-          <div className="flex justify-between items-center p-6 border-b">
-            <h3 className="text-xl font-semibold text-ink">Tùy chọn</h3>
-            <button
-              onClick={() => onClose("modelSettings")
-              }
-              className="text-ink-2 hover:text-ink"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-
-          {/* Content - Scrollable */}
-          <div className="flex-1 overflow-y-auto p-6 space-y-8">
-            {/* General Preferences Section */}
-            <PreferenceSettings />
-
-            {/* Divider */}
-            <div className="border-t pt-8">
-              <h4 className="text-lg font-semibold text-ink mb-4">Cấu hình mô hình AI</h4>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-ink mb-1">
-                    Mô hình tóm tắt
-                  </label>
-                  <div className="flex space-x-2">
-                    <select
-                      className="px-3 py-2 text-sm bg-paper-2 border border-input rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      value={modelConfig.provider}
-                      onChange={(e) => {
-                        const provider = e.target.value as ModelConfig['provider'];
-                        setModelConfig({
-                          ...modelConfig,
-                          provider,
-                          model: modelOptions[provider][0]
-                        });
-                      }}
-                    >
-                      <option value="claude">Claude</option>
-                      <option value="openai">OpenAI</option>
-                      <option value="openrouter">OpenRouter</option>
-                    </select>
-
-                    <select
-                      className="flex-1 px-3 py-2 text-sm bg-paper-2 border border-input rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      value={modelConfig.model}
-                      onChange={(e) => setModelConfig((prev: ModelConfig) => ({ ...prev, model: e.target.value }))}
-                    >
-                      {modelOptions[modelConfig.provider].map((model: string) => (
-                        <option key={model} value={model}>
-                          {model}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Footer */}
-          <div className="border-t p-6 flex justify-end">
-            <button
-              onClick={() => onClose('modelSettings')}
-              className="px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-md hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-ring"
-            >
-              Xong
-            </button>
-          </div>
-        </div>
-      </div>
-    )}
-
-    {/* Device Settings Modal */}
-    {modals.deviceSettings && (
-      <div className="fixed inset-0 app-modal-overlay flex items-center justify-center z-[var(--z-modal)]">
-        <div className="app-surface p-6 max-w-md w-full mx-4">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-semibold text-ink">Thiết bị âm thanh</h3>
-            <button
-              onClick={() => onClose('deviceSettings')}
-              className="text-ink-2 hover:text-ink"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-
-          <DeviceSelection
-            selectedDevices={selectedDevices}
-            onDeviceChange={setSelectedDevices}
-            disabled={isRecording}
-            audioSource={audioCaptureSource}
-          />
-
-          <div className="mt-6 flex justify-end">
-            <button
-              onClick={() => {
-                const micDevice = selectedDevices.micDevice || 'Default';
-                const systemDevice = selectedDevices.systemDevice || 'Default';
-                toast.success("Đã chọn thiết bị", {
-                  description: `Microphone: ${micDevice}, Âm thanh hệ thống: ${systemDevice}`
-                });
-                onClose('deviceSettings');
-              }}
-              className="px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-md hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-ring"
-            >
-              Done
-            </button>
-          </div>
-        </div>
-      </div>
-    )}
-
-    {/* Language Settings Modal */}
-    {modals.languageSettings && (
-      <div className="fixed inset-0 app-modal-overlay flex items-center justify-center z-[var(--z-modal)]">
-        <div className="app-surface p-6 max-w-md w-full mx-4">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-semibold text-ink">Cài đặt ngôn ngữ</h3>
-            <button
-              onClick={() => onClose('languageSettings')}
-              className="text-ink-2 hover:text-ink"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-
-          <LanguageSelection
-            selectedLanguage={selectedLanguage}
-            onLanguageChange={setSelectedLanguage}
-            disabled={isRecording}
-            provider={transcriptModelConfig.provider}
-          />
-
-          <div className="mt-6 flex justify-end">
-            <button
-              onClick={() => onClose('languageSettings')}
-              className="px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-md hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-ring"
-            >
-              Done
-            </button>
-          </div>
-        </div>
-      </div>
-    )}
-
     {/* Model Selection Modal */}
     {modals.modelSelector && (
       <div className="fixed inset-0 app-modal-overlay flex items-center justify-center z-[var(--z-modal)]">

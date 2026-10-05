@@ -14,15 +14,17 @@ pub fn reset_streaming_speech_flag() {
 
 pub fn start_streaming_task<R: Runtime>(
     app: AppHandle<R>,
-    mut transcription_receiver: tokio::sync::mpsc::UnboundedReceiver<AudioChunk>,
-) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
+    mut transcription_receiver: tokio::sync::mpsc::Receiver<AudioChunk>,
+    writer: crate::audio::recording_saver::TranscriptWriter,
+) -> tokio::task::JoinHandle<Result<(), String>> {
+    let runtime = tokio::runtime::Handle::current();
+    tokio::task::spawn_blocking(move || {
         info!("Starting live streaming ASR task (OnlineRecognizer, no VAD)");
         reset_speech_detected_flag();
         reset_streaming_speech_flag();
 
         let engine = get_or_init_streaming_engine();
-        if !engine.is_loaded().await {
+        if !runtime.block_on(engine.is_loaded()) {
             error!("Streaming ASR model is not loaded");
             let _ = app.emit(
                 "transcription-error",
@@ -32,20 +34,18 @@ pub fn start_streaming_task<R: Runtime>(
                     "actionable": true
                 }),
             );
-            return;
+            return Err("Streaming ASR model is unavailable".into());
         }
 
-        let hotwords = engine.hotwords().await;
-        let mut session = StreamingSession::new(
-            16000,
-            crate::config::ZIPFORMER_STREAMING_MAX_UTTERANCE_SECS,
-        );
+        let hotwords = runtime.block_on(engine.hotwords());
+        let mut session =
+            StreamingSession::new(16000, crate::config::ZIPFORMER_STREAMING_MAX_UTTERANCE_SECS);
 
         {
-            let rec_guard = engine.recognizer().read().await;
+            let rec_guard = engine.recognizer().blocking_read();
             let Some(recognizer) = rec_guard.as_ref() else {
                 error!("Streaming recognizer disappeared before stream create");
-                return;
+                return Err("Streaming recognizer unavailable before decoding".into());
             };
 
             let stream = if hotwords.is_empty() {
@@ -56,7 +56,7 @@ pub fn start_streaming_task<R: Runtime>(
 
             drop(rec_guard);
 
-            while let Some(chunk) = transcription_receiver.recv().await {
+            while let Some(chunk) = transcription_receiver.blocking_recv() {
                 if chunk.chunk_id >= u64::MAX - 10 {
                     continue;
                 }
@@ -66,10 +66,10 @@ pub fn start_streaming_task<R: Runtime>(
 
                 session.note_samples(chunk.data.len());
 
-                let rec_guard = engine.recognizer().read().await;
+                let rec_guard = engine.recognizer().blocking_read();
                 let Some(recognizer) = rec_guard.as_ref() else {
                     warn!("Streaming recognizer unloaded mid-recording");
-                    break;
+                    return Err("Streaming recognizer unloaded mid-recording".into());
                 };
 
                 stream.accept_waveform(16000, &chunk.data);
@@ -90,7 +90,7 @@ pub fn start_streaming_task<R: Runtime>(
                 }
                 drop(rec_guard);
 
-                emit_updates(&app, emits);
+                emit_updates(&app, &writer, emits);
                 if did_reset {
                     if let Some(name) = super::live_speaker::apply_pending() {
                         super::live_speaker::emit_speaker_committed(&app, &name);
@@ -98,7 +98,7 @@ pub fn start_streaming_task<R: Runtime>(
                 }
             }
 
-            let rec_guard = engine.recognizer().read().await;
+            let rec_guard = engine.recognizer().blocking_read();
             if let Some(recognizer) = rec_guard.as_ref() {
                 stream.input_finished();
                 while recognizer.is_ready(&stream) {
@@ -114,7 +114,7 @@ pub fn start_streaming_task<R: Runtime>(
                     recognizer.reset(&stream);
                 }
                 drop(rec_guard);
-                emit_updates(&app, emits);
+                emit_updates(&app, &writer, emits);
                 if did_reset {
                     if let Some(name) = super::live_speaker::apply_pending() {
                         super::live_speaker::emit_speaker_committed(&app, &name);
@@ -124,11 +124,13 @@ pub fn start_streaming_task<R: Runtime>(
         }
 
         info!("Live streaming ASR task finished");
+        Ok(())
     })
 }
 
 fn emit_updates<R: Runtime>(
     app: &AppHandle<R>,
+    writer: &crate::audio::recording_saver::TranscriptWriter,
     emits: Vec<crate::asr_engine::streaming_state::DecodeEmit>,
 ) {
     for emit in emits {
@@ -164,6 +166,13 @@ fn emit_updates<R: Runtime>(
             speaker_color,
         };
 
+        if let Err(e) = writer.record_update(&update) {
+            error!("Failed to persist streaming transcript: {}", e);
+            let _ = app.emit(
+                "recording-error",
+                "Không lưu được bản ghi. Dữ liệu còn trong bộ nhớ; hãy dừng và thử lưu lại.",
+            );
+        }
         if let Err(e) = app.emit("transcript-update", &update) {
             error!("Failed to emit streaming transcript update: {}", e);
         }

@@ -5,7 +5,6 @@ import { appDataDir } from '@tauri-apps/api/path';
 import { useCallback, useEffect, useState, useRef } from 'react';
 import { Play, Pause, Square, Mic, AlertCircle, X } from 'lucide-react';
 import { MicQualityDialog } from '@/components/MicQualityDialog';
-import { ProcessRequest, SummaryResponse } from '@/types/summary';
 import { listen } from '@tauri-apps/api/event';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -17,6 +16,7 @@ import {
   AudioCaptureSource,
   wantsMicrophone,
 } from '@/lib/audioCaptureSource';
+import { subscribeSafely } from '@/lib/asyncSubscription';
 import { shouldStopRecordingOnTranscriptionError } from '@/lib/sttError';
 
 function AudioSourcePicker({
@@ -65,7 +65,6 @@ interface RecordingControlsProps {
   barHeights: string[];
   onRecordingStop: (callApi?: boolean) => void;
   onRecordingStart: () => void;
-  onTranscriptReceived: (summary: SummaryResponse) => void;
   onTranscriptionError?: (message: string) => void;
   onStopInitiated?: () => void; // Called immediately when stop button is clicked
   isRecordingDisabled: boolean;
@@ -86,7 +85,6 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
   barHeights,
   onRecordingStop,
   onRecordingStart,
-  onTranscriptReceived,
   onTranscriptionError,
   onStopInitiated,
   isRecordingDisabled,
@@ -297,20 +295,20 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
     }
   }, [isRecording, isPaused, isResuming]);
 
-  useEffect(() => {
-    return () => {
-      // Cleanup on unmount if needed
-    };
-  }, []);
 
   useEffect(() => {
     console.log('Setting up recording event listeners');
-    let unsubscribes: (() => void)[] = [];
+    let disposed = false;
+    const unsubscribes: (() => void)[] = [];
+    const subscribe = (register: () => Promise<() => void>) => {
+      unsubscribes.push(subscribeSafely(register, (error) => console.warn('Recording listener unavailable', error)));
+    };
 
     const setupListeners = async () => {
       try {
         // Transcript error listener - handles both regular and actionable errors
-        const transcriptErrorUnsubscribe = await listen('transcript-error', (event) => {
+        subscribe(() => listen('transcript-error', (event) => {
+          if (disposed) return;
           console.log('transcript-error event received:', event);
           console.error('Transcription error received:', event.payload);
           const errorMessage = event.payload as string;
@@ -329,10 +327,11 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
           if (onTranscriptionError) {
             onTranscriptionError(errorMessage);
           }
-        });
+        }));
 
         // Transcription error listener - handles structured error objects with actionable flag
-        const transcriptionErrorUnsubscribe = await listen('transcription-error', (event) => {
+        subscribe(() => listen('transcription-error', (event) => {
+          if (disposed) return;
           console.log('transcription-error event received:', event);
           console.error('Transcription error received:', event.payload);
 
@@ -367,22 +366,18 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
           /* if (onTranscriptionError && !isActionable) {
             onTranscriptionError(errorMessage);
           } */
-        });
+        }));
 
         // Pause/Resume events are now handled by RecordingStateContext
         // No need for duplicate listeners here
 
         // Speech detected listener - for UX feedback when VAD detects speech
-        const speechDetectedUnsubscribe = await listen('speech-detected', (event) => {
+        subscribe(() => listen('speech-detected', (event) => {
+          if (disposed) return;
           console.log('speech-detected event received:', event);
           setSpeechDetected(true);
-        });
+        }));
 
-        unsubscribes = [
-          transcriptErrorUnsubscribe,
-          transcriptionErrorUnsubscribe,
-          speechDetectedUnsubscribe
-        ];
         console.log('Recording event listeners set up successfully');
       } catch (error) {
         console.error('Failed to set up recording event listeners:', error);
@@ -392,7 +387,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
     setupListeners();
 
     return () => {
-      console.log('Cleaning up recording event listeners');
+      disposed = true;
       unsubscribes.forEach(unsubscribe => {
         if (unsubscribe && typeof unsubscribe === 'function') {
           unsubscribe();

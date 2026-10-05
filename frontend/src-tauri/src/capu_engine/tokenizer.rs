@@ -168,7 +168,10 @@ mod tests {
         // offsets computed by "append on word_id change": [0, 1, 2, 3]
         assert_eq!(encoding.input_offsets, vec![0, 1, 2, 3]);
         assert_eq!(encoding.input_offsets.len(), words.len() + 1);
-        assert_eq!(encoding.input_ids[0], 9, "first token must be $START, not [CLS]");
+        assert_eq!(
+            encoding.input_ids[0], 9,
+            "first token must be $START, not [CLS]"
+        );
         assert_eq!(encoding.attention_mask.len(), encoding.input_ids.len());
         assert_eq!(encoding.token_type_ids, vec![0; encoding.input_ids.len()]);
     }
